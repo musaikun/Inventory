@@ -4,7 +4,7 @@ import { useRegisterSW } from 'virtual:pwa-register/vue'
 import { useVoice, parseText } from './composables/useVoice.js'
 import { useInventory, applyRemoteUpdate, applyRemoteRemove, applyRemoteRecountFlag, applyPersistedInventory } from './composables/useInventory.js'
 import { localDateKey } from './utils/localDate.js'
-import { useConfig, applyRemoteConfig, setConfigChangedCallback } from './composables/useConfig.js'
+import { useConfig, applyRemoteConfig, setConfigChangedCallback, setItemAddSession } from './composables/useConfig.js'
 import { useHistory } from './composables/useHistory.js'
 import { useActiveTimer, computeActive } from './composables/useActiveTimer.js'
 import {
@@ -2281,6 +2281,9 @@ async function _resolveUnknownCompletion() {
     _finishing = false
   }
 }
+
+// 棚卸・発注の画面にいる間に手で足した品目へ、そのセッションの印を付ける（破棄で一緒に消す・User決定 2026-10-27）
+watchEffect(() => setItemAddSession(currentView.value === 'session' && !practiceMode.value ? pendingSession.value?.id : null))
 
 // ☰「この棚卸を破棄…」。ここでは消さない。中断してホームへ戻り、ホームの破棄の確認
 // （件数の表示・消す直前にサーバーの状態を確かめる）を開く。破棄の実装を1つに保つため。

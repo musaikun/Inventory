@@ -54,6 +54,7 @@ const config = reactive({
   isCustom:       false,
   savedAt:        null,
   manualItems:    [],  // フォームから手動追加した品目名（CSV品目と区別）
+  itemAdded:      {},  // 手で足した品目 → { at, session? }。棚卸・発注の最中に足したらそのセッションID（破棄で一緒に消す・User決定 2026-10-27）
   axisNames:      ['', ''],  // 汎用2軸の名前（例: '場所', '仕入先'）。空=未使用
   tagsA:          {},        // 品目 → 軸1のグループ名（フラットマップ）
   tagsB:          {},        // 品目 → 軸2のグループ名
@@ -141,6 +142,7 @@ function _serializeConfigData() {
     orderSchedules: config.orderSchedules,
     orderAssumptions: config.orderAssumptions,
     importExcluded: config.importExcluded,
+    itemAdded:     config.itemAdded,
   }
 }
 function _assignConfigData(src) {
@@ -177,7 +179,15 @@ function _assignConfigData(src) {
   config.orderSchedules = normalizeSchedules(src.orderSchedules, src.orderSchedule)
   config.orderAssumptions = normalizeAssumptions(src.orderAssumptions)
   config.importExcluded = src.importExcluded && Array.isArray(src.importExcluded.rows) ? src.importExcluded : null
+  // 古い端末・取込計画など itemAdded を持たない元からは、今の記録を品目が残る分だけ引き継ぐ
+  const added = src.itemAdded && typeof src.itemAdded === 'object' && !Array.isArray(src.itemAdded) ? src.itemAdded : (config.itemAdded ?? {})
+  const inOrder = new Set(config.order)
+  config.itemAdded = Object.fromEntries(Object.entries(added).filter(([n, v]) => inOrder.has(n) && v && typeof v === 'object'))
 }
+
+// 今いる棚卸・発注のセッション（App が画面に合わせて入れる）。この間に足した品目に印を付ける
+let _addingSession = null
+export function setItemAddSession(id) { _addingSession = id || null }
 
 // ── 品目リスト ロード / セーブ ───────────────────────────────────────────────
 function _load() {
@@ -279,7 +289,7 @@ _loadMaster()
 export function resetLocalData() {
   // 取込の退避は前アカウントの品目マスタそのもの。境界では必ず捨てる（漏洩防止）
   _dropImportBackup()
-  _assignConfigData({ order: [...DEFAULT_ORDER], units: { ...DEFAULT_UNITS }, dictionary: { ...DEFAULT_DICT } })
+  _assignConfigData({ order: [...DEFAULT_ORDER], units: { ...DEFAULT_UNITS }, dictionary: { ...DEFAULT_DICT }, itemAdded: {} })
   config.manualItems = []
   config.isCustom    = false
   config.savedAt     = null
@@ -544,6 +554,7 @@ export function useConfig() {
     config.images        = {}
     config.dictionary    = {}
     config.manualItems   = []
+    config.itemAdded     = {}
     // 軸（軸名・グループ定義）は店舗の永続設定。品目を空にしても消さない。
     config.tagsA         = {}
     config.tagsB         = {}
@@ -588,7 +599,7 @@ export function useConfig() {
    * ※「デフォルトに戻す」UIではない。ホストの正データを消す用途には絶対に使わないこと
    */
   function clearConfig() {
-    _assignConfigData({ order: [...DEFAULT_ORDER], units: { ...DEFAULT_UNITS }, dictionary: { ...DEFAULT_DICT } })
+    _assignConfigData({ order: [...DEFAULT_ORDER], units: { ...DEFAULT_UNITS }, dictionary: { ...DEFAULT_DICT }, itemAdded: {} })
     config.manualItems = []
     config.isCustom    = false
     config.savedAt     = null
@@ -700,6 +711,7 @@ export function useConfig() {
     if (unit?.trim())     config.units[n]       = unit.trim()
     if (code?.trim())     config.codes[n]        = code.trim()
     if (!config.manualItems.includes(n)) config.manualItems.push(n)
+    config.itemAdded[n] = { at: new Date().toISOString(), ...(_addingSession ? { session: _addingSession } : {}) }
     _placeItem(n)
     // 同名品目が過去に振り分けられていれば復元（削除→再追加・個人利用の積み上げに対応）
     if (config.tagsA[n] === undefined && Array.isArray(config.tagsArchiveA[n])) config.tagsA[n] = [...config.tagsArchiveA[n]]
@@ -725,6 +737,7 @@ export function useConfig() {
       }
       const mi = config.manualItems.indexOf(oldName)
       if (mi >= 0) config.manualItems[mi] = n
+      if (config.itemAdded[oldName]) { config.itemAdded[n] = config.itemAdded[oldName]; delete config.itemAdded[oldName] }
     }
     if (price != null && !isNaN(price) && price > 0) config.prices[n] = price
     else delete config.prices[n]
@@ -1205,6 +1218,7 @@ export function useConfig() {
     }
     const mi = config.manualItems.indexOf(name)
     if (mi >= 0) config.manualItems.splice(mi, 1)
+    delete config.itemAdded[name]
     for (const k of ['hiddenItems', 'hiddenAuto']) {
       const i = (config[k] ?? []).indexOf(name)
       if (i >= 0) config[k].splice(i, 1)
@@ -1215,6 +1229,42 @@ export function useConfig() {
     _save()
     return true
   }
+  /**
+   * そのセッションの最中に手で足した品目を外す（セッションを破棄したとき・User決定 2026-10-27）。
+   * 破棄は24時間なら元に戻せるので、戻すための中身を返す。「削除した品目」には入れない（次の取込で訊かない）。
+   */
+  function removeItemsAddedIn(sessionId) {
+    if (!sessionId) return []
+    const names = Object.entries(config.itemAdded ?? {}).filter(([n, v]) => v?.session === sessionId && config.order.includes(n)).map(([n]) => n)
+    const out = names.map(n => ({
+      name: n, added: config.itemAdded[n], unit: config.units[n] ?? null, price: config.prices[n] ?? null,
+      category: config.categories[n] ?? null, code: config.codes[n] ?? null, lot: config.lotSizes[n] ?? null,
+      image: config.images[n] ?? null, tagsA: config.tagsA[n] ?? null, tagsB: config.tagsB[n] ?? null,
+    }))
+    for (const n of names) {
+      removeConfigItem(n)
+      config.deletedItems = config.deletedItems.filter(x => x !== n)
+    }
+    if (names.length) _save()
+    return out
+  }
+  /** removeItemsAddedIn で外した品目を戻す（破棄を元に戻したとき） */
+  function restoreAddedItems(list) {
+    let n = 0
+    for (const r of list ?? []) {
+      if (!r?.name || config.order.includes(r.name)) continue
+      if (!addItem(r.name, r.price, r.category, r.unit, r.code)) continue
+      if (r.lot != null) config.lotSizes[r.name] = r.lot
+      if (r.image) config.images[r.name] = r.image
+      if (r.tagsA) config.tagsA[r.name] = r.tagsA
+      if (r.tagsB) config.tagsB[r.name] = r.tagsB
+      if (r.added) config.itemAdded[r.name] = r.added
+      n++
+    }
+    if (n) _save()
+    return n
+  }
+
 
   /**
    * 任意CSVをフィールドマッピング指定でインポート
@@ -1324,6 +1374,7 @@ export function useConfig() {
     itemCount,
     activeItemCount,
     hideItem,
+    removeItemsAddedIn, restoreAddedItems,
     unhideItem,
     hideItems,
     unhideItems,

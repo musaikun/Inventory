@@ -105,7 +105,7 @@ describe('一覧と品目シート', () => {
 
     const row = [...host.querySelectorAll('tr')].find(tr => tr.textContent.includes('Pスライスベーコン') && tr.querySelector('.sp-cell'))
     await click(row.querySelector('td'))
-    await click(btn('直す'))
+    await click(btn('編集する'))
     const unit = host.querySelector('#if-unit')
     expect(unit.value).toBe('p')
     await type(unit, '袋')

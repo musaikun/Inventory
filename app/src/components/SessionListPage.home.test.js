@@ -205,6 +205,30 @@ describe('中断中のセッションと破棄', () => {
     expect(events).toContainEqual(['deleteSession', 's1'])
   })
 
+  it('破棄すると、その棚卸の最中に手で足した品目も消える。元に戻すと戻る（User決定 2026-10-27）', async () => {
+    const { useConfig, setItemAddSession } = await import('../composables/useConfig.js')
+    const { config, addItem } = useConfig()
+    sessionList = [ACTIVE_STOCK]
+    const { pendingDiscardId } = await import('../composables/appMenuState.js')
+    pendingDiscardId.value = 's1'
+    await mountPage()
+    setItemAddSession('s1'); addItem('破棄テストの品目'); setItemAddSession(null)
+    addItem('前からの品目')
+    await click(btn(sheet(), '破棄する'))
+    expect(config.order).toContain('前からの品目')
+    expect(config.order).not.toContain('破棄テストの品目')
+    app.unmount(); host.remove(); app = null
+    sessionList = []
+    discardedList = [{ id: 's1', type: 'stock', itemCount: 3, startedAt: new Date().toISOString(), restorableUntil: new Date(Date.now() + 3600_000).toISOString() }]
+    restoreImpl = async (id) => ({ ok: true, session: { id, type: 'stock', status: 'active', startedAt: new Date().toISOString() }, payload: {} })
+    await mountPage(); for (let i = 0; i < 8; i++) await nextTick()
+    await click(shortcut('棚卸'))
+    discardedList = []
+    await click(btn(sheet(), '↩︎')); for (let i = 0; i < 8; i++) await nextTick()
+    expect(config.order).toContain('破棄テストの品目')
+    restoreImpl = async () => ({ ok: false })
+  })
+
   it('破棄の確認で「やめる」なら何もしない', async () => {
     sessionList = [ACTIVE_ORDER]
     const { pendingDiscardId } = await import('../composables/appMenuState.js')

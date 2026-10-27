@@ -25,6 +25,7 @@ export const STORAGE_KEYS = {
   syncSession:      '_sync_session_v1',
   shopCode:         '_shop_code',
   hostTokenPrefix:  '_host_token_',  // + shopCode をサフィックスに付けて使用
+  discardedItemsPrefix: 'inventory_discarded_items_',  // + セッションID。破棄したセッションで足した品目（元に戻す用・24時間）
   pendingSession:   '_pending_session_v1',
   // 結果が確認できていない完了要求。**再読込をまたいで同じbodyで再送する**ために残す
   // （serverはcanonical snapshot全体でfingerprintを作るので、組み立て直すと確定できない）

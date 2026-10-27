@@ -26,6 +26,7 @@ export const _showOrders    = ref(false)
  * 下から出るシートで訊く（OK/キャンセルの意味が読みにくかった）。
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { isAuthenticated, storeName, logout, isAdmin, currentStaff, ROLE_LABELS, can, denyMessage, canSeeReport, ownerName } from '../composables/useAuth.js'
 import SettingsList from './SettingsList.vue'
 import StaffPage from './StaffPage.vue'
@@ -58,7 +59,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['startSession', 'resumeSession', 'calendarShown', 'viewSession', 'back', 'deleteSession', 'openSettings', 'openMaster', 'openUpgrade', 'startPractice', 'openFeedback', 'clearMaster'])
 
-const { config, itemCount, setEmptyList } = useConfig()
+const { config, itemCount, setEmptyList, removeItemsAddedIn, restoreAddedItems } = useConfig()
 const { getSnapshots, deleteSnapshotLocal } = useHistory()
 
 const tab = _persistedTab
@@ -198,7 +199,10 @@ async function confirmDiscard() {
   const s = sheet.value?.discard
   if (!s) return
   // 中断中の破棄。消す直前にサーバーを読み直し、完了済みなら消さない（launcher.remove）
-  if (await launcher.remove(s, { confirmed: true })) emit('deleteSession', s.id)
+  if (await launcher.remove(s, { confirmed: true })) {
+    _dropItemsOf(s.id)
+    emit('deleteSession', s.id)
+  }
   closeSheet()
 }
 // 破棄して24時間以内のもの（元に戻せる）。残り時間は在庫の帯と同じ間隔で更新される launcher.now で数える
@@ -214,7 +218,34 @@ const discardedOrder = computed(() => discarded.value.filter(d => d.type === 'or
 async function restoreAndResume(d) {
   if (!_allowed('stock.discard')) return
   const s = await launcher.restore(d)
-  if (s) resume(s)
+  if (s) { _bringItemsBack(d.id); resume(s) }
+}
+// 破棄したセッションの最中に手で足した品目は残さない（破棄だから・User決定 2026-10-27）。
+// 24時間は元に戻せるので、外した品目はこの端末に取っておき、戻したときに入れ直す
+const _DROP_KEY = id => `${STORAGE_KEYS.discardedItemsPrefix}${id}`
+function _dropItemsOf(id) {
+  const out = removeItemsAddedIn(id)
+  if (!out.length) return
+  try { localStorage.setItem(_DROP_KEY(id), JSON.stringify({ at: Date.now(), items: out })) } catch (_) {}
+}
+// 元に戻せる期間（24時間）を過ぎた取り置きは捨てる
+onMounted(() => {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i)
+      if (!k?.startsWith(STORAGE_KEYS.discardedItemsPrefix)) continue
+      const at = JSON.parse(localStorage.getItem(k) || '{}').at ?? 0
+      if (Date.now() - at > 26 * 3600_000) localStorage.removeItem(k)
+    }
+  } catch (_) {}
+})
+function _bringItemsBack(id) {
+  try {
+    const raw = localStorage.getItem(_DROP_KEY(id))
+    if (!raw) return
+    localStorage.removeItem(_DROP_KEY(id))
+    restoreAddedItems(JSON.parse(raw).items)
+  } catch (_) {}
 }
 // 品目マスタの一括削除。先に完了していない棚卸・発注をサーバーで消し、消せたときだけ品目を消す
 // （品目だけ消えて、古い数量のまま再開・取り戻しができる状態を作らない）

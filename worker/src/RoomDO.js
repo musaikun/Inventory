@@ -82,6 +82,8 @@ export function normalizeConfig(src = {}) {
       ? src.importExcluded : null,
     dictionary:    src.dictionary    ?? {},
     manualItems:   Array.isArray(src.manualItems) ? src.manualItems : [],
+    // 手で足した品目の記録（いつ・どのセッションで）。無い（古い端末）なら送らない＝受けた端末が手元の記録を残す
+    ...(src.itemAdded && typeof src.itemAdded === 'object' && !Array.isArray(src.itemAdded) ? { itemAdded: src.itemAdded } : {}),
     axisNames:     Array.isArray(src.axisNames) ? src.axisNames : ['', ''],
     tagsA:         src.tagsA         ?? {},
     tagsB:         src.tagsB         ?? {},

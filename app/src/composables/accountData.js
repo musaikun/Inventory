@@ -25,7 +25,7 @@ import { resetLocalData as resetWeather }   from './useWeather.js'
 import { resetAccountData as resetStore }   from './useStore.js'
 import { resetAccountData as resetSync }    from './useSync.js'
 
-const _DRAFT_PREFIXES = ['inv_draft_', 'order_draft_']
+const _DRAFT_PREFIXES = ['inv_draft_', 'order_draft_', STORAGE_KEYS.discardedItemsPrefix]
 
 export function clearLocalAccountData() {
   // 1つのcomposableが壊れても、他のaccount dataの消去は継続する。

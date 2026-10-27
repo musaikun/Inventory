@@ -112,6 +112,15 @@ function openEdit() {
   form.value = { mode: 'edit', item: detailTarget.value }
 }
 function closeForm() { form.value = null }
+// 登録の由来。手で足したものはいつ足したか（棚卸・発注の最中なら添える）、ほかは取り込み
+function originOf(name) {
+  const a = config.itemAdded?.[name]
+  if (a?.at) {
+    const d = new Date(a.at)
+    return `手入力 ${d.getMonth() + 1}/${d.getDate()}${a.session ? '（棚卸・発注中）' : ''}`
+  }
+  return (config.manualItems ?? []).includes(name) ? '手入力' : '取り込み'
+}
 // セッションの外でも隠せるように（以前は棚卸の一覧のスワイプだけ・User決定 2026-10-26）
 function onHide() {
   if (locked.value) return
@@ -231,6 +240,7 @@ onUnmounted(registerInnerLayerCloser(() => {
       :snapshots="_snaps"
       :editable="!locked"
       :stocktake-open="stocktakeOpen"
+      :origin="originOf(detailTarget)"
       @register="p => onRegister(detailTarget, p)"
       @void="onVoid"
       @restore="onRestore"

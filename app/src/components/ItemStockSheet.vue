@@ -34,6 +34,7 @@ const props = defineProps({
   snapshots: { type: Array, default: () => [] },
   editable:  { type: Boolean, default: true },    // 品目の情報を直せる（完了の確定待ちでは false）
   stocktakeOpen: { type: Boolean, default: false }, // 棚卸の最中（入出庫を止める）
+  origin:    { type: String, default: '' },        // 登録の由来（手入力 10/27・取り込み など）
 })
 const emit = defineEmits(['register', 'void', 'restore', 'edit', 'hide', 'close'])
 useEscapeKey(() => emit('close'))
@@ -160,7 +161,7 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
       <div v-if="note" class="is-done" role="status">{{ note }}</div>
 
       <section class="is-sec">
-        <h3>品目の情報 <span v-if="editable" class="is-acts"><button type="button" class="is-edit sub" @click="emit('hide')">非表示にする</button><button type="button" class="is-edit" @click="emit('edit')">直す</button></span></h3>
+        <h3>品目の情報</h3>
         <div class="is-info">
           <div><small>単位</small><b>{{ unit || '—' }}</b></div>
           <div><small>入数</small><b>{{ lot || '—' }}</b></div>
@@ -168,6 +169,7 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
           <div><small>単価</small><b>{{ price != null && price !== '' ? `¥${Number(price).toLocaleString('ja-JP')}` : '—' }}</b></div>
           <div><small>商品コード</small><b>{{ code || '—' }}</b></div>
           <div><small>写真</small><b>{{ imageRef ? 'あり' : 'なし' }}</b></div>
+          <div v-if="origin" class="is-origin"><small>登録</small><b>{{ origin }}</b></div>
         </div>
       </section>
 
@@ -209,6 +211,12 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
           <div v-if="!dayEntries.length" class="is-empty">この日の入庫・出庫・棚卸はありません</div>
         </div>
       </section>
+
+      <!-- 品目の操作は下にまとめて大きく（以前は見出しの横に小さく・User決定 2026-10-27） -->
+      <div v-if="editable" class="is-foot">
+        <button type="button" class="is-fb sub" @click="emit('hide')">非表示にする</button>
+        <button type="button" class="is-fb" @click="emit('edit')">編集する</button>
+      </div>
     </div>
     <MovementQtyModal
       v-if="pad"
@@ -250,9 +258,10 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
 .is-done { background: #f0fdf4; color: #15803d; border-radius: 10px; padding: 8px 10px; font-size: 13px; font-weight: 700; }
 .is-sec { display: grid; gap: 6px; }
 .is-sec h3 { margin: 0; font-size: 13px; color: #4c6a72; display: flex; justify-content: space-between; align-items: center; }
-.is-acts { display: flex; gap: 6px; }
-.is-edit.sub { border-color: #c9d6db; color: #4c6a72; }
-.is-edit { border: 1.5px solid var(--primary, #0e7490); color: var(--primary, #0e7490); background: #fff; border-radius: 8px; padding: 3px 10px; font-weight: 800; font-size: 12px; cursor: pointer; }
+.is-origin { grid-column: 1 / -1; }
+.is-foot { position: sticky; bottom: -40px; z-index: 2; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 -20px -40px; padding: 10px 20px calc(12px + env(safe-area-inset-bottom)); background: #fff; border-top: 1px solid #e3ecef; }
+.is-fb { min-height: 48px; border: none; border-radius: 12px; background: var(--primary, #0e7490); color: #fff; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; }
+.is-fb.sub { background: #eef4f6; color: #3d545d; }
 .is-info { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .is-info div { background: #f6fafb; border-radius: 10px; padding: 7px 8px; min-width: 0; }
 .is-info small { display: block; font-size: 10px; color: #7d969c; }
