@@ -1,0 +1,206 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>振り分けを速く モック</title><style>
+  :root { --primary:#0e7490; --bg:#edf5f7; --text:#12303a; --muted:#4c6a72; --border:#d6e6ea; --ok:#15803d; --warn:#b45309; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:#c9d8dd; color:var(--text); padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; } h2 { font-size:16px; margin:28px 0 10px; }
+  h2 .tag { font-size:11px; color:#fff; background:var(--primary); border-radius:6px; padding:2px 8px; margin-right:6px; vertical-align:2px; } h2 .tag.b { background:#7c3aed; }
+  .lead { font-size:13px; color:var(--muted); margin-bottom:8px; max-width:1200px; line-height:1.7; }
+  .row { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; }
+  .col { display:grid; gap:8px; }
+  .cap { font-size:14px; font-weight:800; } .cap small { display:block; font-weight:400; color:var(--muted); font-size:12px; max-width:300px; line-height:1.55; }
+  .phone { width:300px; height:620px; background:var(--bg); border-radius:28px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; position:relative; }
+  .top { background:#fff; padding:12px 14px; border-bottom:1px solid var(--border); font-weight:900; font-size:14px; display:flex; justify-content:space-between; align-items:center; }
+  .top small { font-weight:700; color:var(--muted); font-size:11.5px; }
+  .pad { padding:10px 12px; display:grid; gap:8px; align-content:start; flex:1; overflow:hidden; }
+  .ex { font-size:11.5px; line-height:1.6; background:#f2fafc; border-radius:10px; padding:8px 10px; }
+  .lbl { font-size:11px; font-weight:800; color:var(--muted); }
+  .map { background:#fff; border-radius:12px; overflow:hidden; }
+  .map div { display:grid; grid-template-columns:1fr 18px 1fr; align-items:center; gap:4px; padding:7px 10px; border-top:1px solid #eef4f6; font-size:12.5px; font-weight:700; }
+  .map div:first-child { border-top:none; }
+  .map small { color:var(--muted); font-weight:600; font-size:10.5px; }
+  .map .to { border:1.5px solid var(--border); border-radius:8px; padding:4px 7px; font-size:12px; display:flex; justify-content:space-between; }
+  .map .to.none { color:#94a3b8; border-style:dashed; }
+  .map .ar { color:var(--muted); text-align:center; }
+  .btn { background:var(--primary); color:#fff; border-radius:12px; padding:11px; text-align:center; font-weight:800; font-size:13.5px; }
+  .btn small { display:block; font-size:11px; font-weight:600; opacity:.9; }
+  .btn.sub { background:#fff; color:var(--primary); border:1.5px solid var(--primary); }
+  .prog { display:flex; gap:4px; } .prog span { flex:1; height:5px; border-radius:3px; background:#d6e6ea; } .prog span.on { background:var(--primary); } .prog span.cur { background:#67b9cb; }
+  .list { background:#fff; border-radius:12px; overflow:hidden; }
+  .li { display:flex; align-items:center; gap:9px; padding:8px 10px; border-top:1px solid #eef4f6; font-size:13px; }
+  .li:first-child { border-top:none; }
+  .ck { width:20px; height:20px; border-radius:6px; background:var(--primary); color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:900; flex:none; }
+  .ck.off { background:#fff; border:2px solid #c9d6db; }
+  .li.off { color:#94a3b8; text-decoration:line-through; }
+  .li small { margin-left:auto; font-size:10.5px; color:var(--muted); }
+  .li .why { font-size:10px; color:var(--muted); background:#f2fafc; border-radius:6px; padding:1px 6px; margin-left:auto; }
+  .gh { font-size:11px; font-weight:800; color:var(--muted); background:#f6fafb; padding:5px 10px; }
+  .card1 { background:#fff; border-radius:16px; padding:16px; text-align:center; display:grid; gap:4px; }
+  .card1 b { font-size:22px; } .card1 small { font-size:11.5px; color:var(--muted); }
+  .places { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+  .places span { background:#fff; border:1.5px solid var(--border); border-radius:12px; padding:13px 6px; text-align:center; font-weight:800; font-size:13.5px; }
+  .places span.hint { border-color:var(--primary); color:var(--primary); box-shadow:inset 0 0 0 1px var(--primary); }
+  .places span.ghost { border-style:dashed; color:var(--muted); font-size:12.5px; }
+  .skip { text-align:center; font-size:12px; font-weight:700; color:var(--muted); }
+  /* ② 棚卸 */
+  .here { display:flex; align-items:center; gap:8px; background:#0e7490; color:#fff; padding:9px 12px; font-size:13px; font-weight:800; }
+  .here i { font-style:normal; font-size:11px; opacity:.85; font-weight:600; }
+  .here .pl { white-space:nowrap; flex:none; margin-left:auto; background:rgba(255,255,255,.18); border-radius:999px; padding:4px 11px; }
+  .here.none { background:#fff; color:var(--muted); border-bottom:1px solid var(--border); }
+  .here.none .pl { background:#f2fafc; color:var(--primary); border:1.5px solid var(--primary); }
+  .row2 { display:grid; grid-template-columns:1fr auto; align-items:center; gap:6px; background:#fff; padding:9px 11px; border-top:1px solid #eef4f6; font-size:13px; font-weight:700; }
+  .row2 .q { font-size:16px; font-weight:900; }
+  .row2 .q.e { color:#bfd6dc; }
+  .row2 em { grid-column:1 / -1; font-style:normal; font-size:10.5px; font-weight:700; margin-top:-3px; }
+  .row2 em.new { color:var(--ok); } .row2 em.diff { color:var(--warn); }
+  .dim { position:absolute; inset:0; background:rgba(6,34,43,.45); }
+  .sheet { position:absolute; left:0; right:0; bottom:0; background:#fff; border-radius:22px 22px 0 0; padding:16px 14px 18px; display:grid; gap:9px; }
+  .sh-h { display:flex; justify-content:space-between; font-size:15px; font-weight:900; } .sh-h i { font-style:normal; color:var(--muted); }
+  .opt { border:1.5px solid var(--border); border-radius:12px; padding:10px 12px; display:flex; justify-content:space-between; font-weight:800; font-size:13.5px; }
+  .opt small { font-weight:600; color:var(--muted); font-size:11px; }
+  .opt.on { border-color:var(--primary); color:var(--primary); box-shadow:inset 0 0 0 1px var(--primary); }
+  .opt.dash { border-style:dashed; color:#0b5f73; justify-content:center; }
+  .opt.plain { border:none; color:var(--muted); font-size:12.5px; justify-content:center; }
+  .rv { background:#fff; border-radius:12px; padding:10px 11px; display:grid; gap:6px; }
+  .rv b { font-size:13px; } .rv small { font-size:11px; color:var(--muted); line-height:1.5; }
+  .rv .acts { display:flex; gap:5px; flex-wrap:wrap; } .rv .acts span { border:1px solid var(--border); border-radius:8px; padding:5px 8px; font-size:11.5px; font-weight:800; color:#0b5f73; } .rv .acts span.p { background:var(--primary); color:#fff; border-color:transparent; }
+  .sum { background:#f0fdf4; color:var(--ok); border-radius:10px; padding:8px 10px; font-size:12px; font-weight:800; }
+  .note { font-size:11px; background:#fff7ed; border:1px dashed #fb923c; color:#9a3412; border-radius:8px; padding:6px 8px; line-height:1.5; }
+</style></head><body>
+<h1>振り分けを速く・正確に：① 下書き → 違うものを外す ／ ② 棚卸の最中に「今いる場所」</h1>
+<p class="lead">
+正確さの根拠は<b>人が場所を決めたこと</b>だけにする。数えた順・ジャンル・名前から推し量った場所は<b>下書き</b>としてだけ使い、人が確かめるまで確定にしない。<br>
+① は品目を取り込んだ直後に、机で最初の1回分を速く作る。② は棚卸のたびに、実物の前で直していく（数えるついで・人数が変わっても崩れない）。
+</p>
+
+<h2><span class="tag">①</span>下書きを作って、違うものを外す（机で）</h2>
+<div class="row">
+  <div class="col">
+    <div class="cap">①-1 ジャンルごとに場所を決める<small>品目を1つずつではなく、ジャンル（取込の列）単位でまとめて場所を決める。右の候補は名前・ジャンルからの推測で最初から入っている（直せる）。決められないジャンルは空欄のまま＝あとで1つずつ</small></div>
+    <div class="phone">
+      <div class="top">保管場所を作る<small>1 / 3</small></div>
+      <div class="pad">
+        <div class="ex">ジャンルごとに、だいたいの場所を選んでください。違う品目は次で外せます。</div>
+        <div class="map">
+          <div><span>野菜<br><small>38品目</small></span><span class="ar">→</span><span class="to">冷蔵庫 <small>▼</small></span></div>
+          <div><span>乳製品<br><small>12品目</small></span><span class="ar">→</span><span class="to">冷蔵庫 <small>▼</small></span></div>
+          <div><span>冷凍食品<br><small>21品目</small></span><span class="ar">→</span><span class="to">冷凍庫 <small>▼</small></span></div>
+          <div><span>乾物・粉<br><small>26品目</small></span><span class="ar">→</span><span class="to">乾物棚 <small>▼</small></span></div>
+          <div><span>調味料<br><small>19品目</small></span><span class="ar">→</span><span class="to none">未定 <small>▼</small></span></div>
+          <div><span>ドリンク<br><small>12品目</small></span><span class="ar">→</span><span class="to">ドリンク <small>▼</small></span></div>
+        </div>
+        <div class="btn">次へ（確かめる）<small>128品目のうち 109品目に場所の候補</small></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">①-2 場所ごとに、違うものを外す<small>候補は全部チェック済み。違うものだけタップで外す（外したものは「未定」へ）。名前で推した品目には理由を小さく出す。場所を1つずつ送る</small></div>
+    <div class="phone">
+      <div class="top">冷蔵庫 50品目<small>2 / 3</small></div>
+      <div class="pad">
+        <div class="prog"><span class="cur"></span><span></span><span></span><span></span><span></span></div>
+        <div class="list">
+          <div class="gh">野菜</div>
+          <div class="li"><span class="ck">✓</span>キャベツ</div>
+          <div class="li"><span class="ck">✓</span>トマト</div>
+          <div class="li off"><span class="ck off"></span>じゃがいも<small>→ 未定</small></div>
+          <div class="li off"><span class="ck off"></span>玉ねぎ<small>→ 未定</small></div>
+          <div class="li"><span class="ck">✓</span>大葉</div>
+          <div class="gh">乳製品</div>
+          <div class="li"><span class="ck">✓</span>牛乳</div>
+          <div class="li"><span class="ck">✓</span>生クリーム</div>
+          <div class="gh">その他</div>
+          <div class="li"><span class="ck">✓</span>冷蔵ポン酢<span class="why">名前に「冷蔵」</span></div>
+        </div>
+        <div class="btn">冷凍庫へ ›<small>冷蔵庫に 48品目（2品目を外した）</small></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">①-3 残り（未定）を1品目ずつ<small>大きな品目名と、場所のボタン。押すと次の品目へ（戻るは左上）。候補があれば枠を光らせるだけで、押すのは人</small></div>
+    <div class="phone">
+      <div class="top">‹ 残り 21品目<small>3 / 3</small></div>
+      <div class="pad">
+        <div class="card1"><small>8 / 21</small><b>じゃがいも</b><small>野菜</small></div>
+        <div class="places">
+          <span>冷蔵庫</span><span>冷凍庫</span><span class="hint">乾物棚</span><span>ドリンク</span><span>常温の棚</span><span class="ghost">＋ 場所を作る</span>
+        </div>
+        <div class="skip">あとで（棚卸の最中に決める）</div>
+        <div class="note">「あとで」にした品目は ② で数えたときに場所が付く</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2><span class="tag b">②</span>棚卸の最中に「今いる場所」を決めて数える（その場で）</h2>
+<div class="row">
+  <div class="col">
+    <div class="cap">②-1 数える画面の上に「今いる場所」<small>押すと場所を選ぶ。選んでいる間に数えた品目は：場所が無ければこの場所に入る予定（緑）、別の場所に入っていれば印（黄）。人ごとに別々に選ぶ（端末ごと）</small></div>
+    <div class="phone">
+      <div class="top">棚卸<small>34 / 128</small></div>
+      <div class="here">📍 今いる場所<span class="pl">冷蔵庫 ▼</span></div>
+      <div class="pad" style="padding:0;gap:0">
+        <div class="row2"><span>キャベツ</span><span class="q">3</span></div>
+        <div class="row2"><span>トマト</span><span class="q">12</span></div>
+        <div class="row2"><span>大葉</span><span class="q">2</span><em class="new">＋ 冷蔵庫に入れます（まだ場所なし）</em></div>
+        <div class="row2"><span>バター</span><span class="q">4</span><em class="diff">⚠ 保管場所は「冷凍庫」 — 終わったあとで確かめます</em></div>
+        <div class="row2"><span>牛乳</span><span class="q e">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">②-2 場所を選ぶ<small>作った場所の一覧＋その場で作る。「場所を決めずに数える」を選ぶと、何も振り分けない（最後の抜けの入力はこちら・ここが今の懸念への答え）</small></div>
+    <div class="phone">
+      <div class="top">棚卸<small>34 / 128</small></div>
+      <div class="here">📍 今いる場所<span class="pl">冷蔵庫 ▼</span></div>
+      <div class="dim"></div>
+      <div class="sheet">
+        <div class="sh-h">今いる場所<i>✕</i></div>
+        <div class="opt on">冷蔵庫<small>48品目</small></div>
+        <div class="opt">冷凍庫<small>21品目</small></div>
+        <div class="opt">乾物棚<small>26品目</small></div>
+        <div class="opt">ドリンク<small>12品目</small></div>
+        <div class="opt dash">＋ 場所を作る</div>
+        <div class="opt plain">場所を決めずに数える（振り分けない）</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">②-3 棚卸を終えたら、場所の見直し<small>新しく入った分はそのまま確定。別の場所で数えた品目だけ、1つずつ選ぶ（両方に置く＝2か所にある品目）。並び順も、その場所で数えた順に寄せる</small></div>
+    <div class="phone">
+      <div class="top">場所の見直し<small>あとで</small></div>
+      <div class="pad">
+        <div class="sum">✓ 23品目に場所が付きました（冷蔵庫 9・乾物棚 14）</div>
+        <div class="lbl">別の場所で数えた 2品目</div>
+        <div class="rv"><b>バター</b><small>保管場所は「冷凍庫」。今回は「冷蔵庫」で数えた（佐藤）</small><div class="acts"><span class="p">冷蔵庫へ移す</span><span>両方に置く</span><span>そのまま</span></div></div>
+        <div class="rv"><b>ケチャップ</b><small>保管場所は「乾物棚」。今回は「冷蔵庫」で数えた（高木）</small><div class="acts"><span>冷蔵庫へ移す</span><span class="p">両方に置く</span><span>そのまま</span></div></div>
+        <div class="btn">決める</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">②-0 場所がまだ無い店<small>「今いる場所」は「決めずに数える」の状態で出る。押せば最初の場所をその場で作れる＝① をやっていなくても、棚卸を重ねるだけで振り分けが育つ</small></div>
+    <div class="phone">
+      <div class="top">棚卸<small>0 / 128</small></div>
+      <div class="here none">📍 場所を決めて数えると、品目が場所ごとに並ぶようになります<span class="pl">選ぶ</span></div>
+      <div class="pad" style="padding:0;gap:0">
+        <div class="row2"><span>キャベツ</span><span class="q e">—</span></div>
+        <div class="row2"><span>トマト</span><span class="q e">—</span></div>
+        <div class="row2"><span>牛乳</span><span class="q e">—</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>決めること</h2>
+<p class="lead">
+1. ①-1 のジャンルが無い品目リスト（ジャンル列なし）は、①-3 の1品目ずつだけになる。それでよいか（名前からの推測は弱いので、下書きを作らない）。<br>
+2. ② の「今いる場所」は人ごと（端末ごと）でよいか。ホストがまとめて「佐藤＝冷蔵庫」と割り当てる形もあり得る。<br>
+3. ②-3 の見直しは、終えた人だけでよいか（スタッフが終えても管理者に回す、など）。<br>
+4. ② で付いた場所の並び順：その場所で<b>数えた順に寄せる</b>か、今の順を保って末尾に足すか。
+</p>
+</body></html>
