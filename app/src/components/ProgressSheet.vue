@@ -1,26 +1,21 @@
 <script setup>
 /**
  * 進行中のやること1件（下のシート・User決定 2026-10-23・モック docs/mocks/journal-inprogress.html ②③）。
- * - 状態（進行中／待ち／済み）・待っているもの・次に見る日・期限・担当
+ * - 状態（進行中／待ち／済み）・待っているもの・期限・担当（「次に見る日」はやめた・User決定 2026-10-28）
  * - 手順（任意・小さなチェック）
  * - 経過: 1行ずつ、時刻と人つき（サーバーが刻む・足していくだけ）。ここを見れば引き継ぎがいらない
- * - 経過を書いたついでに「このまま／待ちにする／済みにする」と「次に見る日」をその場で
+ * - 経過を書いたついでに「このまま／待ちにする／済みにする」をその場で
  * 変えられるのは担当の人・作った人・管理者（canProgress）。経過は見える人なら誰でも書ける
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { updateProgress, finishProgress, canProgress, loadNotes, addNote, newStepId, idleDays } from '../composables/useTasks.js'
-import { localDateKey } from '../utils/localDate.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 
 const props = defineProps({ task: { type: Object, required: true } })
 const emit = defineEmits(['close'])
 const t = computed(() => props.task)
 const can = computed(() => canProgress(t.value))
-const WEEK = ['日', '月', '火', '水', '木', '金', '土']
-const md = k => { if (!k) return ''; const d = new Date(k + 'T00:00:00'); return `${d.getMonth() + 1}/${d.getDate()}（${WEEK[d.getDay()]}）` }
 const at = iso => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}` }
-const plus = n => { const d = new Date(); d.setDate(d.getDate() + n); return localDateKey(d) }
-const PICKS = [['明日', 1], ['3日後', 3], ['1週間後', 7]]
 
 const notes = ref([])
 const loading = ref(true)
@@ -34,7 +29,6 @@ function setState(p) {
 }
 const waitDraft = ref(t.value.waitNote || '')
 function saveWait() { updateProgress(t.value.id, { waitNote: waitDraft.value }) }
-function setNext(k) { updateProgress(t.value.id, { date: k }) }
 function setDeadline(k) { updateProgress(t.value.id, { deadline: k || null }) }
 
 // 手順
@@ -48,11 +42,10 @@ function addStep() {
 }
 function removeStep(s) { updateProgress(t.value.id, { steps: steps.value.filter(x => x.id !== s.id) }) }
 
-// 経過を書く（ついでに状態・次に見る日）
+// 経過を書く（ついでに状態）
 const noteDraft = ref('')
 const after = ref('keep')       // keep | waiting | done
 const afterWait = ref('')
-const nextPick = ref(null)      // 'YYYY-MM-DD' | null
 const busy = ref(false)
 async function send() {
   if (!noteDraft.value.trim() || busy.value) return
@@ -65,10 +58,9 @@ async function send() {
       if (after.value === 'done') { finishProgress(t.value.id); emit('close'); return }
       const f = {}
       if (after.value === 'waiting') { f.progress = 'waiting'; f.waitNote = afterWait.value || t.value.waitNote }
-      if (nextPick.value) f.date = nextPick.value
       if (Object.keys(f).length) updateProgress(t.value.id, f)
     }
-    after.value = 'keep'; afterWait.value = ''; nextPick.value = null
+    after.value = 'keep'; afterWait.value = ''
   } catch (e) { err.value = e?.message || '書き込めませんでした。電波の届くところでもう一度' } finally { busy.value = false }
 }
 onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
@@ -87,14 +79,6 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
         <input v-if="t.progress === 'waiting'" v-model="waitDraft" type="text" maxlength="60" class="ps-in" :disabled="!can"
           placeholder="待っているもの（例：業者の見積もり）" aria-label="待っているもの" @change="saveWait" />
         <dl class="ps-kv">
-          <dt>次に見る</dt>
-          <dd>
-            <span class="ps-v">{{ md(t.date) }}</span>
-            <template v-if="can">
-              <button v-for="p in PICKS" :key="p[1]" type="button" class="ps-chip" @click="setNext(plus(p[1]))">{{ p[0] }}</button>
-              <input type="date" class="ps-date" :value="t.date" aria-label="次に見る日" @change="e => e.target.value && setNext(e.target.value)" />
-            </template>
-          </dd>
           <dt>期限</dt>
           <dd><input type="date" class="ps-date" :value="t.deadline || ''" :disabled="!can" aria-label="期限" @change="e => setDeadline(e.target.value)" /><span v-if="!t.deadline" class="ps-muted">なし</span></dd>
           <dt>担当</dt><dd>{{ t.assign === 'person' ? t.assigneeName : t.assign === 'all' ? '全員' : '誰でも' }}</dd>
@@ -125,10 +109,6 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
               <button type="button" :class="['ps-chip', 'okc', { on: after === 'done' }]" @click="after = 'done'">済みにする</button>
             </div>
             <input v-if="after === 'waiting'" v-model="afterWait" type="text" maxlength="60" class="ps-in" placeholder="待っているもの" aria-label="待っているもの（経過）" />
-            <div v-if="after !== 'done'" class="ps-chips">
-              <span class="ps-cap">次に見る</span>
-              <button v-for="p in PICKS" :key="p[1]" type="button" :class="['ps-chip', { on: nextPick === plus(p[1]) }]" @click="nextPick = plus(p[1])">{{ p[0] }}</button>
-            </div>
           </template>
           <button type="button" class="ps-send" :disabled="!noteDraft.trim() || busy" @click="send">送る</button>
         </div>

@@ -1,12 +1,11 @@
 <script setup>
 /**
  * 進行中のやること1件のカード（User決定 2026-10-23・モック docs/mocks/journal-today-modern.html）。
- * 左の色の帯で状態（黄＝進行中・紫＝待ち・赤＝止まり＝5日動きなし）。手順のリング（横長はバー）・最後の経過・担当・次に見る日
+ * 左の色の帯で状態（黄＝進行中・紫＝待ち・赤＝止まり＝5日動きなし）。手順のリング（横長はバー）・最後の経過・担当
  * wide: 「進行中」タブの縦に積むカード（手順はバー）。ふだんは「今日」の横に流れるカード
  */
 import { computed } from 'vue'
 import { isStale, idleDays } from '../composables/useTasks.js'
-import { localDateKey } from '../utils/localDate.js'
 
 const props = defineProps({
   task: { type: Object, required: true },
@@ -25,11 +24,6 @@ const pill = computed(() => {
   if (t.value.progress === 'waiting') return `待ち${t.value.waitNote ? `・${t.value.waitNote}` : ''}`
   return `進行中${t.value.deadline ? `・期限 ${md(t.value.deadline)}` : ''}`
 })
-const next = computed(() => {
-  const today = localDateKey()
-  if (!t.value.date) return ''
-  return t.value.date === today ? '今日' : t.value.date < today ? '過ぎた' : md(t.value.date)
-})
 const who = computed(() => (t.value.assign === 'person' ? t.value.assigneeName || '' : ''))
 const ago = iso => { const n = Math.floor((Date.now() - Date.parse(iso)) / 86400_000); return n <= 0 ? '今日' : `${n}日前` }
 </script>
@@ -45,7 +39,7 @@ const ago = iso => { const n = Math.floor((Date.now() - Date.parse(iso)) / 86400
     <span v-if="t.lastNote" class="pc-last">{{ t.lastNote.body }}</span>
     <span class="pc-f">
       <i v-if="who" class="pc-av">{{ who.slice(0, 1) }}</i>
-      <template v-if="t.lastNote">{{ ago(t.lastNote.at) }} ・ </template>次に見る：{{ next }}
+      <template v-if="t.lastNote">{{ ago(t.lastNote.at) }}</template>
     </span>
   </button>
 </template>

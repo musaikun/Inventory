@@ -145,7 +145,7 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     expect(vis).toEqual({ x: null, 面談の準備: 'admins', 冷蔵庫の掃除: null })
   })
 
-  it('進行中: 「⏳ 何日かかかる」で作る。次に見る日まで今日には出ず、期限切れにもならない。来たら終日に（押すと経過のシート）', async () => {
+  it('進行中: 「⏳ 何日かかかる」で作る。次に見る日は選ばず、済むまで毎日終日に出る。期限切れにもならない（押すと経過のシート）', async () => {
     const { localDateKey } = await import('../utils/localDate.js')
     const T = await import('../composables/useTasks.js')
     T.addTask(localDateKey(new Date(Date.now() - 2 * 86400_000)), '看板の張り替え', null, null, { progress: 'doing' })
@@ -164,11 +164,11 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     const t = form.querySelector('input[aria-label="やること"]')
     t.value = '製氷機の修理'; t.dispatchEvent(new Event('input')); await tick()
     await click(btn('何日かかかる', form))
-    await click(btn('3日後', form))
+    expect(form.textContent).not.toContain('次に見る')   // 次に見る日は選ばない（User決定 2026-10-28）
     await click(btn('みんなに見せて追加', form))
     const { saveTaskToD1 } = await import('../composables/useStore.js')
-    expect(saveTaskToD1).toHaveBeenLastCalledWith(expect.objectContaining({ text: '製氷機の修理', progress: 'doing', date: localDateKey(new Date(Date.now() + 3 * 86400_000)) }))
-    expect(host.querySelector('.dt').textContent).not.toContain('製氷機の修理')
+    expect(saveTaskToD1).toHaveBeenLastCalledWith(expect.objectContaining({ text: '製氷機の修理', progress: 'doing', date: localDateKey() }))
+    expect(host.querySelector('.dt').textContent).toContain('製氷機の修理')
   })
 
   it('期限つきのやること: 期限までは今日の終日に「期限 m/d」。過ぎたら期限切れ', async () => {

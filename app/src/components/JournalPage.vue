@@ -163,12 +163,11 @@ onUnmounted(registerInnerLayerCloser(() => {
 const canCreate = computed(() => can('task.create'))
 const adding = ref(false)
 const fText = ref(''), fDate = ref(today), fTime = ref(''), fWho = ref('anyone'), fSomeday = ref(false), fNote = ref(''), fNoteOpen = ref(false)
-// ⏳ 何日かかかる（進行中・User決定 2026-10-23）: 日付の代わりに「次に見る日」と、任意の期限
-const fProg = ref(false), fNext = ref(''), fDeadline = ref('')
-const _plus = n => { const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() + n); return localDateKey(d) }
-const NEXT_PICKS = [['明日', 1], ['3日後', 3], ['1週間後', 7]]
+// ⏳ 何日かかかる（進行中・User決定 2026-10-23）: 日付は決めず、任意の期限だけ。済むまで毎日出て、止まったらアプリが知らせる
+// （「次に見る日」はやめた・User決定 2026-10-28）
+const fProg = ref(false), fDeadline = ref('')
 function openAdd(progress = false) {
-  fProg.value = progress === true; fNext.value = _plus(1); fDeadline.value = ''
+  fProg.value = progress === true; fDeadline.value = ''
   fNote.value = ''; fNoteOpen.value = false
   fText.value = ''; fDate.value = !date.value || date.value < today ? today : date.value; fTime.value = ''; fWho.value = 'anyone'; fSomeday.value = false
   fRepeatOpen.value = false; fRepeat.value = 'none'; fWeekdays.value = []; fMonthDays.value = ['1']; fErr.value = ''; adding.value = true
@@ -202,13 +201,13 @@ async function submitRoutine() {
     adding.value = false
   } catch (e) { fErr.value = e?.message || '保存できませんでした' } finally { fBusy.value = false }
 }
-const canSubmit = computed(() => !!fText.value.trim() && (fProg.value ? !!fNext.value : (fSomeday.value || !!fDate.value)))
+const canSubmit = computed(() => !!fText.value.trim() && (fProg.value || fSomeday.value || !!fDate.value))
 function submitAdd(adminsOnly = false) {
   const v = fWho.value
   const assign = v.startsWith('p:') ? { mode: 'person', id: v.slice(2), name: people.value.find(p => p.id === v.slice(2))?.name || '' } : { mode: v }
   const visibility = adminsOnly ? 'admins' : null
   const ok = fProg.value
-    ? addTask(fNext.value, fText.value, assign, null, { visibility, progress: 'doing', deadline: fDeadline.value || null, note: fNote.value })
+    ? addTask(today, fText.value, assign, null, { visibility, progress: 'doing', deadline: fDeadline.value || null, note: fNote.value })
     : addTask(fSomeday.value ? '' : fDate.value, fText.value, assign, fSomeday.value ? null : (fTime.value || null), { visibility, note: fNote.value })
   if (ok) adding.value = false
 }
@@ -259,13 +258,8 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
             <button type="button" :class="{ on: fProg }" :aria-pressed="fProg" @click="fProg = true">⏳ 何日かかかる（進行中）</button>
           </div>
           <div v-if="fProg" class="jp-prog">
-            <span class="jp-prog-l">次に見る日</span>
-            <div class="jp-seg">
-              <button v-for="n in NEXT_PICKS" :key="n[1]" type="button" :class="{ on: fNext === _plus(n[1]) }" :aria-pressed="fNext === _plus(n[1])" @click="fNext = _plus(n[1])">{{ n[0] }}</button>
-              <input v-model="fNext" type="date" class="jp-in jp-sm" aria-label="次に見る日" />
-            </div>
             <label>期限（任意）<input v-model="fDeadline" type="date" class="jp-in" /></label>
-            <p class="jp-rep-note">⏳ 済むまで「進行中」に残ります。次に見る日に「今日」へ出てきます（期限切れにはなりません）</p>
+            <p class="jp-rep-note">⏳ 済むまで毎日「進行中」に出ます。止まったらアプリが知らせます（期限切れにはなりません）</p>
           </div>
           <div v-if="!fProg && (!fSomeday || repeating)" class="jp-row">
             <label v-if="!repeating">日付<input v-model="fDate" type="date" class="jp-in" /></label>

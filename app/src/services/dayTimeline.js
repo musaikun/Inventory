@@ -19,7 +19,7 @@ const _md = k => { const [, m, d] = String(k).split('-').map(Number); return m ?
  * @param {object[]} p.tasks その日のやること（進行中は除く）
  * @param {object[]} [p.late] 今日だけ: 前の日から残っているやること
  * @param {object[]} [p.carry] 今日だけ: 期限がまだ先の、前の日からのやること
- * @param {object[]} [p.progress] 今日だけ: 次に見る日が来た進行中
+ * @param {object[]} [p.progress] 今日だけ: 済んでいない進行中
  * @param {object[]} p.lists その日のルーティン（dayChecklist）
  * @param {object[]} p.records 棚卸・発注・入出庫（journalRecords）
  * @param {{ kind: 'stock'|'order', session: object, count: number }[]} [p.live] 今日だけ: 途中の棚卸・発注

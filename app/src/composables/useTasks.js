@@ -12,7 +12,7 @@
 // - 消すときも行は残し deletedAt を立てる（他の端末へ「消した」を届けるため）
 // - 「誰が」はスタッフなら本人の名前、オーナーなら端末名（段 2-2）。自分のものかは ID（createdById＝スタッフ ID か端末 ID）で見る
 // - 新着: 他の端末が追加した、まだ確認していないもの。確認した時刻は端末ごとに覚える
-// - 進行中（2026-10-23・migration 0031）: progress = 'doing' | 'waiting'。日付は「次に見る日」（期限切れにしない）。
+// - 進行中（2026-10-23・migration 0031）: progress = 'doing' | 'waiting'。日付は作った日（済むまで毎日出す・期限切れにしない。「次に見る日」は 2026-10-28 にやめた）。
 //   waitNote（何を待つか）・deadline（本当の期限）・steps（小さな手順）・lastNote（最後の経過）。経過は別の表で足していくだけ
 import { reactive, ref, computed } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
@@ -68,7 +68,7 @@ export function tasksOn(date) {
 }
 
 /**
- * 期限切れ: today より前の日付で、まだ終わっていないもの（古い日から）。進行中は「次に見る日」なので入れない。
+ * 期限切れ: today より前の日付で、まだ終わっていないもの（古い日から）。進行中は済むまで毎日出すので入れない。
  * 期限つき（deadline・連絡のタスク化 2026-10-26）は期限を過ぎてから
  */
 export function overdueTasks(today = localDateKey()) {
@@ -329,8 +329,8 @@ export const PROGRESS = ['doing', 'waiting']
 export const STALE_DAYS = 5
 /** 進行中・待ちのもの（まだ済んでいない） */
 export const progressTasks = computed(() => _data.list.filter(t => _alive(t) && !t.doneAt && t.progress))
-/** 今日見るもの: 次に見る日が今日か、もう過ぎた */
-export function dueProgress(today = localDateKey()) { return progressTasks.value.filter(t => t.date && t.date <= today) }
+/** 今日見るもの: 済むまで毎日（「次に見る日」はやめた。止まったらアプリが知らせる・User決定 2026-10-28） */
+export function dueProgress() { return progressTasks.value }
 /** 最後に動いた日からの日数（経過・状態の変更・作った日のうち新しいもの） */
 export function idleDays(t, now = Date.now()) {
   const last = [t?.lastNote?.at, t?.updatedAt, t?.createdAt].filter(Boolean).sort().pop()
@@ -340,7 +340,7 @@ export const isStale = t => !!t?.progress && !t.doneAt && idleDays(t) >= STALE_D
 /** 進み具合を変えられるか（担当の人・作った人・管理者。サーバーも同じ規則） */
 export function canProgress(t) { return !!t && !t.doneAt && !t.deletedAt && (R.canEdit(t, _me()) || R.canComplete(t, _me())) }
 /**
- * 状態・待っているもの・次に見る日・期限・手順を変える
+ * 状態・待っているもの・期限・手順を変える
  * @param {{ progress?: 'doing'|'waiting', waitNote?: string|null, date?: string, deadline?: string|null, steps?: object[] }} f
  */
 export function updateProgress(id, f = {}) {
