@@ -118,9 +118,10 @@ function save() {
     <label v-if="isAdmin" class="tr-some"><input v-model="fAdmins" type="checkbox" /> 🔒 管理者だけに見せる</label>
     <label v-if="hasStaff" class="tr-lb">担当
       <select v-model="fWho" class="tr-in">
-        <option value="anyone">誰でも</option>
+        <!-- 「誰でも」「未定」は選べない（User決定 2026-10-28）。以前に付けたものは、直すまでそのまま見せる -->
+        <option v-if="t.assign === 'anyone' || !t.assign" value="anyone">誰でも（以前の設定）</option>
+        <option v-if="t.assign === 'none'" value="none">未定（以前の設定）</option>
         <option value="all">全員</option>
-        <option value="none">未定</option>
         <option v-for="p in people" :key="p.id" :value="`p:${p.id}`">{{ personLabel(p) }}</option>
         <option v-if="t.assign === 'person' && !people.some(p => p.id === t.assigneeId)" :value="`p:${t.assigneeId}`">{{ t.assigneeName }}</option>
       </select>

@@ -1,4 +1,4 @@
-// ホームのショートカット（最大9枚・説明文なし・数える順とデータ。User決定 2026-10-26）
+// ホームのショートカット（最大9枚・説明文なし・品目リスト整理とデータ。User決定 2026-10-26・名前は 2026-10-28）
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createApp, h, nextTick } from 'vue'
 
@@ -39,10 +39,10 @@ describe('ホームのショートカット', () => {
     expect(document.body.querySelector('.ht-sh')).toBeNull()
   })
 
-  it('数える順: 振り分けの途中は「あと N」で光る。押すと分け方の一覧から振り分けの画面へ', async () => {
+  it('品目リスト整理: 振り分けの途中は「あと N」で光る。押すと分け方の一覧から振り分けの画面へ', async () => {
     await seedItems(1)
     await mountTop()
-    const c = card('数える順')
+    const c = card('品目リスト整理')
     expect(c.querySelector('.ht-bd').textContent).toBe('あと3')
     expect(c.classList.contains('hot')).toBe(false)   // 光らせない（棚卸の中断中と紛れる・User決定 2026-10-27）
     await click(c)
@@ -53,11 +53,30 @@ describe('ホームのショートカット', () => {
     expect(axisAssignInitial.value).toBe(0)
   })
 
-  it('数える順: 振り分け済みなら印なし', async () => {
+  it('品目リスト整理: 分類がまだ無ければ、並び方の説明と名前の入力 → ＋で分類を足して振り分けへ（User決定 2026-10-28）', async () => {
+    await seedItems(null)
+    await mountTop()
+    await click(card('品目リスト整理'))
+    const sh = document.body.querySelector('.ht-sh')
+    expect(sh.textContent).toContain('数える順に並べます')
+    const add = sheetBtn('＋ 分類を追加')
+    expect(add.disabled).toBe(true)
+    await click(sheetBtn('仕入先'))
+    expect(add.disabled).toBe(false)
+    await click(add)
+    const { useConfig } = await import('../composables/useConfig.js')
+    expect(useConfig().config.axisNames[0]).toBe('仕入先')
+    const { showAxisAssign, axisAssignInitial } = await import('../composables/appMenuState.js')
+    expect(showAxisAssign.value).toBe(true)
+    expect(axisAssignInitial.value).toBe(0)
+    expect(document.body.querySelector('.ht-sh')).toBeNull()
+  })
+
+  it('品目リスト整理: 振り分け済みなら印なし', async () => {
     await seedItems(4)
     await mountTop()
-    expect(card('数える順').querySelector('.ht-bd')).toBeNull()
-    expect(card('数える順').classList.contains('hot')).toBe(false)
+    expect(card('品目リスト整理').querySelector('.ht-bd')).toBeNull()
+    expect(card('品目リスト整理').classList.contains('hot')).toBe(false)
   })
 
   it('始まっている棚卸: だれかがルームにいれば「進行中」で輪が回る。いなければ「中断中」（User決定 2026-10-27）', async () => {

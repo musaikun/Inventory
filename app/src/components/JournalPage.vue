@@ -162,14 +162,21 @@ onUnmounted(registerInnerLayerCloser(() => {
 // ── 追加（＋）──
 const canCreate = computed(() => can('task.create'))
 const adding = ref(false)
-const fText = ref(''), fDate = ref(today), fTime = ref(''), fWho = ref('anyone'), fSomeday = ref(false), fNote = ref(''), fNoteOpen = ref(false)
+const fText = ref(''), fDate = ref(today), fTime = ref(''), fWho = ref('all'), fSomeday = ref(false), fNote = ref(''), fNoteOpen = ref(false)
 // ⏳ 何日かかかる（進行中・User決定 2026-10-23）: 日付は決めず、任意の期限だけ。済むまで毎日出て、止まったらアプリが知らせる
 // （「次に見る日」はやめた・User決定 2026-10-28）
 const fProg = ref(false), fDeadline = ref('')
+// 担当は 全員／人 だけ（「誰でも」「未定」はやめた・User決定 2026-10-28）。既定は自分、選べなければ全員。
+// 担当の欄はスタッフがいるときだけ出る。いなければ従来どおり誰でも（1人の店）
+function _defaultWho() {
+  if (!people.value.some(p => !p.owner)) return 'anyone'
+  const me = people.value.find(p => isMeId(p.id))
+  return me ? `p:${me.id}` : 'all'
+}
 function openAdd(progress = false) {
   fProg.value = progress === true; fDeadline.value = ''
   fNote.value = ''; fNoteOpen.value = false
-  fText.value = ''; fDate.value = !date.value || date.value < today ? today : date.value; fTime.value = ''; fWho.value = 'anyone'; fSomeday.value = false
+  fText.value = ''; fDate.value = !date.value || date.value < today ? today : date.value; fTime.value = ''; fWho.value = _defaultWho(); fSomeday.value = false
   fRepeatOpen.value = false; fRepeat.value = 'none'; fWeekdays.value = []; fMonthDays.value = ['1']; fErr.value = ''; adding.value = true
 }
 // 管理者は追加のたびに「みんなに見せる／管理者だけ」を選ぶ（User決定 2026-10-19）。
@@ -285,9 +292,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
           </div>
           <label v-if="people.some(p => !p.owner)">担当
             <select v-model="fWho" class="jp-in">
-              <option value="anyone">誰でも</option>
               <option value="all">全員</option>
-              <option value="none">未定</option>
               <option v-for="p in people" :key="p.id" :value="`p:${p.id}`">{{ p.name }}{{ isMeId(p.id) ? '（自分）' : '' }}</option>
             </select>
           </label>

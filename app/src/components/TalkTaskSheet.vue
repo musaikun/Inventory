@@ -22,7 +22,7 @@ const sat = _plus(6 - dow)            // 今週中＝土曜まで
 const nextMon = _plus(((8 - dow) % 7) || 7)
 
 const body = ref(props.message.body)
-const who = ref('me')   // anyone | me | <id>
+const who = ref('me')   // me | <id>（「誰でも」は選べない・User決定 2026-10-28）
 const people = computed(() => staffNames.value.filter(p => !isMeId(p.id)))
 const target = computed(() => {
   if (who.value === 'anyone') return null
@@ -56,7 +56,6 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
         <label class="tts-l">タスク<input v-model="body" type="text" :maxlength="HANDOFF_BODY_MAX" class="tts-in" /></label>
         <div class="tts-l">だれが
           <div class="tts-p">
-            <button type="button" :class="{ on: who === 'anyone' }" :aria-pressed="who === 'anyone'" @click="who = 'anyone'">誰でも</button>
             <button type="button" :class="{ on: who === 'me' }" :aria-pressed="who === 'me'" @click="who = 'me'">自分</button>
             <button v-for="p in people" :key="p.id" type="button" :class="{ on: who === p.id }" :aria-pressed="who === p.id" @click="who = p.id">{{ p.name }}</button>
           </div>

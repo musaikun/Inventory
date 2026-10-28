@@ -229,6 +229,19 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     expect(host.querySelector('.jm-grid').classList.contains('slide-prev')).toBe(true)
   })
 
+  it('担当は 全員／人 だけ（誰でも・未定は出さない）。自分が選べなければ全員（User決定 2026-10-28）', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
+    const { staffNames } = await import('../composables/useAuth.js')
+    const { default: JournalPage } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    staffNames.value = [{ id: 'o1', name: 'オーナー', owner: true }, { id: 's1', name: '佐藤' }]   // 読み込み（ログインなしは空）の後に置く
+    await openDay(localDateKey())
+    await click(host.querySelector('.dt-fab'))
+    const sel = document.body.querySelector('.jp-sheet select.jp-in:not([aria-label])')
+    expect([...sel.options].map(o => o.textContent)).toEqual(['全員', 'オーナー', '佐藤'])
+    expect(sel.value).toBe('all')
+  })
+
   it('備考: 追加のときに書け（＋ 備考）、タイムラインの行に📝で出る。担当の人も書き足せる', async () => {
     const { localDateKey } = await import('../utils/localDate.js')
     const T = await import('../composables/useTasks.js')

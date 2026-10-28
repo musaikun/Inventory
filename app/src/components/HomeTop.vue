@@ -6,7 +6,7 @@
  * - 掲示板（以前の「連絡」のトーク・User決定 2026-10-27）: 新しい貼り紙の数と、貼り紙2枚を付箋のように。押すと掲示板（BoardPage）
  * - 棚卸・発注が始まっていれば、ショートカットのアイコンで知らせる（進行中のカードはやめた・User決定 2026-10-27）。
  *   だれかがルームに入っていれば「進行中」（外の輪が回る）、だれもいなければ「中断中」（光って止まっている）
- * - ショートカット: 棚卸／発注／数える順／在庫／日誌／レポート／スタッフ／データ／設定（最大9枚・説明文なし・User決定 2026-10-26）。
+ * - ショートカット: 棚卸／発注／品目リスト整理／在庫／日誌／レポート／スタッフ／データ／設定（最大9枚・説明文なし・User決定 2026-10-26）。
  *   管理者には「スタッフ」も（承認待ちの数。管理から移した・User決定 2026-10-14）
  * 棚卸・発注は在庫タブの今のボタンからも始められる（両方に置く・User決定）。
  */
@@ -101,13 +101,19 @@ const preview = computed(() => {
 const joinWaiting = computed(() => aliveTasks.value.filter(t => t.kind === 'staff_join' && !t.doneAt).length)
 
 // ── ショートカット ──
-const { sortStage, sortProgress, axesProgress, freeSlot, openSort, openSortAxis, addSortAxis } = useSortSetup()
+const { sortStage, sortProgress, axesProgress, freeSlot, openSortAxis, addSortAxis } = useSortSetup()
 const sortLeft = computed(() => {
   const { best, total } = sortProgress.value
   return sortStage.value === '' ? 0 : total - (best?.assigned ?? 0)
 })
 const sheet = ref('')   // '' | 'sort' | 'data'（カードから開く2択の板）
 function pickSheet(fn) { sheet.value = ''; fn() }
+const newAxis = ref('')   // 分類がまだ無いときの名前の入力
+const AXIS_EXAMPLES = ['保管場所', '仕入先', 'ジャンル']
+function addFirstAxis() {
+  const n = newAxis.value.trim()
+  if (n) pickSheet(() => addSortAxis(n))
+}
 // 始まっている棚卸・発注: だれかがルームに入っていれば進行中、いなければ中断中
 const _inRoom = room => (room?.participants?.length ?? 0) > 0
 const stockLive = computed(() => !!props.activeSession && _inRoom(props.live))
@@ -120,8 +126,8 @@ const shortcuts = computed(() => [
   { key: 'order', label: '発注', ord: true, run: !!props.activeOrderSession, live: orderLive.value,
     badge: props.activeOrderSession ? _runBadge(orderLive.value, 'or') : (props.orderDeadline ? { text: props.orderDeadline, kind: 'or' } : null),
     d: ['M6 3h12v18l-3-2-3 2-3-2-3 2z', 'M9 8h6M9 12h6'] },
-  // 数える順（並び替え）。在庫タブから移した。振り分けが終わるまで残りの数を出す（光らせると棚卸の中断中と紛れるので印だけ・User決定 2026-10-27）
-  ...(can('sort') ? [{ key: 'sort', label: '数える順',
+  // 品目リスト整理（並び替え）。名前は「数える順」から変えた（ぱっと見て意味が分からない・User決定 2026-10-28）。在庫タブから移した。振り分けが終わるまで残りの数を出す（光らせると棚卸の中断中と紛れるので印だけ・User決定 2026-10-27）
+  ...(can('sort') ? [{ key: 'sort', label: '品目リスト整理',
     badge: sortStage.value === 'none' ? { text: 'まだ', kind: 'cy' } : sortLeft.value > 0 ? { text: `あと${sortLeft.value}`, kind: 'cy' } : null,
     d: ['M4 6h10M4 12h16M4 18h7', 'M17 15l3 3-3 3'] }] : []),
   { key: 'sessions', label: '在庫',
@@ -141,7 +147,8 @@ const shortcuts = computed(() => [
     d: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'] },
 ])
 function onShortcut(k) {
-  if (k === 'sort') { axesProgress.value.length ? (sheet.value = 'sort') : openSort(); return }
+  // 分類がまだ1つも無ければ、並び方の説明と名前の入力を出す（User決定 2026-10-28）
+  if (k === 'sort') { newAxis.value = ''; sheet.value = 'sort'; return }
   if (k === 'data') { sheet.value = 'data'; return }
   if (k === 'stock') { props.activeSession ? emit('resume', props.activeSession) : emit('stock'); return }
   if (k === 'order') { props.activeOrderSession ? emit('resume', props.activeOrderSession) : emit('order'); return }
@@ -237,15 +244,27 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 
     <Teleport to="body">
       <div v-if="sheet" class="ht-sh-bg" @click.self="sheet = ''">
-        <section class="ht-sh" :aria-label="sheet === 'sort' ? '数える順' : 'データ'">
-          <div class="ht-sh-h"><b>{{ sheet === 'sort' ? '数える順' : 'データ' }}</b><button type="button" aria-label="閉じる" @click="sheet = ''">✕</button></div>
-          <template v-if="sheet === 'sort'">
+        <section class="ht-sh" :aria-label="sheet === 'sort' ? '品目リスト整理' : 'データ'">
+          <div class="ht-sh-h"><b>{{ sheet === 'sort' ? '品目リスト整理' : 'データ' }}</b><button type="button" aria-label="閉じる" @click="sheet = ''">✕</button></div>
+          <form v-if="sheet === 'sort' && !axesProgress.length" class="ht-sh-new" @submit.prevent="addFirstAxis">
+            <p class="ht-sh-ex">
+              品目を<b>分類</b>ごとに分けて、棚卸で数える順に並べます。<br>
+              たとえば「保管場所」で 冷蔵庫 → 冷凍庫 → 乾物棚 と分けると、歩く順に数えられます。
+              分類は2つまで作れます（例：保管場所と仕入先）。
+            </p>
+            <label class="ht-sh-lb">分類の名前<input v-model="newAxis" type="text" maxlength="20" placeholder="例：保管場所" class="ht-sh-in" /></label>
+            <div class="ht-sh-chips">
+              <button v-for="x in AXIS_EXAMPLES" :key="x" type="button" :class="{ on: newAxis === x }" @click="newAxis = x">{{ x }}</button>
+            </div>
+            <button type="submit" class="ht-sh-b add" :disabled="!newAxis.trim()"><b>＋ 分類を追加</b></button>
+          </form>
+          <template v-else-if="sheet === 'sort'">
             <button v-for="a in axesProgress" :key="a.idx" type="button" class="ht-sh-b" @click="pickSheet(() => openSortAxis(a.idx))">
               <b>{{ a.name }}</b>
               <span class="ht-sh-bar" aria-hidden="true"><span :style="{ width: (a.total ? a.assigned / a.total * 100 : 0) + '%' }"></span></span>
               <small :class="{ ok: a.assigned >= a.total }">{{ a.assigned >= a.total ? 'そろっています' : `${a.assigned} / ${a.total} 品目` }}</small>
             </button>
-            <button v-if="freeSlot >= 0" type="button" class="ht-sh-b add" @click="pickSheet(() => addSortAxis())"><b>＋ 分け方を追加</b></button>
+            <button v-if="freeSlot >= 0" type="button" class="ht-sh-b add" @click="pickSheet(() => addSortAxis())"><b>＋ 分類を追加</b></button>
           </template>
           <template v-else>
             <button type="button" class="ht-sh-b" @click="pickSheet(() => emit('go', 'import'))"><b>取り込む</b><small>品目・納品・棚卸</small></button>
@@ -345,6 +364,15 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-sh-b small { font-size: 11.5px; font-weight: 700; color: var(--text-muted); }
 .ht-sh-b small.ok { color: #17663a; }
 .ht-sh-b.add { background: none; border: 1.5px dashed #9ccfdb; color: #0b5f73; }
+.ht-sh-new { display: grid; gap: 10px; }
+.ht-sh-ex { margin: 0; font-size: 13px; line-height: 1.7; color: var(--text); background: #f2fafc; border-radius: 12px; padding: 12px; }
+.ht-sh-lb { display: grid; gap: 4px; font-size: 12px; font-weight: 800; color: var(--text-muted); }
+.ht-sh-in { font-size: 16px; padding: 10px 12px; border: 1.5px solid #c9dde3; border-radius: 10px; }
+.ht-sh-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.ht-sh-chips button { min-height: 36px; border: 1px solid #c9dde3; background: #fff; border-radius: 999px; padding: 0 12px; font-size: 13px; font-weight: 700; color: #0b5f73; cursor: pointer; }
+.ht-sh-chips button.on { border-color: #0b5f73; box-shadow: inset 0 0 0 1px #0b5f73; }
+.ht-sh-new .ht-sh-b.add { text-align: center; }
+.ht-sh-new .ht-sh-b.add:disabled { opacity: .45; cursor: default; }
 .ht-sh-bar { height: 6px; border-radius: 3px; background: #dbeef2; overflow: hidden; }
 .ht-sh-bar span { display: block; height: 100%; background: #0e7490; }
 .ht-bd { position: absolute; z-index: 2; top: 8px; right: 8px; font-size: 9.5px; font-weight: 800; border-radius: 999px; padding: 1px 6px; }
