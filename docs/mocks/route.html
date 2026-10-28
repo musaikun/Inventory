@@ -1,0 +1,289 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>棚卸の導線 モック</title><style>
+  :root { --primary:#0e7490; --route:#7c3aed; --rweak:#f5f3ff; --bg:#edf5f7; --text:#12303a; --muted:#4c6a72; --border:#d6e6ea; --ok:#15803d; --warn:#b45309; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:#c9d8dd; color:var(--text); padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; } h2 { font-size:16px; margin:28px 0 10px; }
+  h2 .tag { font-size:11px; color:#fff; background:var(--route); border-radius:6px; padding:2px 8px; margin-right:6px; vertical-align:2px; } h2 .tag.c { background:var(--primary); }
+  .lead { font-size:13px; color:var(--muted); margin-bottom:8px; max-width:1200px; line-height:1.7; }
+  .row { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; }
+  .col { display:grid; gap:8px; }
+  .cap { font-size:14px; font-weight:800; } .cap small { display:block; font-weight:400; color:var(--muted); font-size:12px; max-width:300px; line-height:1.55; }
+  .phone { width:300px; height:620px; background:var(--bg); border-radius:28px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; position:relative; }
+  .top { background:#fff; padding:12px 14px; border-bottom:1px solid var(--border); font-weight:900; font-size:14px; display:flex; justify-content:space-between; align-items:center; }
+  .top small { font-weight:700; color:var(--muted); font-size:11.5px; }
+  .pad { padding:10px 12px; display:grid; gap:8px; align-content:start; }
+  .here { display:flex; align-items:center; gap:8px; background:var(--route); color:#fff; padding:9px 12px; font-size:13px; font-weight:800; }
+  .here i { font-style:normal; font-size:11px; opacity:.85; font-weight:600; }
+  .here .nx { margin-left:auto; white-space:nowrap; background:#fff; color:var(--route); border-radius:999px; padding:5px 11px; font-size:12px; }
+  .here.gap { background:#64748b; }
+  .here.gap .nx { color:#475569; }
+  .row2 { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:8px; background:#fff; padding:9px 11px; border-top:1px solid #eef4f6; font-size:13px; font-weight:700; }
+  .row2 .n { width:20px; height:20px; border-radius:50%; background:var(--rweak); color:var(--route); font-size:10.5px; font-weight:900; display:flex; align-items:center; justify-content:center; }
+  .row2 .n.e { background:none; }
+  .row2 .q { font-size:16px; font-weight:900; } .row2 .q.e { color:#bfd6dc; }
+  .row2 em { grid-column:2 / -1; font-style:normal; font-size:10.5px; font-weight:700; margin-top:-3px; }
+  .row2 em.diff { color:var(--warn); } .row2 em.gap { color:#64748b; }
+  .ph { position:sticky; background:var(--rweak); color:var(--route); font-size:11.5px; font-weight:900; padding:6px 11px; display:flex; justify-content:space-between; }
+  .ph.cur { background:var(--route); color:#fff; }
+  .ph small { font-weight:700; opacity:.85; }
+  .dim { position:absolute; inset:0; background:rgba(6,34,43,.45); }
+  .sheet { position:absolute; left:0; right:0; bottom:0; background:#fff; border-radius:22px 22px 0 0; padding:16px 14px 18px; display:grid; gap:9px; }
+  .sh-h { display:flex; justify-content:space-between; font-size:15px; font-weight:900; } .sh-h i { font-style:normal; color:var(--muted); }
+  .ex { font-size:12px; line-height:1.65; background:var(--rweak); border-radius:12px; padding:10px; }
+  .btn { background:var(--route); color:#fff; border-radius:12px; padding:12px; text-align:center; font-weight:800; font-size:14px; }
+  .btn small { display:block; font-size:11px; font-weight:600; opacity:.9; }
+  .btn.sub { background:#fff; color:var(--muted); border:1.5px solid var(--border); }
+  .btn.pri { background:var(--primary); }
+  .in { background:#fff; border:1.5px solid var(--route); border-radius:10px; padding:9px 11px; font-size:15px; font-weight:800; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; } .chips span { border:1px solid var(--border); background:#fff; border-radius:999px; padding:6px 11px; font-size:12px; font-weight:700; color:var(--route); } .chips span.used { color:#94a3b8; text-decoration:line-through; }
+  .lbl { font-size:11px; font-weight:800; color:var(--muted); }
+  .trail { display:flex; flex-wrap:wrap; gap:4px; align-items:center; font-size:11.5px; font-weight:800; color:var(--route); }
+  .trail span { background:var(--rweak); border-radius:8px; padding:3px 8px; } .trail i { font-style:normal; color:#c4b5fd; }
+  .done-l { font-size:12.5px; font-weight:800; color:var(--muted); text-align:center; border:1.5px dashed #cbd5e1; border-radius:12px; padding:10px; }
+  .card { background:#fff; border-radius:14px; padding:12px; display:grid; gap:6px; }
+  .card b { font-size:14px; } .card small { font-size:11.5px; color:var(--muted); line-height:1.5; }
+  .route { display:grid; gap:0; background:#fff; border-radius:12px; overflow:hidden; }
+  .route div { display:grid; grid-template-columns:22px 1fr auto; gap:8px; align-items:center; padding:9px 11px; border-top:1px solid #eef4f6; font-size:13px; font-weight:800; }
+  .route div:first-child { border-top:none; }
+  .route .k { width:22px; height:22px; border-radius:50%; background:var(--route); color:#fff; font-size:11px; display:flex; align-items:center; justify-content:center; }
+  .route small { color:var(--muted); font-weight:700; font-size:11px; }
+  .route .by { font-size:10px; color:var(--muted); font-weight:600; }
+  .warnbox { background:#fffbeb; color:var(--warn); border-radius:10px; padding:8px 10px; font-size:12px; font-weight:800; }
+  .rv { background:#fff; border-radius:12px; padding:10px 11px; display:grid; gap:6px; }
+  .rv b { font-size:13px; } .rv small { font-size:11px; color:var(--muted); line-height:1.5; }
+  .rv .acts { display:flex; gap:5px; flex-wrap:wrap; } .rv .acts span { border:1px solid var(--border); border-radius:8px; padding:5px 8px; font-size:11.5px; font-weight:800; color:var(--route); } .rv .acts span.p { background:var(--route); color:#fff; border-color:transparent; }
+  .sec { font-size:12px; font-weight:900; color:var(--muted); margin-top:4px; }
+  .tile { background:#fff; border-radius:14px; padding:12px; display:grid; gap:5px; }
+  .tile.r { border:2px solid var(--route); }
+  .tile b { font-size:14px; } .tile small { font-size:11px; color:var(--muted); font-weight:700; line-height:1.5; }
+  .add { border:1.5px dashed #9ccfdb; border-radius:14px; padding:10px; text-align:center; font-weight:800; font-size:13px; color:#0b5f73; }
+  .note { font-size:11px; background:#fff7ed; border:1px dashed #fb923c; color:#9a3412; border-radius:8px; padding:6px 8px; line-height:1.5; }
+  .home { padding:14px; display:grid; gap:10px; }
+  .hero { height:120px; border-radius:16px; background:radial-gradient(120% 90% at 85% 10%, #0f4c5c, #06222b); color:#e6fbff; padding:14px; font-weight:800; }
+</style></head><body>
+<h1>棚卸の導線（分類とは別のもの）</h1>
+<p class="lead">
+<b>導線</b>＝棚卸で歩く順番（場所の順と、場所の中の品目の順）。店に1つ。棚卸の一覧の既定の並び。<br>
+<b>分類</b>＝仕入先・用途などの札。順番の意味はなく、絞り込み・発注書の分け方・レポートに使う。いくつでも作れる（今の「2つまで」をやめる）。<br>
+導線は<b>棚卸しながら作る</b>のが基本。人が「今ここ」と決めた場所で数えた品目だけを、数えた順に入れる。
+</p>
+
+<h2><span class="tag">1</span>はじめての導線：棚卸しながら作る</h2>
+<div class="row">
+  <div class="col">
+    <div class="cap">1-1 棚卸を始めたとき<small>導線が無い店にだけ出す。「今回はしない」を選んだら、その棚卸の間は出さない（次の棚卸でまた訊く。3回断ったら訊かない・品目リスト整理からはいつでも）</small></div>
+    <div class="phone">
+      <div class="top">棚卸<small>0 / 128</small></div>
+      <div class="dim"></div>
+      <div class="sheet">
+        <div class="sh-h">導線がまだありません<i>✕</i></div>
+        <div class="ex">棚卸しながら、歩く順番（<b>導線</b>）を作りますか？<br>場所に着いたら名前を決めて数えるだけ。次の棚卸から、品目がその順に並びます。</div>
+        <div class="btn">作りながら数える</div>
+        <div class="btn sub">今回はしない</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">1-2 最初の場所<small>候補を押すか名前を入れる。候補は飲食店でよくある場所（店の品目からは推さない）</small></div>
+    <div class="phone">
+      <div class="top">棚卸<small>0 / 128</small></div>
+      <div class="dim"></div>
+      <div class="sheet">
+        <div class="sh-h">最初の場所は？<i>✕</i></div>
+        <div class="in">冷蔵庫</div>
+        <div class="chips"><span>冷蔵庫</span><span>冷凍庫</span><span>乾物棚</span><span>常温の棚</span><span>ドリンク</span><span>バックヤード</span></div>
+        <div class="btn">ここから数える</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">1-3 数えている<small>上の帯が今の場所。数えた品目に、この場所での順番（①②③）が付く。直し（上書き）・取り消しは順番を変えない。一覧は今まで通り（検索・音声入力もそのまま）</small></div>
+    <div class="phone">
+      <div class="top">棚卸<small>3 / 128</small></div>
+      <div class="here">📍 冷蔵庫<i>3品目</i><span class="nx">次の場所へ ›</span></div>
+      <div>
+        <div class="row2"><span class="n">1</span><span>キャベツ</span><span class="q">3</span></div>
+        <div class="row2"><span class="n">2</span><span>トマト</span><span class="q">12</span></div>
+        <div class="row2"><span class="n">3</span><span>牛乳</span><span class="q">6</span></div>
+        <div class="row2"><span class="n e"></span><span>米</span><span class="q e">—</span></div>
+        <div class="row2"><span class="n e"></span><span>醤油</span><span class="q e">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">1-4 次の場所へ<small>回った場所が上に並ぶ。名前を決めて次へ。<b>最後の場所を数え終えたら下のボタン</b>。そこから先は「抜けの入力」で、導線に入れない（最後に入れた抜けで順が崩れない）</small></div>
+    <div class="phone">
+      <div class="top">棚卸<small>58 / 128</small></div>
+      <div class="here">📍 冷凍庫<i>21品目</i><span class="nx">次の場所へ ›</span></div>
+      <div class="dim"></div>
+      <div class="sheet">
+        <div class="sh-h">次の場所は？<i>✕</i></div>
+        <div class="trail"><span>① 冷蔵庫 18</span><i>→</i><span>② 冷凍庫 21</span><i>→</i><span>③ ？</span></div>
+        <div class="in">乾物棚</div>
+        <div class="chips"><span class="used">冷蔵庫</span><span class="used">冷凍庫</span><span>乾物棚</span><span>常温の棚</span><span>ドリンク</span></div>
+        <div class="btn">乾物棚へ</div>
+        <div class="done-l">場所を全部回った（ここからは抜けの入力）</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">1-5 抜けの入力<small>帯が灰色になり、ここで入れた品目は導線に入れない。間違えて押したら「場所へ戻る」</small></div>
+    <div class="phone">
+      <div class="top">棚卸<small>121 / 128</small></div>
+      <div class="here gap">抜けの入力中<i>導線には入れません</i><span class="nx">場所へ戻る</span></div>
+      <div>
+        <div class="row2"><span class="n e"></span><span>大葉</span><span class="q">2</span><em class="gap">導線に入っていません</em></div>
+        <div class="row2"><span class="n e"></span><span>ラップ</span><span class="q">5</span><em class="gap">導線に入っていません</em></div>
+        <div class="row2"><span class="n e"></span><span>重曹</span><span class="q e">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">1-6 棚卸を終えたら<small>できた導線を見せる。場所の名前・順はここで直せる（長押しで入れ替え）。まだ入っていない品目は、次の棚卸で付けばよい</small></div>
+    <div class="phone">
+      <div class="top">導線ができました<small>閉じる</small></div>
+      <div class="pad">
+        <div class="route">
+          <div><span class="k">1</span><span>冷蔵庫</span><small>18品目</small></div>
+          <div><span class="k">2</span><span>冷凍庫</span><small>21品目</small></div>
+          <div><span class="k">3</span><span>乾物棚</span><small>26品目</small></div>
+          <div><span class="k">4</span><span>ドリンク</span><small>12品目</small></div>
+          <div><span class="k">5</span><span>常温の棚</span><small>28品目</small></div>
+        </div>
+        <div class="warnbox">まだ導線に入っていない 23品目<br><small style="font-weight:600">次の棚卸で、数えた場所に入ります</small></div>
+        <div class="btn">この導線で決める</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2><span class="tag">2</span>複数人で作るとき</h2>
+<div class="row">
+  <div class="col">
+    <div class="cap">2-1 それぞれが自分の場所を回る<small>場所は人ごと（端末ごと）に決める。同じ名前の場所は1つにまとまる（後から来た人の品目は後ろに足す）。場所の順は「最初に数え始めた時刻」の順</small></div>
+    <div class="phone">
+      <div class="top">導線ができました<small>閉じる</small></div>
+      <div class="pad">
+        <div class="route">
+          <div><span class="k">1</span><span>冷蔵庫<br><span class="by">佐藤 10:02〜</span></span><small>18品目</small></div>
+          <div><span class="k">2</span><span>乾物棚<br><span class="by">高木 10:04〜</span></span><small>26品目</small></div>
+          <div><span class="k">3</span><span>冷凍庫<br><span class="by">佐藤 10:21〜</span></span><small>21品目</small></div>
+          <div><span class="k">4</span><span>ドリンク<br><span class="by">高木 10:30〜</span></span><small>12品目</small></div>
+        </div>
+        <div class="note">時刻の順は「歩く順」とは限らない（2人が同時に別の所から始める）。ここで長押しして入れ替える</div>
+        <div class="btn">この導線で決める</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2><span class="tag">3</span>導線がある店の棚卸</h2>
+<div class="row">
+  <div class="col">
+    <div class="cap">3-1 一覧は導線の順<small>場所の見出しで区切る。今の場所は見出しの色で分かる（スクロールに合わせて変わる）。導線に無い品目は最後に「導線に入っていない」でまとめる</small></div>
+    <div class="phone">
+      <div class="top">棚卸<small>20 / 128</small></div>
+      <div>
+        <div class="ph">① 冷蔵庫<small>18 / 18</small></div>
+        <div class="row2"><span class="n">18</span><span>生クリーム</span><span class="q">2</span></div>
+        <div class="ph cur">② 冷凍庫　いまここ<small>2 / 21</small></div>
+        <div class="row2"><span class="n">1</span><span>冷凍エビ</span><span class="q">4</span></div>
+        <div class="row2"><span class="n">2</span><span>バニラアイス</span><span class="q">3</span></div>
+        <div class="row2"><span class="n">3</span><span>冷凍ポテト</span><span class="q e">—</span></div>
+        <div class="row2"><span class="n">4</span><span>ミックスベジ</span><span class="q e">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">3-2 違う場所で数えた・まだ入っていない品目<small>今の場所（見出し）と違う場所に入っている品目を数えたら印だけ（勝手に動かさない）。導線に無い品目を数えたら、今の場所に入る予定（緑）</small></div>
+    <div class="phone">
+      <div class="top">棚卸<small>24 / 128</small></div>
+      <div>
+        <div class="ph cur">② 冷凍庫　いまここ<small>4 / 21</small></div>
+        <div class="row2"><span class="n">3</span><span>冷凍ポテト</span><span class="q">6</span></div>
+        <div class="row2"><span class="n e"></span><span>バター</span><span class="q">4</span><em class="diff">⚠ 導線では「冷蔵庫」 — 終わったあとで確かめます</em></div>
+        <div class="row2"><span class="n e"></span><span>大葉</span><span class="q">2</span><em style="color:var(--ok)">＋ 冷凍庫に入れます（まだ導線にない）</em></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">3-3 終わったら見直し<small>新しく入った分はそのまま。違う場所で数えた品目だけ選ぶ（両方に置く＝2か所にある品目）</small></div>
+    <div class="phone">
+      <div class="top">導線の見直し<small>あとで</small></div>
+      <div class="pad">
+        <div class="warnbox" style="background:#f0fdf4;color:var(--ok)">✓ 3品目が導線に入りました</div>
+        <div class="lbl">別の場所で数えた 1品目</div>
+        <div class="rv"><b>バター</b><small>導線では「冷蔵庫」。今回は「冷凍庫」で数えた（佐藤）</small><div class="acts"><span class="p">冷凍庫へ移す</span><span>両方に置く</span><span>そのまま</span></div></div>
+        <div class="btn">決める</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2><span class="tag c">4</span>ホーム「品目リスト整理」：導線と分類を分けて見せる</h2>
+<div class="row">
+  <div class="col">
+    <div class="cap">4-1 板<small>上に導線（1つ）、下に分類（いくつでも）。導線は「棚卸しながら作る」「手で直す」。分類は今の振り分けの画面</small></div>
+    <div class="phone">
+      <div class="home"><div class="hero">おはようございます</div></div>
+      <div class="dim"></div>
+      <div class="sheet">
+        <div class="sh-h">品目リスト整理<i>✕</i></div>
+        <div class="sec">棚卸の導線</div>
+        <div class="tile r"><b>🚶 冷蔵庫 → 冷凍庫 → 乾物棚 → …</b><small>5か所・105 / 128 品目（23品目がまだ）</small></div>
+        <div class="sec">分類（仕入先・用途など）</div>
+        <div class="tile"><b>仕入先</b><small>120 / 128 品目</small></div>
+        <div class="tile"><b>用途</b><small>64 / 128 品目</small></div>
+        <div class="add">＋ 分類を追加</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">4-2 導線が無いとき<small>「今から棚卸して作る」を押すと、棚卸を始めて 1-2 から入る。手で作る道も残す（今の振り分けの画面を導線用に）</small></div>
+    <div class="phone">
+      <div class="home"><div class="hero">おはようございます</div></div>
+      <div class="dim"></div>
+      <div class="sheet">
+        <div class="sh-h">品目リスト整理<i>✕</i></div>
+        <div class="sec">棚卸の導線</div>
+        <div class="tile r"><b>🚶 まだありません</b><small>棚卸で歩く順番。棚卸しながら作るのがいちばん正確です</small></div>
+        <div class="btn">今から棚卸して作る</div>
+        <div class="btn sub" style="padding:9px;font-size:12.5px">手で作る</div>
+        <div class="sec">分類（仕入先・用途など）</div>
+        <div class="add">＋ 分類を追加</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">4-3 今の分類を導線へ（1回だけ）<small>今「保管場所」などの分類を持つ店に、更新後の最初に訊く。移すと分類からは消え、導線になる（場所の順・品目の順もそのまま）</small></div>
+    <div class="phone">
+      <div class="home"><div class="hero">おはようございます</div></div>
+      <div class="dim"></div>
+      <div class="sheet">
+        <div class="sh-h">「保管場所」を導線にしますか？<i></i></div>
+        <div class="ex">これからは、棚卸で歩く順番は<b>導線</b>、仕入先などの札は<b>分類</b>として分けます。<br>今の分類「保管場所」は、歩く順番ですか？</div>
+        <div class="btn">導線にする</div>
+        <div class="btn sub">分類のまま（導線は別に作る）</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>決めること</h2>
+<p class="lead">
+1. 1-1 の案内：断ったときに次の棚卸でもまた訊くか（案：3回断ったら訊かない）。<br>
+2. 1-3 で数えた品目を、すでに別の場所に入れていた（同じ棚卸の中で2回目）ときは：両方に置く／あとの方へ移す／印だけ（案：印だけ・終わったあとで選ぶ）。<br>
+3. 複数人：場所の順は最初に数え始めた時刻（案）。担当者ごとに導線を持つ形はしない（店に1つ）。<br>
+4. 導線を作る・直すのは、棚卸を始められる人なら誰でもか、管理者だけか（案：作るのは数える人みんな・決めるのは管理者）。<br>
+5. 4-3 の移し替え：分類の名前が場所っぽい（保管場所・場所・棚・ロケーション）ときだけ訊く（案）。
+</p>
+</body></html>
