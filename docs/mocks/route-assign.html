@@ -1,0 +1,195 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>導線の振り分け モック</title><style>
+  :root { --primary:#0e7490; --route:#7c3aed; --rweak:#f5f3ff; --rmid:#ddd6fe; --bg:#edf5f7; --text:#12303a; --muted:#4c6a72; --border:#d6e6ea; --ok:#15803d; --amber:#b45309; --aweak:#fffbeb; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:#c9d8dd; color:var(--text); padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; } h2 { font-size:16px; margin:28px 0 10px; }
+  h2 .tag { font-size:11px; color:#fff; background:var(--route); border-radius:6px; padding:2px 8px; margin-right:6px; vertical-align:2px; } h2 .tag.c { background:var(--primary); } h2 .tag.b { background:#64748b; }
+  .lead { font-size:13px; color:var(--muted); margin-bottom:8px; max-width:1200px; line-height:1.7; }
+  .row { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; }
+  .col { display:grid; gap:8px; }
+  .cap { font-size:14px; font-weight:800; } .cap small { display:block; font-weight:400; color:var(--muted); font-size:12px; max-width:300px; line-height:1.55; }
+  .phone { width:300px; height:620px; background:#fff; border-radius:28px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; position:relative; }
+  .phone.bg { background:var(--bg); }
+  /* 振り分けの画面（今の見た目に合わせる） */
+  .hd { display:flex; align-items:center; gap:8px; padding:11px 12px; border-bottom:1px solid #eef4f6; font-weight:900; font-size:14px; }
+  .hd .bk { color:var(--route); font-size:12.5px; } .hd .ed { margin-left:auto; border:1px solid var(--border); border-radius:8px; padding:3px 8px; font-size:11px; color:var(--muted); }
+  .hd.c .bk { color:var(--primary); }
+  .pg { padding:7px 12px 6px; font-size:11.5px; color:var(--muted); font-weight:700; display:block; }
+  .pg .bar { margin:4px 0 2px; } .pg .sub { display:block; }
+  .pg b { color:var(--route); font-size:14px; } .pg .bar { height:6px; background:#e6eef1; border-radius:4px; overflow:hidden; } .pg .bar span { display:block; height:100%; background:var(--route); }
+  .pg .sub { font-size:10.5px; font-weight:700; color:var(--amber); }
+  .wheel { padding:8px 12px; display:grid; gap:4px; border-bottom:1px solid #eef4f6; background:#fbfaff; }
+  .wc { border:1.5px solid var(--rmid); border-radius:12px; padding:9px 11px; display:flex; justify-content:space-between; font-weight:800; font-size:13.5px; color:#a1a1aa; background:#fff; }
+  .wc.on { border-color:var(--route); color:var(--route); box-shadow:0 0 0 3px var(--rweak); }
+  .wc i { font-style:normal; font-size:11px; background:var(--rweak); border-radius:999px; padding:1px 8px; } .wc.on i { background:var(--route); color:#fff; }
+  .wc .k { font-size:10.5px; margin-right:6px; }
+  .tools { display:flex; gap:6px; padding:8px 12px 4px; }
+  .tools .s { flex:1; border:1.5px solid var(--border); border-radius:10px; padding:7px 9px; font-size:12px; color:#94a3b8; }
+  .tools .f { border:1.5px solid var(--border); border-radius:10px; padding:7px 8px; font-size:11px; font-weight:800; color:var(--muted); white-space:nowrap; }
+  .tools .f.on { border-color:var(--route); color:var(--route); background:var(--rweak); }
+  .list { padding:4px 12px; display:grid; gap:6px; }
+  .it { display:grid; grid-template-columns:24px 1fr auto; align-items:center; gap:8px; border:1.5px solid #e6eef1; border-radius:12px; padding:7px 8px; font-size:13px; font-weight:800; }
+  .it .ck { width:22px; height:22px; border-radius:50%; border:1.5px solid #cbd5e1; display:flex; align-items:center; justify-content:center; font-size:12px; color:#94a3b8; }
+  .it.in { border-color:var(--rmid); background:var(--rweak); } .it.in .ck { background:var(--route); border-color:var(--route); color:#fff; }
+  .it .nm { display:grid; gap:3px; min-width:0; }
+  .chips { display:flex; gap:3px; flex-wrap:wrap; } .chips span { font-size:9.5px; font-weight:800; border-radius:6px; padding:1px 6px; background:#f1f5f9; color:var(--muted); } .chips span.cur { background:var(--route); color:#fff; }
+  .chips span.more { background:var(--aweak); color:var(--amber); border:1px dashed #f59e0b; }
+  .st { font-size:11px; font-weight:900; border-radius:999px; padding:6px 9px; white-space:nowrap; border:1.5px solid; min-width:58px; text-align:center; }
+  .st.done { color:var(--ok); border-color:#86efac; background:#f0fdf4; }
+  .st.more { color:var(--amber); border-color:#fcd34d; background:var(--aweak); }
+  .st.none { color:#cbd5e1; border-color:#e2e8f0; border-style:dashed; }
+  .it.more { border-color:#fcd34d; }
+  .toast { position:absolute; left:10px; right:10px; bottom:14px; background:#1e1b4b; color:#fff; border-radius:14px; padding:11px 12px; display:grid; gap:8px; font-size:12.5px; font-weight:700; box-shadow:0 8px 20px rgba(0,0,0,.25); }
+  .toast small { color:#c4b5fd; font-weight:600; font-size:11px; }
+  .toast .acts { display:flex; gap:6px; } .toast .acts span { flex:1; text-align:center; border-radius:10px; padding:8px; font-size:12.5px; font-weight:900; background:rgba(255,255,255,.12); } .toast .acts span.p { background:#fff; color:#1e1b4b; }
+  .flash { position:absolute; left:10px; right:10px; bottom:14px; background:#1e1b4b; color:#fff; border-radius:12px; padding:9px 12px; font-size:12px; font-weight:700; text-align:center; }
+  .hint { margin:4px 12px 0; background:var(--rweak); color:#5b21b6; border-radius:10px; padding:7px 9px; font-size:10.5px; line-height:1.6; }
+  /* ホーム */
+  .home { padding:14px; display:grid; gap:10px; }
+  .hero { height:120px; border-radius:16px; background:radial-gradient(120% 90% at 85% 10%, #0f4c5c, #06222b); color:#e6fbff; padding:14px; font-weight:800; }
+  .dim { position:absolute; inset:0; background:rgba(6,34,43,.45); }
+  .sheet { position:absolute; left:0; right:0; bottom:0; background:#fff; border-radius:22px 22px 0 0; padding:16px 14px 18px; display:grid; gap:10px; }
+  .sh-h { display:flex; justify-content:space-between; font-size:15px; font-weight:900; } .sh-h i { font-style:normal; color:var(--muted); }
+  .big { border-radius:16px; padding:13px 13px; display:grid; gap:4px; border:2px solid; }
+  .big b { font-size:15px; } .big small { font-size:11.5px; color:var(--muted); line-height:1.5; font-weight:600; }
+  .big.r { border-color:var(--route); background:var(--rweak); } .big.r b { color:var(--route); }
+  .big.c { border-color:#9ccfdb; background:#f2fafc; } .big.c b { color:#0b5f73; }
+  .big .bar { height:6px; background:#fff; border-radius:4px; overflow:hidden; } .big.r .bar span { display:block; height:100%; background:var(--route); } .big.c .bar span { display:block; height:100%; background:var(--primary); }
+  .big .tagl { font-size:10.5px; font-weight:800; color:var(--amber); }
+  .note { font-size:11px; background:#fff7ed; border:1px dashed #fb923c; color:#9a3412; border-radius:8px; padding:6px 8px; line-height:1.5; }
+  table.cmp { border-collapse:collapse; background:#fff; border-radius:12px; overflow:hidden; font-size:13px; max-width:900px; }
+  table.cmp th, table.cmp td { padding:8px 12px; border-top:1px solid #eef4f6; text-align:left; vertical-align:top; line-height:1.6; } table.cmp th { background:#f6fafb; }
+</style></head><body>
+<h1>導線（別枠）と品目並び替え：入口と、複数の場所にある品目の「済み／まだ」</h1>
+<p class="lead">
+導線は品目並び替え（2つ）とは<b>別の3つ目</b>として持つ。店に1つ。紫で見分ける。<br>
+導線の振り分けでは、品目ごとに<b>「済み／まだ他にある」</b>を持つ。1か所目に入れたら自動で「済み」。2か所以上にある品目だけ「まだ他にある」にすると、<b>未振り分けの絞り込みに残り続ける</b>（2か所目の入れ忘れを防ぐ）。
+</p>
+
+<h2><span class="tag c">1</span>ホームのカード → 2つに分かれる</h2>
+<div class="row">
+  <div class="col">
+    <div class="cap">1-1 カードを押すと<small>上が導線（店に1つ）、下が品目並び替え（2つまで）。それぞれ進み具合。導線の「まだ他にある」が残っていれば印</small></div>
+    <div class="phone bg">
+      <div class="home"><div class="hero">おはようございます</div></div>
+      <div class="dim"></div>
+      <div class="sheet">
+        <div class="sh-h">品目リスト整理<i>✕</i></div>
+        <div class="big r"><b>🚶 導線作成</b><small>棚卸で歩く順番。場所ごとに品目を入れ、その順で数えます</small><div class="bar"><span style="width:78%"></span></div><small>5か所・100 / 128 品目</small><span class="tagl">2か所以上の途中 3品目</span></div>
+        <div class="big c"><b>⇅ 品目並び替え</b><small>仕入先・用途などのグループ。発注書の分け方や一覧の絞り込みに</small><div class="bar"><span style="width:94%"></span></div><small>仕入先 120 / 128 ・ 用途 64 / 128</small></div>
+      </div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="cap">1-2 導線がまだ無い<small>導線作成を押すと「最初の場所」から（場所の名前を決める→振り分けの画面）。棚卸しながら作る道は前のモック（route）の流れ</small></div>
+    <div class="phone bg">
+      <div class="home"><div class="hero">おはようございます</div></div>
+      <div class="dim"></div>
+      <div class="sheet">
+        <div class="sh-h">品目リスト整理<i>✕</i></div>
+        <div class="big r"><b>🚶 導線作成</b><small>まだありません。棚卸で歩く順番を作ります</small></div>
+        <div class="big c"><b>⇅ 品目並び替え</b><small>まだありません。仕入先・用途などで分けます</small></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2><span class="tag">2</span>導線の振り分け（今の画面の形のまま・紫）</h2>
+<div class="row">
+  <div class="col">
+    <div class="cap">2-1 行に「場所のチップ」と「済み／まだ」<small>行を押す＝今の場所（ホイールの中央）に入れる／外す（今と同じ）。右の札を押す＝済み⇄まだ他にある。1か所目に入れると自動で「済み」</small></div>
+    <div class="phone">
+      <div class="hd"><span class="bk">‹ 閉じる</span>導線<span class="ed">✎ 場所の順</span></div>
+      <div class="pg">振り分け済み <b>4</b> / 12<div class="bar"><span style="width:33%"></span></div><span class="sub">まだ他にある 1品目</span></div>
+      <div class="wheel">
+        <div class="wc"><span><span class="k">①</span>冷蔵庫</span><i>3</i></div>
+        <div class="wc on"><span><span class="k">②</span>冷凍庫</span><i>1</i></div>
+      </div>
+      <div class="tools"><span class="s">品目を検索</span><span class="f">未振り分けのみ</span></div>
+      <div class="list">
+        <div class="it"><span class="ck">✓</span><span class="nm">キャベツ<span class="chips"><span>冷蔵庫</span></span></span><span class="st done">✓ 済み</span></div>
+        <div class="it more"><span class="ck">✓</span><span class="nm">バター<span class="chips"><span>冷蔵庫</span><span class="more">あと1か所以上</span></span></span><span class="st more">まだ</span></div>
+        <div class="it in"><span class="ck">✓</span><span class="nm">冷凍エビ<span class="chips"><span class="cur">冷凍庫</span></span></span><span class="st done">✓ 済み</span></div>
+        <div class="it"><span class="ck">＋</span><span class="nm">米</span><span class="st none">未</span></div>
+        <div class="it"><span class="ck">＋</span><span class="nm">醤油</span><span class="st none">未</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">2-2 「未振り分けのみ」<small>場所が無い品目＋「まだ他にある」品目が出る。まだの品目は上に寄せる（入れ忘れを先に片付ける）。行を押して今の場所にも入れる</small></div>
+    <div class="phone">
+      <div class="hd"><span class="bk">‹ 閉じる</span>導線<span class="ed">✎ 場所の順</span></div>
+      <div class="pg">振り分け済み <b>4</b> / 12<div class="bar"><span style="width:33%"></span></div><span class="sub">まだ他にある 1品目</span></div>
+      <div class="wheel">
+        <div class="wc on"><span><span class="k">②</span>冷凍庫</span><i>1</i></div>
+      </div>
+      <div class="tools"><span class="s">品目を検索</span><span class="f on">未振り分けのみ ✕</span></div>
+      <div class="list">
+        <div class="it more"><span class="ck">✓</span><span class="nm">バター<span class="chips"><span>冷蔵庫</span><span class="more">あと1か所以上</span></span></span><span class="st more">まだ</span></div>
+        <div class="it"><span class="ck">＋</span><span class="nm">米</span><span class="st none">未</span></div>
+        <div class="it"><span class="ck">＋</span><span class="nm">醤油</span><span class="st none">未</span></div>
+        <div class="it"><span class="ck">＋</span><span class="nm">ケチャップ</span><span class="st none">未</span></div>
+        <div class="it"><span class="ck">＋</span><span class="nm">大葉</span><span class="st none">未</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">2-3 「まだ」の品目を別の場所に入れたら<small>1回だけ訊く。「これで全部」＝済みにして絞り込みから外れる。「まだある」＝まだのまま残る。何もしなければ数秒で消え、まだのまま</small></div>
+    <div class="phone">
+      <div class="hd"><span class="bk">‹ 閉じる</span>導線<span class="ed">✎ 場所の順</span></div>
+      <div class="pg">振り分け済み <b>4</b> / 12<div class="bar"><span style="width:33%"></span></div><span class="sub">まだ他にある 1品目</span></div>
+      <div class="wheel"><div class="wc on"><span><span class="k">②</span>冷凍庫</span><i>2</i></div></div>
+      <div class="tools"><span class="s">品目を検索</span><span class="f on">未振り分けのみ ✕</span></div>
+      <div class="list">
+        <div class="it in more"><span class="ck">✓</span><span class="nm">バター<span class="chips"><span>冷蔵庫</span><span class="cur">冷凍庫</span></span></span><span class="st more">まだ</span></div>
+        <div class="it"><span class="ck">＋</span><span class="nm">米</span><span class="st none">未</span></div>
+      </div>
+      <div class="toast">「バター」を冷凍庫にも入れました<small>冷蔵庫・冷凍庫。ほかの場所にもありますか？</small><div class="acts"><span class="p">これで全部（済み）</span><span>まだある</span></div></div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">2-4 1か所目で入れたらすぐ「まだ」にする<small>入れた直後の知らせに［他の場所にもある］を添える（行の札を探さなくてよい）。ふだんは押さずに次へ</small></div>
+    <div class="phone">
+      <div class="hd"><span class="bk">‹ 閉じる</span>導線<span class="ed">✎ 場所の順</span></div>
+      <div class="pg">振り分け済み <b>5</b> / 12<div class="bar"><span style="width:41%"></span></div></div>
+      <div class="wheel"><div class="wc on"><span><span class="k">①</span>冷蔵庫</span><i>4</i></div></div>
+      <div class="tools"><span class="s">品目を検索</span><span class="f">未振り分けのみ</span></div>
+      <div class="list">
+        <div class="it in"><span class="ck">✓</span><span class="nm">ケチャップ<span class="chips"><span class="cur">冷蔵庫</span></span></span><span class="st done">✓ 済み</span></div>
+        <div class="it"><span class="ck">＋</span><span class="nm">大葉</span><span class="st none">未</span></div>
+      </div>
+      <div class="toast">「ケチャップ」を冷蔵庫に入れました<div class="acts"><span>他の場所にもある</span></div></div>
+    </div>
+  </div>
+</div>
+
+<h2><span class="tag c">3</span>品目並び替え（仕入先・用途など）</h2>
+<div class="row">
+  <div class="col">
+    <div class="cap">3-1 今の振り分けの画面のまま（青）<small>「済み／まだ」は付けない（1品目が複数の仕入先に入ることは少なく、入れたら入ったで終わり）。見出しは「品目並び替え：仕入先」。2つまで</small></div>
+    <div class="phone">
+      <div class="hd c"><span class="bk">‹ 閉じる</span>仕入先<span class="ed">⇄ 用途</span></div>
+      <div class="pg">振り分け済み <b style="color:var(--primary)">8</b> / 12<div class="bar"><span style="width:66%;background:var(--primary)"></span></div></div>
+      <div class="wheel" style="background:#f6fbfc"><div class="wc on" style="border-color:var(--primary);color:var(--primary);box-shadow:0 0 0 3px #e0f2f7"><span>A青果</span><i style="background:var(--primary)">3</i></div></div>
+      <div class="tools"><span class="s">品目を検索</span><span class="f">未振り分けのみ</span></div>
+      <div class="list">
+        <div class="it" style="border-color:#bae6fd;background:#f0f9ff"><span class="ck" style="background:var(--primary);border-color:var(--primary);color:#fff">✓</span><span class="nm">キャベツ<span class="chips"><span style="background:var(--primary);color:#fff">A青果</span></span></span><span></span></div>
+        <div class="it"><span class="ck">＋</span><span class="nm">牛乳<span class="chips"><span>B乳業</span></span></span><span></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2><span class="tag b">比べる</span>「済み／まだ」をどう付けるか</h2>
+<table class="cmp">
+  <tr><th></th><th>案A（おすすめ）：1か所目で自動「済み」、例外だけ「まだ」</th><th>案B：毎回人が「済み」を押す</th></tr>
+  <tr><td>1か所だけの品目（大半）</td><td>押すのは行だけ（1回）</td><td>行＋「済み」で2回</td></tr>
+  <tr><td>2か所以上の品目</td><td>1か所目で［他の場所にもある］、最後の場所で［これで全部］</td><td>最後の場所で「済み」</td></tr>
+  <tr><td>入れ忘れ</td><td>「まだ」を押し忘れると、2か所目の入れ忘れに気づけない</td><td>押し忘れは「未振り分け」に残るので気づける</td></tr>
+  <tr><td>数百品目の速さ</td><td>速い</td><td>ほぼ倍のタップ</td></tr>
+</table>
+<p class="lead" style="margin-top:8px">案Aの押し忘れは、棚卸の最中（route のモック 3-2）に「別の場所で数えた」で拾える。</p>
+</body></html>
