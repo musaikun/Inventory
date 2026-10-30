@@ -1,0 +1,281 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><title>導線の路線図 動くモック</title><style>
+  :root { --route:#7c3aed; --rweak:#f5f3ff; --rmid:#ddd6fe; --text:#12303a; --muted:#4c6a72; --border:#d6e6ea; --amber:#f59e0b; }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:#c9d8dd; color:var(--text); padding:20px; display:flex; gap:28px; flex-wrap:wrap; align-items:flex-start; }
+  .side { max-width:340px; display:grid; gap:10px; font-size:13px; line-height:1.7; color:var(--muted); }
+  .side h1 { font-size:19px; color:var(--text); }
+  .side b { color:var(--text); }
+  .side li { margin-left:18px; }
+  .phone { width:360px; height:720px; background:#fff; border-radius:30px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; position:relative; user-select:none; -webkit-user-select:none; touch-action:none; }
+  .hd { display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid #eef4f6; font-weight:900; font-size:15px; }
+  .hd .sw { margin-left:auto; display:flex; border:1.5px solid var(--rmid); border-radius:10px; overflow:hidden; }
+  .hd .sw button { border:none; background:#fff; color:var(--route); font-size:12.5px; font-weight:900; padding:6px 12px; cursor:pointer; }
+  .hd .sw button.on { background:var(--route); color:#fff; }
+  .map { position:relative; flex:1; overflow:hidden; background:linear-gradient(#fff, #fbfaff); }
+  .map.edit { background-image:radial-gradient(#ede9fe 1.2px, transparent 1.2px); background-size:18px 18px; }
+  svg.lines { position:absolute; inset:0; pointer-events:none; overflow:visible; }
+  .st { position:absolute; left:22px; height:56px; display:flex; align-items:center; gap:12px; transition:top .32s cubic-bezier(.2,.9,.3,1.2), transform .2s, opacity .2s; cursor:pointer; }
+  .st .dot { width:40px; height:40px; border-radius:50%; background:#fff; border:5px solid var(--route); color:var(--route); font-weight:900; font-size:15px; display:flex; align-items:center; justify-content:center; transition:transform .25s cubic-bezier(.2,1.6,.4,1); flex:none; }
+  .st.sel .dot { background:var(--route); color:#fff; }
+  .st .nm { font-size:15.5px; font-weight:900; }
+  .st .ct { display:block; font-size:11px; font-weight:700; color:var(--muted); }
+  .st.drag { transition:none; z-index:20; transform:scale(1.08); filter:drop-shadow(0 10px 16px rgba(76,29,149,.3)); }
+  .st.drop .dot { transform:scale(1.35); box-shadow:0 0 0 8px rgba(124,58,237,.18); }
+  .st.pop .dot { animation:pop .45s cubic-bezier(.2,1.6,.4,1); }
+  @keyframes pop { 0%{transform:scale(.4)} 100%{transform:scale(1)} }
+  .st.bump .dot { animation:bump .35s; }
+  @keyframes bump { 50%{transform:scale(1.25)} }
+  .map.edit .st .dot::after { content:''; }
+  .plus { position:absolute; left:34px; width:20px; height:20px; border-radius:50%; background:#fff; border:2px dashed #a78bfa; color:#7c3aed; font-size:14px; font-weight:900; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:top .32s cubic-bezier(.2,.9,.3,1.2), opacity .2s; z-index:5; }
+  .trash { position:absolute; right:8px; top:50%; transform:translateY(-50%) scale(.9); width:78px; height:120px; border-radius:16px; border:2px dashed #fca5a5; background:#fef2f2; color:#dc2626; font-size:11px; font-weight:800; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; opacity:0; transition:opacity .2s, transform .2s; pointer-events:none; }
+  .trash.show { opacity:1; }
+  .trash.hot { transform:translateY(-50%) scale(1.08); background:#fee2e2; border-color:#dc2626; }
+  .trash i { font-style:normal; font-size:22px; }
+  .none { position:absolute; right:12px; bottom:12px; background:#fef2f2; color:#b91c1c; border-radius:12px; padding:7px 10px; font-size:11px; font-weight:800; text-align:center; }
+  .tray { height:200px; border-top:1px solid #eef4f6; background:#fff; padding:10px 12px; display:flex; flex-direction:column; gap:8px; transition:height .25s; }
+  .tray.closed { height:46px; }
+  .tray .th { display:flex; align-items:center; gap:8px; font-weight:900; font-size:13.5px; }
+  .tray .th small { font-weight:700; color:var(--muted); font-size:11px; }
+  .tray .chips { display:flex; flex-wrap:wrap; gap:6px; overflow-y:auto; align-content:flex-start; }
+  .chip { display:flex; align-items:center; gap:5px; border:1.5px solid var(--rmid); background:var(--rweak); border-radius:999px; padding:6px 11px 6px 6px; font-size:12.5px; font-weight:800; cursor:grab; touch-action:none; }
+  .chip i { font-style:normal; width:20px; height:20px; border-radius:50%; background:var(--route); color:#fff; font-size:10.5px; display:flex; align-items:center; justify-content:center; }
+  .chip.multi { border-color:#fcd34d; background:#fffbeb; } .chip.multi i { background:var(--amber); }
+  .ghost { position:fixed; z-index:100; pointer-events:none; transform:translate(-50%,-50%) scale(1.1) rotate(-3deg); box-shadow:0 10px 22px rgba(0,0,0,.25); }
+  .toast { position:absolute; left:12px; right:12px; top:52px; background:#1e1b4b; color:#fff; border-radius:12px; padding:10px 12px; font-size:12.5px; font-weight:700; display:flex; align-items:center; gap:10px; opacity:0; transform:translateY(8px); transition:.2s; pointer-events:none; z-index:30; }
+  .toast.show { opacity:1; transform:none; pointer-events:auto; }
+  .toast button { margin-left:auto; border:none; background:#fff; color:#1e1b4b; border-radius:8px; padding:6px 10px; font-weight:900; font-size:12px; cursor:pointer; }
+  .ask { position:absolute; inset:0; background:rgba(6,34,43,.35); display:none; align-items:flex-end; z-index:40; }
+  .ask.show { display:flex; }
+  .ask .box { width:100%; background:#fff; border-radius:20px 20px 0 0; padding:16px; display:grid; gap:8px; }
+  .ask b { font-size:15px; } .ask p { font-size:12px; color:var(--muted); }
+  .ask button { border:none; border-radius:12px; padding:12px; font-size:14px; font-weight:900; cursor:pointer; background:var(--rweak); color:var(--route); }
+  .ask button.p { background:var(--route); color:#fff; }
+  .ask input { font-size:16px; padding:10px 12px; border:1.5px solid var(--route); border-radius:10px; }
+  .hint { position:absolute; left:12px; right:12px; top:8px; background:var(--rweak); color:#5b21b6; border-radius:10px; padding:7px 10px; font-size:11.5px; font-weight:700; line-height:1.5; z-index:4; transition:opacity .2s; }
+</style></head><body>
+<div class="side">
+  <h1>導線の路線図：動かして直す（触れるモック）</h1>
+  <div>右の画面を指（マウス）で触ってください。データはこの画面の中だけで、保存はしません。</div>
+  <ul>
+    <li><b>見る</b>：駅を押すと、その場所の品目が下に番号順で出ます。</li>
+    <li><b>直す</b>に切り替えると、背景が方眼になり動かせます。</li>
+    <li>駅を<b>掴んで上下</b>へ運ぶ → 場所の順が変わり、線と番号が付いていく。</li>
+    <li>駅を<b>右の🗑へ</b>運ぶ → 消す（元に戻せる）。</li>
+    <li>駅と駅の間の<b>＋</b> → そこに新しい場所。</li>
+    <li>下の品目を<b>掴んで別の駅へ</b>落とす → 移す／両方に置く を選ぶ。</li>
+    <li>黄色の点線＝2か所にある品目（駅どうしを結ぶ）。</li>
+    <li>決まると小さく震える（Android のみ）。</li>
+  </ul>
+</div>
+
+<div class="phone" id="phone">
+  <div class="hd">🚶 導線<div class="sw"><button id="mView" class="on">見る</button><button id="mEdit">直す</button></div></div>
+  <div class="map" id="map">
+    <svg class="lines" id="lines"></svg>
+    <div class="hint" id="hint">駅を押すと、その場所の品目が下に出ます</div>
+    <div class="trash" id="trash"><i>🗑</i>ここで<br>離すと消す</div>
+    <div class="none" id="none"></div>
+  </div>
+  <div class="tray" id="tray"><div class="th" id="trayH"></div><div class="chips" id="chips"></div></div>
+  <div class="toast" id="toast"><span id="toastMsg"></span><button id="undo">元に戻す</button></div>
+  <div class="ask" id="ask"><div class="box" id="askBox"></div></div>
+</div>
+
+<script>
+const S = {
+  places: ['冷蔵庫', '冷凍庫', '乾物棚', '常温の棚', 'ドリンク'],
+  items: {
+    '冷蔵庫': ['キャベツ', 'トマト', '牛乳', 'バター', '生クリーム', 'ケチャップ'],
+    '冷凍庫': ['冷凍エビ', 'アイス', 'バター', '冷凍ポテト'],
+    '乾物棚': ['パスタ', '薄力粉', 'パン粉', '米', 'ケチャップ'],
+    '常温の棚': ['醤油', '酢', 'みりん', '油'],
+    'ドリンク': ['コーラ', '烏龍茶', '炭酸水'],
+  },
+  none: ['大葉', 'ラップ', '重曹'],
+}
+let edit = false, sel = '乾物棚', history = []
+const $ = id => document.getElementById(id)
+const map = $('map'), lines = $('lines')
+const GAP = 78, TOP = 88
+const yOf = i => TOP + i * GAP
+const buzz = () => { try { navigator.vibrate && navigator.vibrate(12) } catch (_) {} }
+const snap = () => history.push(JSON.stringify(S))
+
+function render(popName) {
+  map.querySelectorAll('.st,.plus').forEach(e => e.remove())
+  S.places.forEach((p, i) => {
+    const el = document.createElement('div')
+    el.className = 'st' + (p === sel ? ' sel' : '') + (p === popName ? ' pop' : '')
+    el.dataset.p = p
+    el.style.top = (yOf(i) - 28) + 'px'
+    el.innerHTML = `<span class="dot">${i + 1}</span><span><span class="nm">${p}</span><span class="ct">${S.items[p].length}品目</span></span>`
+    map.appendChild(el)
+    if (edit && i < S.places.length - 1) {
+      const pl = document.createElement('div')
+      pl.className = 'plus'; pl.textContent = '＋'; pl.dataset.at = i + 1
+      pl.style.top = (yOf(i) + GAP / 2 - 10) + 'px'
+      map.appendChild(pl)
+    }
+  })
+  if (edit) {
+    const pl = document.createElement('div')
+    pl.className = 'plus'; pl.textContent = '＋'; pl.dataset.at = S.places.length
+    pl.style.top = (yOf(S.places.length - 1) + 44) + 'px'
+    map.appendChild(pl)
+  }
+  drawLines()
+  $('none').innerHTML = S.none.length ? `入っていない<br><b style="font-size:13px">${S.none.length}品目</b>` : ''
+  $('none').style.display = S.none.length ? '' : 'none'
+  renderTray()
+  $('hint').textContent = edit ? '駅を掴んで上下へ・右の🗑へ／＋で場所を足す／下の品目を駅へ投げる' : '駅を押すと、その場所の品目が下に出ます'
+}
+
+function centers() {
+  const out = {}
+  map.querySelectorAll('.st').forEach(el => {
+    const r = el.getBoundingClientRect(), m = map.getBoundingClientRect()
+    out[el.dataset.p] = { x: r.left - m.left + 20, y: r.top - m.top + 28, right: r.left - m.left + 30 + el.querySelector('.nm').offsetWidth + 50 }
+  })
+  return out
+}
+function drawLines() {
+  const ys = S.places.map((_, i) => yOf(i))
+  let h = ''
+  if (ys.length) h += `<line x1="42" y1="${ys[0]}" x2="42" y2="${ys[ys.length - 1]}" stroke="#7c3aed" stroke-width="8" stroke-linecap="round"/>`
+  // 2か所にある品目：駅どうしを右側の点線で結ぶ
+  const seen = {}
+  S.places.forEach(p => S.items[p].forEach(it => { (seen[it] ??= []).push(p) }))
+  let k = 0
+  for (const [it, ps] of Object.entries(seen)) {
+    if (ps.length < 2) continue
+    const a = S.places.indexOf(ps[0]), b = S.places.indexOf(ps[1])
+    const y1 = yOf(a), y2 = yOf(b), x = 190, bend = 250 + k * 26
+    h += `<path d="M${x} ${y1} C ${bend} ${y1}, ${bend} ${y2}, ${x} ${y2}" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-dasharray="5 4"/>`
+    h += `<text x="${bend - 6}" y="${(y1 + y2) / 2 + 4 + k * 14}" font-size="10" font-weight="800" fill="#b45309" text-anchor="end">${it}</text>`
+    k++
+  }
+  lines.innerHTML = h
+}
+function renderTray() {
+  const items = S.items[sel] || []
+  const multi = new Set(Object.entries(S.items).flatMap(([p, its]) => its.filter(it => Object.values(S.items).filter(a => a.includes(it)).length > 1)))
+  $('trayH').innerHTML = sel ? `${S.places.indexOf(sel) + 1}. ${sel} <small>${items.length}品目${edit ? '・品目を掴んで別の駅へ' : '・この順で数えます'}</small>` : '<small>駅を押してください</small>'
+  $('chips').innerHTML = items.map((it, i) => `<span class="chip${multi.has(it) ? ' multi' : ''}" data-it="${it}"><i>${i + 1}</i>${it}</span>`).join('')
+}
+function toast(msg) {
+  $('toastMsg').textContent = msg
+  $('toast').classList.add('show')
+  clearTimeout(toast.t); toast.t = setTimeout(() => $('toast').classList.remove('show'), 4000)
+}
+$('undo').onclick = () => { const h = history.pop(); if (h) { Object.assign(S, JSON.parse(h)); if (!S.places.includes(sel)) sel = S.places[0]; render(); $('toast').classList.remove('show') } }
+
+$('mView').onclick = () => { edit = false; $('mView').classList.add('on'); $('mEdit').classList.remove('on'); map.classList.remove('edit'); render() }
+$('mEdit').onclick = () => { edit = true; $('mEdit').classList.add('on'); $('mView').classList.remove('on'); map.classList.add('edit'); render() }
+
+// ── 駅を運ぶ ──
+let drag = null
+map.addEventListener('pointerdown', e => {
+  const plus = e.target.closest('.plus')
+  if (plus && edit) { addPlace(+plus.dataset.at); return }
+  const st = e.target.closest('.st')
+  if (!st) return
+  if (!edit) { sel = st.dataset.p; render(); return }
+  const m = map.getBoundingClientRect()
+  drag = { el: st, p: st.dataset.p, from: S.places.indexOf(st.dataset.p), dy: e.clientY - st.getBoundingClientRect().top, mTop: m.top, mRight: m.right, moved: false, to: null }
+  st.setPointerCapture(e.pointerId)
+})
+map.addEventListener('pointermove', e => {
+  if (!drag) return
+  const { el } = drag
+  drag.moved = true
+  el.classList.add('drag')
+  const top = e.clientY - drag.mTop - drag.dy
+  el.style.top = top + 'px'
+  const x = e.clientX
+  const overTrash = x > drag.mRight - 80
+  $('trash').classList.add('show'); $('trash').classList.toggle('hot', overTrash)
+  drag.trash = overTrash
+  // 並び直し：他の駅をよける
+  const idx = Math.max(0, Math.min(S.places.length - 1, Math.round((top + 28 - TOP) / GAP)))
+  if (idx !== drag.to) {
+    drag.to = idx
+    const order = S.places.filter(p => p !== drag.p); order.splice(idx, 0, drag.p)
+    map.querySelectorAll('.st').forEach(s => { if (s !== el) s.style.top = (yOf(order.indexOf(s.dataset.p)) - 28) + 'px' })
+    map.querySelectorAll('.plus').forEach(p => p.style.opacity = 0)
+  }
+})
+function endDrag() {
+  if (!drag) return
+  const d = drag; drag = null
+  $('trash').classList.remove('show', 'hot')
+  if (!d.moved) { sel = d.p; render(); return }
+  if (d.trash) {
+    snap()
+    S.places = S.places.filter(p => p !== d.p)
+    for (const it of S.items[d.p]) if (!S.places.some(p => S.items[p].includes(it))) S.none.push(it)
+    delete S.items[d.p]
+    if (sel === d.p) sel = S.places[0]
+    buzz(); render(); toast(`「${d.p}」を消しました（品目は「入っていない」へ）`)
+    return
+  }
+  if (d.to != null && d.to !== d.from) {
+    snap()
+    S.places = S.places.filter(p => p !== d.p); S.places.splice(d.to, 0, d.p)
+    buzz(); render(d.p)
+    map.querySelectorAll('.st').forEach(s => s.classList.add('bump'))
+    toast(`「${d.p}」を ${d.to + 1}番目にしました`)
+  } else render()
+}
+map.addEventListener('pointerup', endDrag)
+map.addEventListener('pointercancel', endDrag)
+
+function addPlace(at) {
+  ask(`<b>${at + 1}番目に場所を足す</b><input id="nn" placeholder="例：バックヤード" /><button class="p" id="ok">足す</button><button id="cx">やめる</button>`)
+  setTimeout(() => $('nn').focus(), 50)
+  $('ok').onclick = () => {
+    const n = $('nn').value.trim(); if (!n || S.places.includes(n)) return
+    snap(); S.places.splice(at, 0, n); S.items[n] = []; sel = n
+    closeAsk(); buzz(); render(n); toast(`「${n}」を足しました`)
+  }
+  $('cx').onclick = closeAsk
+}
+function ask(html) { $('askBox').innerHTML = html; $('ask').classList.add('show') }
+function closeAsk() { $('ask').classList.remove('show') }
+
+// ── 品目を別の駅へ投げる ──
+let chip = null
+$('chips').addEventListener('pointerdown', e => {
+  const c = e.target.closest('.chip'); if (!c || !edit) return
+  const g = c.cloneNode(true); g.classList.add('ghost'); document.body.appendChild(g)
+  g.style.left = e.clientX + 'px'; g.style.top = e.clientY + 'px'
+  chip = { it: c.dataset.it, g, over: null }
+  c.setPointerCapture(e.pointerId)
+})
+$('chips').addEventListener('pointermove', e => {
+  if (!chip) return
+  chip.g.style.left = e.clientX + 'px'; chip.g.style.top = e.clientY + 'px'
+  let over = null
+  map.querySelectorAll('.st').forEach(s => {
+    const r = s.getBoundingClientRect()
+    const hit = e.clientX >= r.left - 10 && e.clientX <= r.left + 220 && e.clientY >= r.top - 14 && e.clientY <= r.bottom + 14 && s.dataset.p !== sel
+    s.classList.toggle('drop', hit); if (hit) over = s.dataset.p
+  })
+  chip.over = over
+})
+function endChip() {
+  if (!chip) return
+  const c = chip; chip = null; c.g.remove()
+  map.querySelectorAll('.st').forEach(s => s.classList.remove('drop'))
+  if (!c.over) return
+  const from = sel, to = c.over
+  ask(`<b>「${c.it}」を${to}へ</b><p>${from} → ${to}</p><button class="p" id="mv">移す</button><button id="both">両方に置く（2か所にある）</button><button id="cx">やめる</button>`)
+  $('mv').onclick = () => { snap(); S.items[from] = S.items[from].filter(x => x !== c.it); if (!S.items[to].includes(c.it)) S.items[to].push(c.it); closeAsk(); buzz(); render(to); toast(`「${c.it}」を${to}へ移しました`) }
+  $('both').onclick = () => { snap(); if (!S.items[to].includes(c.it)) S.items[to].push(c.it); closeAsk(); buzz(); render(to); toast(`「${c.it}」を${to}にも置きました`) }
+  $('cx').onclick = closeAsk
+}
+$('chips').addEventListener('pointerup', endChip)
+$('chips').addEventListener('pointercancel', endChip)
+
+render()
+</script>
+</body></html>
