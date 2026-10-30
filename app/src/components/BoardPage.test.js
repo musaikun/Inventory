@@ -1,4 +1,4 @@
-// 掲示板（以前の「連絡」。貼り紙・タスク化・はがす。User決定 2026-10-27・キャンバス「日誌カレンダー」⑫⑬）
+// ボード（以前の「連絡」。貼り紙・タスク化・はがす。User決定 2026-10-27・キャンバス「日誌カレンダー」⑫⑬）
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createApp, h, nextTick } from 'vue'
 
@@ -29,8 +29,8 @@ const board = () => document.body.querySelector('.bd')
 const note = text => [...board().querySelectorAll('.bd-n')].find(n => n.textContent.includes(text))
 const sheet = () => document.body.querySelector('.bd-sh')
 
-describe('掲示板', () => {
-  it('ホームのカードに新しい数と貼り紙2枚。押すと掲示板（新しいものが左上・まだ見ていないものは光る）', async () => {
+describe('ボード', () => {
+  it('ホームのカードに新しい数と貼り紙2枚。押すとボード（新しいものが左上・まだ見ていないものは光る）', async () => {
     await seed([
       { id: 'h2', kind: 'tell', body: '冷蔵庫の扉のパッキンが浮いてます', by: '佐藤', byId: 'st-s', reads: [], createdAt: ago(1) },
       { id: 'h1', kind: 'tell', body: 'トマトの入荷が明日に', by: '山田', byId: 'st-y', reads: [{ id: 'x', name: '高木' }], createdAt: ago(20) },
@@ -112,7 +112,7 @@ describe('掲示板', () => {
     await click(btn('元に戻す', board()))
     expect(T.aliveTasks.value.some(t => t.text === 'エアコンの修理')).toBe(false)
     expect(actHandoffInD1).toHaveBeenLastCalledWith('d', 'task', { taskId: byText['エアコンの修理'].id, clear: true })
-    // タスクが終わったら掲示板から外れる
+    // タスクが終わったらボードから外れる
     T.toggleTask(byText['玉ねぎ多め'].id); await tick()
     expect(note('玉ねぎ')).toBeUndefined()
   })

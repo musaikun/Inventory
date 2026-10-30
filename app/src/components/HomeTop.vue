@@ -1,9 +1,10 @@
 <script setup>
 /**
  * トップ（ホーム）。アプリを開いて最初の画面（User決定 2026-10-07・モック docs/mocks/home-top.html）。
- * - 上部: アイコンと同じ「暗い地に光る輪」に、あいさつ・日付・天気
+ * - 上部: アイコンと同じ「暗い地に光る輪」に、店名・日付・天気の1行（あいさつはやめた・User決定 2026-10-30）
  * - 今日のやることの要約（進み具合の輪・期限切れ・次の時刻のもの）。押すと「やること」画面
- * - 掲示板（以前の「連絡」のトーク・User決定 2026-10-27）: 新しい貼り紙の数と、貼り紙2枚を付箋のように。押すと掲示板（BoardPage）
+ * - ボード（以前の「連絡」のトーク。「掲示板」から改名・User決定 2026-10-27 / 10-30）: 新しい貼り紙の数と、貼り紙2枚を付箋のように。押すとボード（BoardPage）
+ * - 今日のやること・ボード・ショートカット9枚を、スマホでスクロールせずに1画面へ収める（User決定 2026-10-30）
  * - 棚卸・発注が始まっていれば、ショートカットのアイコンで知らせる（進行中のカードはやめた・User決定 2026-10-27）。
  *   だれかがルームに入っていれば「進行中」（外の輪が回る）、だれもいなければ「中断中」（光って止まっている）
  * - ショートカット: 棚卸／発注／品目リスト整理／在庫／日誌／レポート／スタッフ／データ／設定（最大9枚・説明文なし・User決定 2026-10-26）。
@@ -14,7 +15,6 @@ import { ref, computed, onMounted } from 'vue'
 import { tasksOn, overdueTasks, isAssignedToMe, isMarkedByMe, pullTasks } from '../composables/useTasks.js'
 import { currentStaff, storeName, canSeeReport, isAuthenticated, isAdmin, can } from '../composables/useAuth.js'
 import { aliveTasks } from '../composables/useTasks.js'
-import { deviceName } from '../composables/useDeviceId.js'
 import { useWeather } from '../composables/useWeather.js'
 import { localDateKey } from '../utils/localDate.js'
 import { APP_NAME } from '../appInfo.js'
@@ -38,9 +38,9 @@ const emit = defineEmits(['go', 'stock', 'order', 'resume', 'openTodo'])
 
 onMounted(() => { pullTasks(); pullHandoffs() })
 
-// ── 掲示板 ──
+// ── ボード ──
 const boardOpen = ref(false)
-// 掲示板に出ているもの（タスクにして終わったものは外れる）。まだ見ていないものを先に2枚
+// ボードに出ているもの（タスクにして終わったものは外れる）。まだ見ていないものを先に2枚
 const boardPreview = computed(() => {
   const done = new Set(aliveTasks.value.filter(t => t.doneAt).map(t => t.id))
   const on = handoffs.value.filter(h => !(h.taskId && done.has(h.taskId)))
@@ -53,17 +53,10 @@ const _ago = iso => {
   return day === localDateKey() ? `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}` : day === localDateKey(new Date(Date.now() - 86400_000)) ? '昨日' : `${d.getMonth() + 1}/${d.getDate()}`
 }
 
-// ── あいさつ ──
+// ── 日付（あいさつは出さない・User決定 2026-10-30）──
 const now = new Date()
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
-const dateLabel = `${now.getMonth() + 1}月${now.getDate()}日（${WEEK[now.getDay()]}）`
-const hello = (() => {
-  const h = now.getHours()
-  if (h >= 4 && h < 11) return 'おはようございます'
-  if (h >= 11 && h < 17) return 'こんにちは'
-  return 'おつかれさまです'
-})()
-const who = computed(() => deviceName.value || '')
+const dateLabel = `${now.getMonth() + 1}/${now.getDate()}（${WEEK[now.getDay()]}）`
 
 const { state: weatherState } = useWeather()
 const today = localDateKey()
@@ -71,8 +64,7 @@ const wx = computed(() => {
   const w = weatherState.weather?.[today]
   if (!w) return ''
   const t = w.tempHi != null ? `${Math.round(w.tempHi)}°` : ''
-  const pop = w.pop != null ? `降水 ${w.pop}%` : ''
-  return [`${w.icon} ${t}`.trim(), weatherState.loc?.name || '', pop].filter(Boolean).join(' ・ ')
+  return `${w.icon} ${t}`.trim()
 })
 
 // ── 今日のやること ──
@@ -83,7 +75,7 @@ const doneCount = computed(() => todays.value.filter(doneOf).length)
 const total = computed(() => todays.value.length)
 const R = 30, C = 2 * Math.PI * R
 const dash = computed(() => (total.value ? `${(doneCount.value / total.value) * C} ${C}` : `0 ${C}`))
-/** 要約に出す3行: 期限切れ → 今日のまだのもの（自分の担当を先に） */
+/** 要約に出す2行: 期限切れ → 今日のまだのもの（自分の担当を先に）。1画面に収めるため2行まで */
 const preview = computed(() => {
   const open = todays.value.filter(t => !(t.assign === 'all' ? isMarkedByMe(t) : t.doneAt))
   const mine = open.filter(isAssignedToMe)
@@ -96,7 +88,7 @@ const preview = computed(() => {
     ...lateLine,
     ...[...mine, ...rest].sort((a, b) => (a.dueTime || '99').localeCompare(b.dueTime || '99'))
       .map(t => ({ t, tag: t.dueTime || '今日', late: false })),
-  ].slice(0, 3)
+  ].slice(0, 2)
 })
 
 // 承認待ち（参加申請のやることのうち、まだ決まっていないもの）
@@ -201,17 +193,13 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
         <svg width="24" height="24" viewBox="0 0 40 40" aria-hidden="true"><ellipse cx="20" cy="20" rx="16" ry="10" transform="rotate(-18 20 20)" fill="none" :stroke="`url(#${gid})`" stroke-width="3.4" /></svg>
         <span class="ht-brand">{{ APP_NAME }}</span>
         <span v-if="storeName" class="ht-store">{{ storeName }}</span>
-      </div>
-      <div class="ht-hi">
-        <small>{{ dateLabel }}</small>
-        <b>{{ hello }}<template v-if="who">、<br>{{ who }}さん</template></b>
-        <span v-if="wx" class="ht-wx">{{ wx }}</span>
+        <span class="ht-date">{{ dateLabel }}<template v-if="wx"> ・ {{ wx }}</template></span>
       </div>
     </section>
 
     <button type="button" class="ht-today" aria-label="やることを開く" @click="emit('openTodo')">
       <span class="ht-pr" aria-hidden="true">
-        <svg width="72" height="72" viewBox="0 0 72 72">
+        <svg width="56" height="56" viewBox="0 0 72 72">
           <circle cx="36" cy="36" :r="R" fill="none" stroke="#e2eef1" stroke-width="7" />
           <circle cx="36" cy="36" :r="R" fill="none" :stroke="`url(#${gid})`" stroke-width="7" stroke-linecap="round" :stroke-dasharray="dash" transform="rotate(-90 36 36)" />
         </svg>
@@ -226,10 +214,10 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
       </span>
     </button>
 
-    <button type="button" class="ht-bd-card" aria-label="掲示板を開く" @click="boardOpen = true">
+    <button type="button" class="ht-bd-card" aria-label="ボードを開く" @click="boardOpen = true">
       <span class="ht-bdc-h">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="3" width="13" height="15" rx="3" transform="skewY(-8)" /><rect x="4" y="7" width="13" height="15" rx="3" transform="skewY(-8)" /></svg>
-        <b>掲示板</b>
+        <b>ボード</b>
         <em v-if="boardPreview.fresh">新しい {{ boardPreview.fresh }}</em>
         <i>›</i>
       </span>
@@ -243,9 +231,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
     </button>
     <BoardPage v-if="boardOpen" @close="boardOpen = false" />
 
-
-    <div class="ht-sec">ショートカット</div>
-    <div class="ht-grid">
+    <div class="ht-grid" aria-label="ショートカット">
       <button
         v-for="s in shortcuts" :key="s.key" type="button" :class="['ht-sc', { hot: s.hot, ord: s.ord, run: s.run, live: s.live }]"
         :aria-label="s.run ? `${s.label}（${s.badge.text}）を続ける` : undefined"
@@ -323,11 +309,13 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 </template>
 
 <style scoped>
-.ht { padding-bottom: 24px; }
-.ht-hero { position: relative; min-height: 236px; padding: 16px 18px 76px; color: #e6fbff; overflow: hidden;
+/* 今日のやること・ボード・ショートカット9枚をスクロールせずに見せる（User決定 2026-10-30）。
+   高さ667pxの端末（下のナビを除いて約600px）でも収まるよう、上部は1行・各カードは詰めて置く */
+.ht { padding-bottom: 12px; }
+.ht-hero { position: relative; padding: 12px 16px; color: #e6fbff; overflow: hidden;
   background: radial-gradient(120% 90% at 85% 10%, #0f4c5c 0%, #0a3340 45%, #06222b 100%); }
-.ht-ring { position: absolute; right: -80px; top: 40px; opacity: .9; pointer-events: none; }
-.ht-glow { position: absolute; right: 10px; top: 30px; width: 140px; height: 140px; border-radius: 50%; background: radial-gradient(circle, rgba(34,211,238,.35), transparent 70%); filter: blur(6px); pointer-events: none;
+.ht-ring { position: absolute; right: -110px; top: -96px; opacity: .55; pointer-events: none; }
+.ht-glow { position: absolute; right: 10px; top: -40px; width: 110px; height: 110px; border-radius: 50%; background: radial-gradient(circle, rgba(34,211,238,.35), transparent 70%); filter: blur(6px); pointer-events: none;
   animation: ht-breathe 5s ease-in-out infinite; }
 /* 上部のイメージの動き（アイコンの光る輪）。動きを減らす設定の端末では止める */
 .ht-spark { stroke-dasharray: 7 93; animation: ht-orbit 6s linear infinite; opacity: .9; }
@@ -345,30 +333,27 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-top { position: relative; display: flex; align-items: center; gap: 8px; }
 .ht-brand { font-weight: 900; letter-spacing: .08em; font-size: 15px; }
 .ht-store { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ht-hi { position: relative; margin-top: 24px; }
-.ht-hi small { display: block; font-size: 12px; color: #9fd8e3; letter-spacing: .04em; }
-.ht-hi b { display: block; font-size: 23px; font-weight: 800; margin-top: 4px; letter-spacing: .02em; line-height: 1.35; }
-.ht-wx { display: inline-block; margin-top: 8px; font-size: 12px; color: #bfeaf2; }
+.ht-date { margin-left: auto; flex: none; font-size: 12px; font-weight: 700; color: #bfeaf2; white-space: nowrap; }
 
-.ht-bd-card { position: relative; z-index: 1; width: calc(100% - 28px); margin: 12px 14px 0; border: none; border-radius: 20px; background: var(--surface); box-shadow: 0 8px 22px rgba(6,34,43,.1); padding: 12px 14px 16px; display: grid; gap: 12px; text-align: left; font: inherit; color: var(--text); cursor: pointer; }
+.ht-bd-card { position: relative; z-index: 1; width: calc(100% - 28px); margin: 10px 14px 0; border: none; border-radius: 18px; background: var(--surface); box-shadow: 0 6px 18px rgba(6,34,43,.1); padding: 10px 12px 12px; display: grid; gap: 8px; text-align: left; font: inherit; color: var(--text); cursor: pointer; }
 .ht-bdc-h { display: flex; align-items: center; gap: 8px; color: var(--primary, #0e7490); }
 .ht-bdc-h b { flex: 1; font-size: 15px; color: var(--text); }
 .ht-bdc-h em { font-style: normal; font-size: 11.5px; font-weight: 900; color: #06323c; background: linear-gradient(90deg, #67e8f9, #6ee7b7); border-radius: 999px; padding: 2px 9px; }
 .ht-bdc-h i { font-style: normal; font-weight: 800; }
-.ht-bdc-g { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 2px 4px 0; }
-.ht-bdc-n { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 6px; min-height: 76px; padding: 10px 10px 8px; border-radius: 12px; background: var(--surface, #fff); box-shadow: 0 6px 14px rgba(6,34,43,.13), 0 1px 2px rgba(6,34,43,.08); }
-.ht-bdc-n.fresh { padding-top: 13px; box-shadow: 0 0 0 1.5px rgba(34,211,238,.5), 0 8px 18px rgba(14,116,144,.2); }
+.ht-bdc-g { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 0 4px; }
+.ht-bdc-n { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 4px; min-height: 56px; padding: 8px 10px 6px; border-radius: 12px; background: var(--surface, #fff); box-shadow: 0 6px 14px rgba(6,34,43,.13), 0 1px 2px rgba(6,34,43,.08); }
+.ht-bdc-n.fresh { padding-top: 11px; box-shadow: 0 0 0 1.5px rgba(34,211,238,.5), 0 8px 18px rgba(14,116,144,.2); }
 .ht-bdc-n.fresh::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: linear-gradient(90deg, #2563eb, #22d3ee, #34d399); box-shadow: 0 0 10px #22d3ee; }
-.ht-bdc-n .b { font-size: 12.5px; font-weight: 700; line-height: 1.5; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.ht-bdc-n .b { font-size: 12.5px; font-weight: 700; line-height: 1.5; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
 .ht-bdc-n small { margin-top: auto; font-size: 10.5px; font-weight: 800; color: var(--text-muted); }
 .ht-bdc-n.fresh small { color: var(--primary, #0e7490); }
 .ht-bdc-none { font-size: 12.5px; font-weight: 700; color: var(--text-muted); }
-.ht-today { position: relative; z-index: 1; width: calc(100% - 28px); margin: -64px 14px 0; border: none; text-align: left; font: inherit; color: var(--text);
-  background: rgba(255,255,255,.97); border-radius: 20px; padding: 14px; box-shadow: 0 10px 28px rgba(6,34,43,.18); display: flex; gap: 14px; align-items: center; cursor: pointer; }
-.ht-pr { flex: none; position: relative; width: 72px; height: 72px; }
-.ht-pr > span { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 900; font-size: 17px; line-height: 1.1; }
+.ht-today { position: relative; z-index: 1; width: calc(100% - 28px); margin: 10px 14px 0; border: none; text-align: left; font: inherit; color: var(--text);
+  background: rgba(255,255,255,.97); border-radius: 18px; padding: 10px 12px; box-shadow: 0 6px 18px rgba(6,34,43,.12); display: flex; gap: 12px; align-items: center; cursor: pointer; }
+.ht-pr { flex: none; position: relative; width: 56px; height: 56px; }
+.ht-pr > span { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; line-height: 1.1; }
 .ht-pr small { font-size: 9.5px; color: var(--text-muted); font-weight: 700; }
-.ht-tx { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.ht-tx { flex: 1; min-width: 0; display: grid; gap: 3px; }
 .ht-tt { font-size: 13px; font-weight: 800; color: var(--text-muted); display: flex; justify-content: space-between; gap: 6px; }
 .ht-tt i { font-style: normal; color: var(--primary); white-space: nowrap; }
 .ht-ln { font-size: 13px; display: flex; gap: 6px; align-items: baseline; min-width: 0; }
@@ -378,12 +363,10 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-ln.mine > span { color: var(--primary); font-weight: 800; }
 .ht-ln.none { color: var(--text-muted); }
 
-
-.ht-sec { margin: 16px 18px 8px; font-size: 11px; font-weight: 800; letter-spacing: .1em; color: var(--text-muted); }
-.ht-grid { margin: 0 14px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.ht-sc { position: relative; border: none; font: inherit; color: var(--text); background: var(--surface); border-radius: 18px; padding: 14px 4px 11px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.05); cursor: pointer; min-width: 0; }
+.ht-grid { margin: 12px 14px 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.ht-sc { position: relative; border: none; font: inherit; color: var(--text); background: var(--surface); border-radius: 16px; padding: 10px 4px 8px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.05); cursor: pointer; min-width: 0; }
 .ht-sc:disabled { opacity: .6; }
-.ht-ic { width: 44px; height: 44px; margin: 0 auto 7px; border-radius: 14px; display: grid; place-items: center; color: var(--primary); background: linear-gradient(145deg, #ecfeff, #e0f2fe); }
+.ht-ic { width: 38px; height: 38px; margin: 0 auto 5px; border-radius: 12px; display: grid; place-items: center; color: var(--primary); background: linear-gradient(145deg, #ecfeff, #e0f2fe); }
 .ht-sc.hot .ht-ic { color: #fff; background: linear-gradient(145deg, #0e7490, #0b3b48); box-shadow: 0 0 0 2px rgba(34,211,238,.35), 0 6px 14px rgba(14,116,144,.35); }
 .ht-sc.ord .ht-ic { color: #c2410c; background: linear-gradient(145deg, #fff7ed, #ffedd5); }
 /* 始まっている棚卸・発注: 光る（中断中は止まったまま、進行中は外の輪が回って後ろが脈打つ） */

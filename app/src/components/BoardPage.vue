@@ -1,10 +1,10 @@
 <script setup>
 /**
- * 掲示板（以前の「連絡」のトーク。User決定 2026-10-27・キャンバス「日誌カレンダー」⑬）。
+ * ボード（以前の「連絡」のトーク。User決定 2026-10-27・キャンバス「日誌カレンダー」⑬。「掲示板」から改名・User決定 2026-10-30）。
  * 返事のいらない貼り紙を置いておく場所。タスクにするかは後で決める。
  * - 付箋のように2列に貼る（新しいものが左上）。少しずつ傾け、浮いた影。新しいもの（まだ見ていない人のもの）は上の縁が光る
  * - 押すと下から開く: 本文・見た人とまだの人・［はがす］（書いた人と管理者）［タスク化］。開くと「見た」になる
- * - タスク化した貼り紙は「✓ タスクにした」。そのタスクが終わったら掲示板から外れる
+ * - タスク化した貼り紙は「✓ タスクにした」。そのタスクが終わったらボードから外れる
  * - 2週間より前のものは下にたたむ
  * - はがすは5秒だけ元に戻せる（そのあとでサーバーから消す）
  */
@@ -122,14 +122,14 @@ onUnmounted(registerInnerLayerCloser(() => {
 
 <template>
   <Teleport to="body">
-    <div class="bd" role="dialog" aria-label="掲示板">
+    <div class="bd" role="dialog" aria-label="ボード">
       <header class="bd-h">
         <svg class="bd-ring" width="220" height="120" viewBox="0 0 220 120" aria-hidden="true">
           <defs><linearGradient id="bd-g" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2563eb" /><stop offset=".55" stop-color="#22d3ee" /><stop offset="1" stop-color="#34d399" /></linearGradient></defs>
           <ellipse cx="110" cy="64" rx="96" ry="40" transform="rotate(-14 110 64)" fill="none" stroke="url(#bd-g)" stroke-width="3" />
         </svg>
         <button type="button" class="bd-back" aria-label="ホームにもどる" @click="emit('close')">‹</button>
-        <h2>掲示板</h2>
+        <h2>ボード</h2>
         <small>{{ notes.length }}枚</small>
       </header>
 
@@ -167,7 +167,7 @@ onUnmounted(registerInnerLayerCloser(() => {
           <span>見た：{{ seen.read.map(r => r.name || '名前なし').join('・') || 'まだだれも' }}</span>
           <span v-if="seen.unread.length" class="un">まだ：{{ seen.unread.map(p => p.name).join('・') }}</span>
         </div>
-        <span v-if="cur.taskId" class="bd-sh-t">✓ タスクにした<template v-if="taskLabel">（{{ taskLabel }}）</template> ・ 終わったら掲示板から外れます</span>
+        <span v-if="cur.taskId" class="bd-sh-t">✓ タスクにした<template v-if="taskLabel">（{{ taskLabel }}）</template> ・ 終わったらボードから外れます</span>
         <div class="bd-sh-a">
           <button v-if="canRemoveHandoff(cur)" type="button" class="sub" @click="peel(cur)">はがす</button>
           <button v-if="!cur.taskId && canWrite" type="button" class="main" @click="tasking = cur">タスク化</button>
