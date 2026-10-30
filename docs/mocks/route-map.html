@@ -1,0 +1,142 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>導線の図 モック</title><style>
+  :root { --route:#7c3aed; --rweak:#f5f3ff; --rmid:#ddd6fe; --text:#12303a; --muted:#4c6a72; --border:#d6e6ea; --ok:#15803d; --amber:#b45309; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:#c9d8dd; color:var(--text); padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; } h2 { font-size:16px; margin:28px 0 10px; }
+  h2 .tag { font-size:11px; color:#fff; background:var(--route); border-radius:6px; padding:2px 8px; margin-right:6px; vertical-align:2px; } h2 .tag.b { background:#64748b; }
+  .lead { font-size:13px; color:var(--muted); margin-bottom:8px; max-width:1200px; line-height:1.7; }
+  .row { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; }
+  .col { display:grid; gap:8px; }
+  .cap { font-size:14px; font-weight:800; } .cap small { display:block; font-weight:400; color:var(--muted); font-size:12px; max-width:300px; line-height:1.55; }
+  .phone { width:300px; height:620px; background:#fff; border-radius:28px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; position:relative; }
+  .hd { display:flex; align-items:center; gap:8px; padding:11px 12px; border-bottom:1px solid #eef4f6; font-weight:900; font-size:14px; }
+  .hd .bk { color:var(--route); font-size:12.5px; } .hd .sw { margin-left:auto; display:flex; border:1.5px solid var(--rmid); border-radius:9px; overflow:hidden; font-size:11px; }
+  .hd .sw span { padding:4px 8px; color:var(--route); } .hd .sw span.on { background:var(--route); color:#fff; }
+  svg { display:block; }
+  .legend { display:flex; gap:10px; flex-wrap:wrap; padding:6px 12px; font-size:10.5px; color:var(--muted); font-weight:700; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:3px; vertical-align:-1px; }
+  .sum { margin:6px 12px; background:var(--rweak); border-radius:10px; padding:8px 10px; font-size:11.5px; font-weight:700; color:#4c1d95; line-height:1.6; }
+  .note { font-size:11px; background:#fff7ed; border:1px dashed #fb923c; color:#9a3412; border-radius:8px; padding:6px 8px; line-height:1.5; margin:6px 12px; }
+  .tool { display:flex; gap:6px; padding:6px 12px; } .tool span { flex:1; text-align:center; border:1.5px solid var(--border); border-radius:9px; padding:6px; font-size:11.5px; font-weight:800; color:var(--muted); }
+  .tool span.on { border-color:var(--route); color:var(--route); background:var(--rweak); }
+  table.cmp { border-collapse:collapse; background:#fff; border-radius:12px; overflow:hidden; font-size:13px; max-width:900px; }
+  table.cmp th, table.cmp td { padding:8px 12px; border-top:1px solid #eef4f6; text-align:left; vertical-align:top; line-height:1.6; } table.cmp th { background:#f6fafb; }
+</style></head><body>
+<h1>組んだ導線を図で見る</h1>
+<p class="lead">
+導線は「場所の順」と「場所の中の品目の順」を持っているので、<b>路線図</b>ならそのまま描ける（間取りの入力は要らない）。<br>
+<b>間取り図</b>は場所を置く手間が要るが、実物に近く、将来の納品の案内（この品目はここへ）にも使える。
+</p>
+
+<h2><span class="tag">A</span>路線図（おすすめ・追加の入力なし）</h2>
+<div class="row">
+  <div class="col">
+    <div class="cap">A-1 導線の全体<small>場所＝駅。歩く順に縦の線でつなぐ。駅の横に品目数と進み具合。2か所にある品目は駅どうしを細い線で結ぶ（乗り換え）。駅を押すとその場所の品目と順番</small></div>
+    <div class="phone">
+      <div class="hd"><span class="bk">‹ 閉じる</span>🚶 導線<span class="sw"><span>一覧</span><span class="on">図</span></span></div>
+      <svg width="288" height="430" viewBox="0 0 288 430">
+        <!-- 本線 -->
+        <line x1="48" y1="40" x2="48" y2="390" stroke="#7c3aed" stroke-width="8" stroke-linecap="round"/>
+        <!-- 乗り換え（2か所にある品目） -->
+        <path d="M170 40 C 215 40, 215 125, 170 125" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-dasharray="5 4"/>
+        <text x="214" y="86" font-size="10" fill="#b45309" font-weight="700">バター</text>
+        <path d="M170 34 C 270 34, 270 300, 170 300" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-dasharray="5 4"/>
+        <text x="226" y="170" font-size="10" fill="#b45309" font-weight="700">ケチャップ</text>
+        <!-- 駅 -->
+        <g font-family="sans-serif">
+          <circle cx="48" cy="40" r="15" fill="#fff" stroke="#7c3aed" stroke-width="5"/><text x="48" y="45" text-anchor="middle" font-size="13" font-weight="900" fill="#7c3aed">1</text>
+          <text x="74" y="36" font-size="14" font-weight="900" fill="#12303a">冷蔵庫</text><text x="74" y="52" font-size="10.5" fill="#4c6a72" font-weight="700">18品目 ・ 済み</text>
+          <circle cx="48" cy="125" r="15" fill="#fff" stroke="#7c3aed" stroke-width="5"/><text x="48" y="130" text-anchor="middle" font-size="13" font-weight="900" fill="#7c3aed">2</text>
+          <text x="74" y="121" font-size="14" font-weight="900" fill="#12303a">冷凍庫</text><text x="74" y="137" font-size="10.5" fill="#4c6a72" font-weight="700">21品目</text>
+          <circle cx="48" cy="210" r="15" fill="#7c3aed" stroke="#7c3aed" stroke-width="5"/><text x="48" y="215" text-anchor="middle" font-size="13" font-weight="900" fill="#fff">3</text>
+          <text x="74" y="206" font-size="14" font-weight="900" fill="#7c3aed">乾物棚</text><text x="74" y="222" font-size="10.5" fill="#7c3aed" font-weight="700">26品目</text>
+          <circle cx="48" cy="300" r="15" fill="#fff" stroke="#7c3aed" stroke-width="5"/><text x="48" y="305" text-anchor="middle" font-size="13" font-weight="900" fill="#7c3aed">4</text>
+          <text x="74" y="296" font-size="14" font-weight="900" fill="#12303a">常温の棚</text><text x="74" y="312" font-size="10.5" fill="#4c6a72" font-weight="700">28品目</text>
+          <circle cx="48" cy="390" r="15" fill="#fff" stroke="#7c3aed" stroke-width="5"/><text x="48" y="395" text-anchor="middle" font-size="13" font-weight="900" fill="#7c3aed">5</text>
+          <text x="74" y="386" font-size="14" font-weight="900" fill="#12303a">ドリンク</text><text x="74" y="402" font-size="10.5" fill="#4c6a72" font-weight="700">12品目</text>
+        </g>
+        <!-- 導線に入っていない -->
+        <g><rect x="190" y="372" width="92" height="40" rx="10" fill="#fef2f2"/><text x="236" y="390" text-anchor="middle" font-size="10.5" font-weight="800" fill="#b91c1c">入っていない</text><text x="236" y="404" text-anchor="middle" font-size="12" font-weight="900" fill="#b91c1c">5品目</text></g>
+      </svg>
+      <div class="legend"><span><i style="background:#7c3aed"></i>歩く順</span><span><i style="background:#f59e0b"></i>2か所にある品目</span></div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">A-2 駅を押すと<small>その場所の品目を順番どおりに（番号つき）。下に「この場所の順番を直す」→ 振り分けの画面の「順番」へ</small></div>
+    <div class="phone">
+      <div class="hd"><span class="bk">‹ 図</span>③ 乾物棚</div>
+      <svg width="288" height="370" viewBox="0 0 288 370">
+        <line x1="34" y1="18" x2="34" y2="350" stroke="#ddd6fe" stroke-width="4"/>
+        <g font-size="13" font-weight="800" fill="#12303a">
+          <circle cx="34" cy="20" r="11" fill="#7c3aed"/><text x="34" y="24" text-anchor="middle" fill="#fff" font-size="11">1</text><text x="56" y="25">パスタ</text>
+          <circle cx="34" cy="62" r="11" fill="#7c3aed"/><text x="34" y="66" text-anchor="middle" fill="#fff" font-size="11">2</text><text x="56" y="67">薄力粉</text>
+          <circle cx="34" cy="104" r="11" fill="#7c3aed"/><text x="34" y="108" text-anchor="middle" fill="#fff" font-size="11">3</text><text x="56" y="109">パン粉</text>
+          <circle cx="34" cy="146" r="11" fill="#7c3aed"/><text x="34" y="150" text-anchor="middle" fill="#fff" font-size="11">4</text><text x="56" y="151">米</text>
+          <circle cx="34" cy="188" r="11" fill="#f59e0b"/><text x="34" y="192" text-anchor="middle" fill="#fff" font-size="11">5</text><text x="56" y="193">ケチャップ</text><text x="140" y="193" font-size="10" fill="#b45309">⇄ 冷蔵庫にも</text>
+          <circle cx="34" cy="230" r="11" fill="#7c3aed"/><text x="34" y="234" text-anchor="middle" fill="#fff" font-size="11">6</text><text x="56" y="235">醤油</text>
+          <text x="34" y="280" text-anchor="middle" fill="#a78bfa" font-size="14">⋮</text><text x="56" y="281" fill="#4c6a72" font-size="11">ほか 20品目</text>
+        </g>
+      </svg>
+      <div class="tool"><span class="on">この場所の順番を直す</span></div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">A-3 棚卸の最中に（いまどこ）<small>棚卸の画面の上に小さな路線図。数え終えた駅は塗りつぶし、今の駅が光る。全体のどこまで来たかが一目で分かる</small></div>
+    <div class="phone">
+      <div class="hd">棚卸<span style="margin-left:auto;font-size:11.5px;color:#4c6a72">62 / 105</span></div>
+      <svg width="288" height="64" viewBox="0 0 288 64">
+        <line x1="22" y1="24" x2="266" y2="24" stroke="#ddd6fe" stroke-width="6" stroke-linecap="round"/>
+        <line x1="22" y1="24" x2="144" y2="24" stroke="#7c3aed" stroke-width="6" stroke-linecap="round"/>
+        <g font-size="9.5" font-weight="800" text-anchor="middle">
+          <circle cx="22" cy="24" r="8" fill="#7c3aed"/><text x="22" y="50" fill="#4c6a72">冷蔵庫</text>
+          <circle cx="83" cy="24" r="8" fill="#7c3aed"/><text x="83" y="50" fill="#4c6a72">冷凍庫</text>
+          <circle cx="144" cy="24" r="11" fill="#fff" stroke="#7c3aed" stroke-width="4"/><circle cx="144" cy="24" r="17" fill="none" stroke="#c4b5fd" stroke-width="2"/><text x="144" y="52" fill="#7c3aed" font-size="10.5">乾物棚 8/26</text>
+          <circle cx="205" cy="24" r="8" fill="#fff" stroke="#c4b5fd" stroke-width="3"/><text x="205" y="50" fill="#94a3b8">常温の棚</text>
+          <circle cx="266" cy="24" r="8" fill="#fff" stroke="#c4b5fd" stroke-width="3"/><text x="266" y="50" fill="#94a3b8">ドリンク</text>
+        </g>
+      </svg>
+      <div class="sum">いま「乾物棚」：あと 18品目。次は「常温の棚」</div>
+      <div class="note">一覧（導線の並び）はこの下にそのまま。スクロールすると今の駅が変わる</div>
+    </div>
+  </div>
+</div>
+
+<h2><span class="tag b">B</span>間取り図（あとで・場所を置く手間あり）</h2>
+<div class="row">
+  <div class="col">
+    <div class="cap">B-1 店の間取りに場所を置く<small>方眼の上に場所のカードを指で置く（壁や出入口は描かない・だいたいで良い）。置いた順ではなく導線の順で矢印が引かれる</small></div>
+    <div class="phone">
+      <div class="hd"><span class="bk">‹ 閉じる</span>🚶 導線<span class="sw"><span>一覧</span><span>路線</span><span class="on">間取り</span></span></div>
+      <svg width="288" height="400" viewBox="0 0 288 400">
+        <defs><pattern id="g" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#eef2f7" stroke-width="1"/></pattern>
+          <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#7c3aed"/></marker></defs>
+        <rect x="8" y="8" width="272" height="384" rx="12" fill="url(#g)" stroke="#cbd5e1" stroke-width="2"/>
+        <text x="144" y="388" text-anchor="middle" font-size="10" fill="#94a3b8" font-weight="700">入口</text>
+        <path d="M70 70 L 200 70" stroke="#7c3aed" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+        <path d="M222 92 L 222 190" stroke="#7c3aed" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+        <path d="M200 215 L 90 215" stroke="#7c3aed" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+        <path d="M60 238 L 60 318" stroke="#7c3aed" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+        <g font-size="12" font-weight="900" text-anchor="middle">
+          <rect x="20" y="48" width="70" height="44" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/><text x="55" y="68" fill="#7c3aed">①</text><text x="55" y="84" fill="#12303a" font-size="11">冷蔵庫</text>
+          <rect x="190" y="48" width="70" height="44" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/><text x="225" y="68" fill="#7c3aed">②</text><text x="225" y="84" fill="#12303a" font-size="11">冷凍庫</text>
+          <rect x="190" y="193" width="70" height="44" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/><text x="225" y="213" fill="#7c3aed">③</text><text x="225" y="229" fill="#12303a" font-size="11">乾物棚</text>
+          <rect x="20" y="193" width="70" height="44" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/><text x="55" y="213" fill="#7c3aed">④</text><text x="55" y="229" fill="#12303a" font-size="11">常温の棚</text>
+          <rect x="20" y="320" width="70" height="44" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/><text x="55" y="340" fill="#7c3aed">⑤</text><text x="55" y="356" fill="#12303a" font-size="11">ドリンク</text>
+        </g>
+      </svg>
+      <div class="note">将来：納品のとき「この品目は②冷凍庫へ」と光らせる・新人向けの案内</div>
+    </div>
+  </div>
+</div>
+
+<h2>比べる</h2>
+<table class="cmp">
+  <tr><th></th><th>A 路線図</th><th>B 間取り図</th></tr>
+  <tr><td>追加の入力</td><td>なし（今の導線からそのまま描く）</td><td>場所を方眼に置く（1回）</td></tr>
+  <tr><td>分かること</td><td>歩く順・場所ごとの数・2か所にある品目・棚卸の進み</td><td>上に加えて、店のどこにあるか</td></tr>
+  <tr><td>使い道</td><td>導線の確認、棚卸の「いまどこ」</td><td>新人の案内、将来の納品の案内</td></tr>
+  <tr><td>作る量</td><td>小〜中</td><td>中〜大（置く操作・保存・同期）</td></tr>
+</table>
+</body></html>
