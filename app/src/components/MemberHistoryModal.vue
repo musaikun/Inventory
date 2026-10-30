@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 
 const props = defineProps({
-  participant: { type: Object,  required: true },   // { id, name, isMe }
+  participant: { type: Object,  required: true },   // { id, name, isMe, match? }（match = 自分の記録を以前の端末 ID の分まで拾う判定）
   auditLog:    { type: Array,   default: () => [] },
   editable:    { type: Boolean, default: false },   // タップで品目編集を許可するか
 })
@@ -12,9 +12,9 @@ useEscapeKey(() => emit('close'))
 
 // このメンバーの変更だけを新しい順で抽出（auditLog はリアクティブなのでリアルタイム更新）
 const entries = computed(() => {
-  const { id, name } = props.participant
+  const { id, name, match } = props.participant
   return props.auditLog
-    .filter(e => (e.enteredById ? e.enteredById === id : e.enteredBy === name))
+    .filter(match ?? (e => (e.enteredById ? e.enteredById === id : e.enteredBy === name)))
     .slice()
     .reverse()
 })

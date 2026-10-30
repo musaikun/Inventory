@@ -2,6 +2,18 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-30 — version 0.183.0 / 履歴の「誰が」を人で残す・ホストの在庫が D1 の空で消える不具合
+
+User（実使用・他の人にホストを任せた棚卸）: ①同じ人が端末/ブラウザを変える・ゲストが入り直すと履歴が別人に分かれる。②iPhone のホストで入力済みが全部未入力に戻った（19〜20時。オーナーが LINE のブラウザと Safari でも開いていた）。
+- ①原因: DO の監査ログが `enteredById: att.deviceId`（ブラウザごとの localStorage の端末ID）。`actorId` は受けていたのに履歴に使っていなかった。
+  - `RoomDO`: 履歴の ID を `actorOf(att)`（actorId → 端末ID）に。ログインしていないゲスト（actorId = 端末ID）は、同じセッションで同じ名前なら最初の ID を使い回す（storage `guestActors`、新規セッションで消す）。joined に自分の `actorId`、participants に `actorId` を付ける。名前重複の判定は従来どおり（申告された actorId で比べる）。
+  - App: `myRecordId()`（ルーム参加中は DO の ID）で自分の記録・件数・履歴を扱う。以前の端末 ID の記録も自分として拾う。参加者チップは人の ID で1人にまとめる。
+- ②推定原因（未再現）: `_restoreInventoryFromD1` が「D1 の savedAt が手元の最終入力より新しければ丸ごと置換」。ホスト中のルームに入れなかったオーナーの別ブラウザ（`onSessionResume` で reset → 下書き無しでオフライン継続）が空の在庫を D1 へ保存 → iPhone の再読込で空に置き換わる経路。
+  - 手元に入力があるときは品目ごとに新しい方を採り、手元の品目は消さない。ライブなルームに入れなかった端末（`roomHeldElsewhere`）は D1 の在庫を上書きしない。
+  - 調査で見つけた別件（未修正）: `useInventory` の日付判定が UTC（日本時間 9:00 に日付が変わる扱い）。今回の時間帯とは無関係。
+- 検証: worker vitest 742 pass（新規 `roomActor.test.js` 4件）・app vitest 2179 pass・build OK。実機の複数端末確認は未実施（Worker の deploy が必要）。
+- version: 0.182.5 → **0.183.0**（Worker 変更あり。本番反映は Production Backend の workflow が必要）。
+
 ## 2026-10-30 — version 0.182.5 / ホームは「あいさつを消して帯を低く」だけに戻す
 
 User: 0.182.4 は詰めすぎ。あいさつを消して縦幅を少し縮めるだけでよい。輪が回るアニメーションは見えるように。

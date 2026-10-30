@@ -11,6 +11,10 @@ import { securityEvent } from './securityLog.js'
 
 // 監査ログのチャンクキー。ゼロ埋めして key の昇順＝時系列順にする。
 const AUDIT_PREFIX = 'audit:'
+// ログインしていないゲストの「名前 → 履歴の ID」（セッションごと。新規セッションで消す）
+const GUEST_ACTORS_KEY = 'guestActors'
+// 履歴の「誰が」。古い接続（actorId を持たない）は端末 ID
+const actorOf = (att) => att?.actorId || att?.deviceId || ''
 const _auditKey = (i) => `${AUDIT_PREFIX}${String(i).padStart(6, '0')}`
 
 // 発注スケジュールの正規化（client services/orderScheduleUtil の normalizeSchedules と
@@ -415,7 +419,11 @@ export class RoomDO {
         // 金額を見られないスタッフがホストのときは、ホストにも単価を渡さない（段 2-3 の money）。
         // 判定はホストの join に毎回付く D1 トークン。ゲストはもとから単価を落としている。
         const noMoney = isVerifiedHost && !(await this._hostSeesMoney(await this.state.storage.get('shopCode'), msg.authToken))
-        ws.serializeAttachment({ joined: true, deviceId, deviceName, ...(actorId ? { actorId } : {}), isHost: isVerifiedHost, ...(noMoney ? { noMoney: true } : {}) })
+        // 履歴に残す「誰が」。ログインしている人はその人の ID（端末やブラウザが変わっても1人）。
+        // ログインしていないゲストは、同じセッションで同じ名前なら前と同じ ID を使い回す。
+        // QR を読み直すたびに別のブラウザ（アプリ内ブラウザ等）で開かれ、端末 ID が変わるため（2026-10-30）
+        const recordId = await this._recordIdFor({ deviceId, deviceName, actorId })
+        ws.serializeAttachment({ joined: true, deviceId, deviceName, actorId: recordId, isHost: isVerifiedHost, ...(noMoney ? { noMoney: true } : {}) })
 
         const [inventory, orders, recountFlags, config, messages, auditLog, isActive, sessionId] = await Promise.all([
           this.state.storage.get('inventory').then(v => v ?? {}),
@@ -431,7 +439,7 @@ export class RoomDO {
 
         const joinedMsg = {
           type: 'joined', inventory, orders, recountFlags, config, participants, messages, auditLog,
-          isSessionActive: isActive, sessionId,
+          isSessionActive: isActive, sessionId, actorId: recordId,
           ...(newHostToken ? { hostToken: newHostToken } : {}),
         }
         // ゲストには単価を渡さない（S-G）。ホスト検証済みで金額を見られる人だけ全量。
@@ -487,7 +495,7 @@ export class RoomDO {
           totalQty:    qty,
           unit:        unit ?? '',
           enteredBy:   String(enteredBy ?? '').slice(0, MAX_DEVICE_NAME_LEN),
-          enteredById: att.deviceId ?? '',
+          enteredById: actorOf(att),
         })
 
         await this.state.storage.put('inventory', inventory)
@@ -517,7 +525,7 @@ export class RoomDO {
             totalQty:    0,
             unit:        prev.unit ?? '',
             enteredBy:   att.deviceName ?? '',
-            enteredById: att.deviceId  ?? '',
+            enteredById: actorOf(att),
           })
           this._broadcast({ type: 'audit_entry', entry })
         }
@@ -551,7 +559,7 @@ export class RoomDO {
           unit:        cleanUnit,
           lot:         cleanLot,
           enteredBy:   cleanBy,
-          enteredById: att.deviceId ?? '',
+          enteredById: actorOf(att),
           updatedAt:   Date.now(),
         }
 
@@ -562,7 +570,7 @@ export class RoomDO {
           totalQty:    orderQty,
           unit:        cleanUnit,
           enteredBy:   cleanBy,
-          enteredById: att.deviceId ?? '',
+          enteredById: actorOf(att),
         })
 
         await this.state.storage.put('orders', orders)
@@ -591,7 +599,7 @@ export class RoomDO {
             totalQty:    0,
             unit:        prev.unit ?? '',
             enteredBy:   att.deviceName ?? '',
-            enteredById: att.deviceId  ?? '',
+            enteredById: actorOf(att),
           })
           this._broadcast({ type: 'audit_entry', entry })
           delete orders[ingredient]
@@ -629,7 +637,7 @@ export class RoomDO {
           totalQty:    cur?.qty ?? 0,
           unit:        cur?.unit ?? '',
           enteredBy:   String(att.deviceName ?? '').slice(0, MAX_DEVICE_NAME_LEN),
-          enteredById: att.deviceId ?? '',
+          enteredById: actorOf(att),
           timestamp:   at,
         })
 
@@ -790,6 +798,7 @@ export class RoomDO {
           }
           puts.push(this.state.storage.put('inventory', broadcastInv))
           puts.push(this._clearAudit())
+          puts.push(this.state.storage.delete(GUEST_ACTORS_KEY))
 
           // 発注数（発注ルームのみ送られてくる。棚卸は undefined → 空のまま）
           if (msg.orders && typeof msg.orders === 'object') {
@@ -1177,6 +1186,18 @@ export class RoomDO {
     await this.state.storage.delete([...keys, 'auditLog'])
   }
 
+  // ログインしていない端末は actorId に端末 ID そのものを送ってくる（useDeviceId の actorId()）
+  async _recordIdFor({ deviceId, deviceName, actorId }) {
+    if (actorId && actorId !== deviceId) return actorId
+    const name = deviceName.trim()
+    if (!name) return deviceId
+    const map = (await this.state.storage.get(GUEST_ACTORS_KEY)) ?? {}
+    if (map[name]) return map[name]
+    map[name] = deviceId
+    await this.state.storage.put(GUEST_ACTORS_KEY, map)
+    return deviceId
+  }
+
   _getParticipants() {
     return this.state.getWebSockets()
       .map(ws => ws.deserializeAttachment())
@@ -1184,6 +1205,7 @@ export class RoomDO {
       .map(a => ({
         deviceId:   a.deviceId,
         deviceName: a.deviceName ?? '',
+        actorId:    actorOf(a),
         isHost:     a.isHost === true,
         isDone:     a.isDone === true,
       }))

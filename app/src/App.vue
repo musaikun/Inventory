@@ -17,7 +17,7 @@ import {
   setNameTakenCallback, setParticipantJoinCallback, setParticipantLeaveCallback,
   setGuestLeaveCallback, setRemoteUpdateCallback, setClearInventoryCallback,
   setSessionEndedCallback, setNewSessionStartedCallback, setResetConfigCallback,
-  setExpectedSessionId,
+  setExpectedSessionId, myRecordId,
   setOrderCallbacks, setOrdersSnapshotCallback, registerOrdersGetter,
   broadcastOrderUpdate, broadcastOrderRemove,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig,
@@ -33,7 +33,7 @@ import {
   fetchRoomStatus, fetchRoomResult,
   captureSyncConnection, isSyncConnectionStale,
 } from './composables/useSync.js'
-import { deviceId, deviceName, setDeviceName, staffIdentity } from './composables/useDeviceId.js'
+import { deviceId, deviceName, setDeviceName, staffIdentity, isMeId } from './composables/useDeviceId.js'
 import {
   shopCode,
   loadStore, saveConfigToD1, saveSnapshotToD1, deleteSnapshotFromD1,
@@ -684,11 +684,15 @@ async function onSessionResume(session) {
   }
 }
 
+// このセッションのライブなルームがあるのに入れなかった（別の端末がホスト中）ときのセッション ID
+const roomHeldElsewhere = ref(null)
+
 // ルーム自動復帰（再開時）
 // 店舗ルームは shopCode 単位の共有シングルトンのため、DO のアクティブセッションが
 // このセッションと一致する時だけ復帰する。不一致なら乗っ取らず退出しオフライン継続。
 async function _reconnectToRoom(session) {
   const rtype = session?.type === 'order' ? 'order' : 'stock'
+  roomHeldElsewhere.value = null
   try {
     // まず GET /status で確認（ルームを作らない）。ライブで同一セッションの時だけ復帰接続する。
     // ここで createRoom で確認すると、ライブでなくても hostToken を発行＝幽霊ルームが残る。
@@ -699,7 +703,10 @@ async function _reconnectToRoom(session) {
     }
     // 期待セッションIDを設定: joined ハンドラが同一セッション時のみ DO 在庫を適用
     setExpectedSessionId(session.id)
+    // 入れなかったとき（別の端末がホスト中）に D1 を上書きしないよう、先に立てておく。入れたら下で外す
+    roomHeldElsewhere.value = session.id
     await createRoom(rtype)
+    if (syncState.isConnected && syncIsHost.value) roomHeldElsewhere.value = null
     if (syncState.isSessionActive && syncState.sessionId === session.id) {
       // 本物の再接続: このセッションのライブルームに復帰（ゲスト入力含む在庫を適用済み）
       showToast(`ルーム ${syncState.roomCode} に復帰しました`, 2500, 'join')
@@ -732,11 +739,19 @@ const hideGuestOpen = ref(false)   // 2件以上のとき一覧を開いてい�
 const hideHostOpen  = ref(false)   // ホスト：申請が2件以上のとき一覧を開いているか
 const showMenu          = ref(false)  // ヘッダーのハンバーガーメニュー
 const memberHistoryTarget = ref(null)  // タップした参加者のリアルタイム変更履歴 { id, name, isMe }
-function openMemberHistory(p) { if (p) memberHistoryTarget.value = p }
-// ルームを作らずに数えているときの「自分の変更履歴」。記録（_localAudit）はこの端末の id で残る
-function _myIdentity() { return { id: deviceId, name: deviceName.value || '名前未設定', isMe: true } }
+// 履歴は人の ID（actorId）で残る。参加者一覧の id は端末 ID なので、ここで人の ID に揃える
+function openMemberHistory(p) {
+  if (!p) return
+  memberHistoryTarget.value = p.isMe ? _myIdentity() : { ...p, id: p.actorId || p.id }
+}
+// 自分の変更履歴。以前の記録は端末 ID で残っているので、それも自分として数える
+function _isMyEntry(e) {
+  if (!e.enteredById) return e.enteredBy === (deviceName.value || '名前未設定')
+  return e.enteredById === myRecordId() || e.enteredById === deviceId || isMeId(e.enteredById)
+}
+function _myIdentity() { return { id: myRecordId(), name: deviceName.value || '名前未設定', isMe: true, match: _isMyEntry } }
 function openMyHistory() { memberHistoryTarget.value = _myIdentity() }
-const myAuditCount = computed(() => auditLog.filter(e => (e.enteredById ? e.enteredById === deviceId : e.enteredBy === (deviceName.value || '名前未設定'))).length)
+const myAuditCount = computed(() => auditLog.filter(_isMyEntry).length)
 // メンバー履歴の品目タップ → その品目の数量編集モーダルを開く
 function onMemberHistoryEdit(ingredient) {
   if (inputLocked.value || !ingredient) return
@@ -905,10 +920,14 @@ function onCreateRoomFromMain() {
 const historyMembers = computed(() => {
   const map = new Map()
   for (const p of participantList.value) {
-    map.set(p.id, { id: p.id, name: p.name, isMe: p.isMe, isDone: p.isDone, present: true })
+    const id = p.actorId || p.id
+    // 同じ人が2台で入っているときは1人として出す（自分の端末を優先）
+    if (map.has(id) && !p.isMe) continue
+    map.set(id, { id, actorId: id, name: p.name, isMe: p.isMe, isDone: p.isDone, present: true })
   }
   for (const e of auditLog) {
     if (!e.enteredById || map.has(e.enteredById)) continue
+    if (_isMyEntry(e)) continue   // 以前の端末 ID で残った自分の記録
     map.set(e.enteredById, { id: e.enteredById, name: e.enteredBy || '名前未設定', isMe: false, isDone: false, present: false })
   }
   return [...map.values()]
@@ -929,7 +948,7 @@ function _localAudit(ingredient, action, delta, totalQty, unit) {
     totalQty,
     unit,
     enteredBy:   deviceName.value || '名前未設定',
-    enteredById: deviceId,
+    enteredById: myRecordId(),
     timestamp:   Date.now(),
   }
   addLocalAuditEntry(entry)
@@ -1782,6 +1801,9 @@ function _persistInventoryToD1() {
   if (!shopCode.value || isCompleted.value) return
   if (currentView.value !== 'session') return
   if (syncActive.value && !syncIsHost.value) return
+  // このセッションのルームを別の端末がホストしている（自分は入れずにオフライン継続）。
+  // 自分の手元は古い／空なので、D1 の在庫をこれで上書きしない
+  if (!syncActive.value && roomHeldElsewhere.value === pendingSession.value?.id) return
   clearTimeout(_invD1Timer)
   // 連続入力で3秒デバウンスが永遠にリセットされても、最大30秒で必ず保存
   if (Date.now() - _invD1LastSave > 30000) { _flushInventoryToD1(); return }
@@ -1833,9 +1855,19 @@ async function _restoreInventoryFromD1() {
   if (!remote?.inventory) return
   // 別セッションのデータは無視（新規セッション開始後に旧データを読み込まない）
   if (remote.sessionId && pendingSession.value?.id && remote.sessionId !== pendingSession.value.id) return
-  const localNewest = Object.values(inventory).reduce((m, e) => Math.max(m, e.updatedAt ?? 0), 0)
-  if (Object.keys(inventory).length === 0 || (remote.savedAt ?? 0) > localNewest) {
+  // 手元が空のとき（端末紛失・キャッシュ消去）だけ丸ごと戻す。
+  // 手元に入力があるときは品目ごとに新しい方を採り、手元の品目は消さない。
+  // 以前は「D1 の保存時刻が手元の最終入力より新しければ丸ごと置換」で、同じ店にログインした
+  // 別の端末（在庫が空のまま棚卸画面を開いた等）が保存した空の在庫で、ホストの入力が全部消えた（2026-10-30 実機）
+  if (Object.keys(inventory).length === 0) {
     applyPersistedInventory(remote.inventory, remote.recountFlags)
+    return
+  }
+  for (const [ingredient, entry] of Object.entries(remote.inventory)) {
+    if (!entry || typeof entry.qty !== 'number') continue
+    const local = inventory[ingredient]
+    if (local && (local.updatedAt ?? 0) >= (entry.updatedAt ?? 0)) continue
+    applyRemoteUpdate(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '', entry.updatedAt)
   }
 }
 

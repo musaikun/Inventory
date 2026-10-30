@@ -120,6 +120,7 @@ const state = reactive({
   isConnected:     false,
   error:           null,
   sessionId:       null,   // 現在のセッションID（D1）
+  actorId:         null,   // このルームで自分の履歴に付く ID（DO が決める。ログインしていないゲストは名前で寄せた ID）
   isSessionActive: false,  // DO側のセッションアクティブフラグ
 })
 
@@ -127,6 +128,9 @@ const state = reactive({
 function _typeQuery(type = state.roomType) {
   return type === 'order' ? '?type=order' : ''
 }
+
+/** 自分の変更履歴に付く ID（ルーム参加中は DO が返した ID、それ以外は actorId()） */
+export function myRecordId() { return state.actorId || actorId() }
 
 const participants  = reactive({})
 const messages      = reactive([])
@@ -555,10 +559,10 @@ function _updateParticipants(list, notify = false) {
     const newName = p.deviceName
     if (oldName && oldName !== newName) {
       for (const entry of auditLog) {
-        if (entry.enteredById === p.deviceId) entry.enteredBy = newName
+        if (entry.enteredById === p.deviceId || (p.actorId && entry.enteredById === p.actorId)) entry.enteredBy = newName
       }
     }
-    participants[p.deviceId] = { name: p.deviceName, isMe: p.deviceId === deviceId, isDone: !!p.isDone }
+    participants[p.deviceId] = { name: p.deviceName, actorId: p.actorId || p.deviceId, isMe: p.deviceId === deviceId, isDone: !!p.isDone }
   }
 }
 
@@ -584,6 +588,7 @@ function _resetClientState() {
   state.isConnected     = false
   state.error           = null
   state.sessionId       = null
+  state.actorId         = null
   state.isSessionActive = false
   Object.keys(participants).forEach(k => delete participants[k])
   Object.keys(typingMap).forEach(k => { clearTimeout(typingMap[k]?._timer); delete typingMap[k] })
@@ -657,8 +662,9 @@ function _handleMessage(msg) {
 
       _disconnectedAt = 0
 
+      state.actorId = msg.actorId || null
       _updateParticipants(msg.participants ?? [])
-      participants[deviceId] = { name: deviceName.value || '名前未設定', isMe: true }
+      participants[deviceId] = { name: deviceName.value || '名前未設定', actorId: myRecordId(), isMe: true }
 
       if (state.mode === 'joining') {
         if (msg.config?.order?.length) {
@@ -742,7 +748,7 @@ function _handleMessage(msg) {
 
     case 'participants':
       _updateParticipants(msg.list ?? [], true)  // 通知あり
-      participants[deviceId] = { name: deviceName.value || '名前未設定', isMe: true }
+      participants[deviceId] = { name: deviceName.value || '名前未設定', actorId: myRecordId(), isMe: true }
       break
 
     case 'done': {
@@ -1146,6 +1152,7 @@ export function useSync() {
     Object.entries(participants).map(([id, info]) => ({
       id,
       name: info.name || '名前未設定',
+      actorId: info.actorId || id,
       isMe: id === deviceId,
       isDone: !!info.isDone,
     }))
