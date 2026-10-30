@@ -4,20 +4,24 @@ import DismissibleHint from './DismissibleHint.vue'
 import CountOrderSheet from './CountOrderSheet.vue'
 import { latestCountOrder, orderByCount } from '../services/countOrder.js'
 import { isHintShown } from '../composables/useHints.js'
-import { useConfig, AXIS_NAME_MAX } from '../composables/useConfig.js'
+import { useConfig, AXIS_NAME_MAX, ROUTE } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useRowHideSwipe, REVEAL_AT } from '../composables/useRowHideSwipe.js'
 import { useListDragReorder } from '../composables/useListDragReorder.js'
 import { useLongPressPick } from '../composables/useLongPressPick.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 
-const props = defineProps({ initialAxis: { type: Number, default: 0 } })
+const props = defineProps({
+  initialAxis: { type: Number, default: 0 },
+  startUnassigned: { type: Boolean, default: false },   // 「未振り分けのみ」で開く（導線に入っていない品目の知らせから）
+})
 const emit = defineEmits(['close', 'hide-item', 'unhide-item', 'hide-items', 'unhide-items'])
 
 const {
   config, addAxisGroup, renameAxisGroup, removeAxisGroup, restoreAxisGroup,
   addItemToGroup, addItemsToGroup, removeItemFromGroup, setAxisGroupOrder, reorderAxisItems, axisItemSequence,
   setAxisName, clearAxis, setAxisItemOrder, axisLayoutSnapshot, restoreAxisLayout, applyCountPlaces,
+  setRouteMore,
 } = useConfig()
 const { getSnapshots } = useHistory()
 
@@ -25,7 +29,12 @@ const reduceMotion = typeof matchMedia === 'function'
   && matchMedia('(prefers-reduced-motion: reduce)').matches
 
 // ── 対象の軸（分類）─────────────────────────────────────────
+// 棚卸の導線（initialAxis = ROUTE・User決定 2026-10-30）。並び替えとは別の枠で、この画面を紫で使う。
+// 導線の名前は変えない・もう一方への切り替えも無い。場所の中の順番は「入れる｜順番」で見える所に出す
+const isRoute = computed(() => props.initialAxis === ROUTE)
+const G = computed(() => (isRoute.value ? '場所' : '分類先'))   // 画面の言葉
 const namedAxes = computed(() => {
+  if (isRoute.value) return [{ index: ROUTE, name: '導線' }]
   const names = config.axisNames ?? ['', '']
   const out = []
   if (names[0]) out.push({ index: 0, name: names[0] })
@@ -85,8 +94,8 @@ function dropAxis(idx) {
 const axisName  = computed(() => namedAxes.value.find(a => a.index === activeAxis.value)?.name || '')
 const otherAxis = computed(() => namedAxes.value.find(a => a.index !== activeAxis.value) || null)
 
-const tagMap  = computed(() => activeAxis.value === 0 ? (config.tagsA ?? {}) : (config.tagsB ?? {}))
-const defined = computed(() => activeAxis.value === 0 ? (config.axisGroupsA ?? []) : (config.axisGroupsB ?? []))
+const tagMap  = computed(() => activeAxis.value === ROUTE ? (config.tagsR ?? {}) : activeAxis.value === 0 ? (config.tagsA ?? {}) : (config.tagsB ?? {}))
+const defined = computed(() => activeAxis.value === ROUTE ? (config.axisGroupsR ?? []) : activeAxis.value === 0 ? (config.axisGroupsA ?? []) : (config.axisGroupsB ?? []))
 const groups  = computed(() => {
   const set = new Set(defined.value)
   for (const v of Object.values(tagMap.value)) for (const g of (v || [])) set.add(g)
@@ -106,8 +115,36 @@ const groupCount = computed(() => {
   return m
 })
 
+// ── 導線の「まだ他の場所にもある」（User決定 2026-10-30）───────────────
+// 1か所目に入れたら済み。「まだ」の品目は場所があっても未振り分けに残し、進み具合にも数えない
+const routeMoreSet = computed(() => new Set(isRoute.value ? (config.routeMore ?? []) : []))
+const isMore = item => routeMoreSet.value.has(item) && itemGroups(item).length > 0
+const moreCount = computed(() => visibleOrder.value.reduce((n, i) => n + (isMore(i) ? 1 : 0), 0))
+function toggleMore(item) {
+  const more = !isMore(item)
+  setRouteMore(item, more)
+  routeAsk.value = null
+  _showFlash(more ? `「${item}」は、まだ他の場所にもある品目にしました` : `「${item}」は、これで全部の場所に入りました`, '')
+}
+// 入れた直後の一言。1か所目なら［他の場所にもある］、「まだ」の品目なら［これで全部］［まだある］
+const routeAsk = ref(null)   // null | { item, kind: 'first' | 'more', msg }
+let _askT = null
+function _askRoute(v) {
+  routeAsk.value = v
+  clearTimeout(_askT)
+  _askT = setTimeout(() => { routeAsk.value = null }, 4500)
+}
+function answerRoute(more) {
+  const a = routeAsk.value
+  if (!a) return
+  routeAsk.value = null
+  clearTimeout(_askT)
+  setRouteMore(a.item, more)
+  if (more) _showFlash(`「${a.item}」は、全部の場所に入れるまで未振り分けに残ります`, '')
+}
+
 // ── 進捗（非表示を除いた品目のうち、1つ以上のグループに入っている数）───────
-const assignedCount = computed(() => visibleOrder.value.reduce((n, i) => n + (itemGroups(i).length ? 1 : 0), 0))
+const assignedCount = computed(() => visibleOrder.value.reduce((n, i) => n + (itemGroups(i).length && !isMore(i) ? 1 : 0), 0))
 const total = computed(() => visibleOrder.value.length)
 const progressPct = computed(() => total.value ? Math.round(assignedCount.value / total.value * 100) : 0)
 const allDone = computed(() => total.value > 0 && assignedCount.value === total.value)
@@ -583,7 +620,7 @@ watch(activeAxis, () => {
 
 // ── 品目プール ──────────────────────────────────────────────
 const search = ref('')
-const unassignedOnly = ref(false)
+const unassignedOnly = ref(props.startUnassigned)
 const usedOnly = ref(false)        // 直近の棚卸で入力があった品目だけ
 const neverUsedOnly = ref(false)   // 逆に、一度も数えていない品目だけ（非表示にする候補を探す用）
 const newOnly = ref(false)         // 前回の棚卸の時点でリストに無かった品目だけ
@@ -639,7 +676,7 @@ const filterNote = computed(() => {
   if (neverUsedOnly.value) return '直近3回の棚卸で、一度も数量が入っていない品目です。'
   if (newOnly.value)       return '前回の棚卸の時点では、リストに無かった品目です。'
   if (usedOnly.value)      return '直近3回の棚卸で、1回でも数量が入った品目です。'
-  if (unassignedOnly.value) return 'まだどの分類先にも入れていない品目です。'
+  if (unassignedOnly.value) return isRoute.value ? 'まだどの場所にも入れていない品目と、「まだ」（他の場所にもある）の品目です。' : 'まだどの分類先にも入れていない品目です。'
   return ''
 })
 
@@ -653,11 +690,13 @@ const poolItems = computed(() => {
     (!usedOnly.value || usage.value[i] > 0) &&
     (!neverUsedOnly.value || isUnmeasured(i)) &&
     (!newOnly.value || isNew(i)) &&
-    (!unassignedOnly.value || itemGroups(i).length === 0)
+    (!unassignedOnly.value || itemGroups(i).length === 0 || isMore(i))
   )
   // 振り分け状態では並べ替えない（タップした品目がその場から動かないように）。
   // 使用頻度のみで安定ソート（頻度は棚卸履歴由来でセッション中は不変＝並びが動かない）。
   arr = [...arr].sort((a, b) => (usage.value[b] ?? 0) - (usage.value[a] ?? 0))
+  // 導線の未振り分け: 入れ忘れの「まだ」を先に片付けるので上へ寄せる
+  if (unassignedOnly.value && isRoute.value) arr = [...arr.filter(isMore), ...arr.filter(i => !isMore(i))]
   return arr
 })
 
@@ -675,7 +714,8 @@ function toggle(item) {
   stopWheelAtNearest()
   const destination = target.value
   setWheelState('band')
-  if (!destination) { _showFlash('先に分類先を作ってください', ''); return }
+  if (!destination) { _showFlash(`先に${G.value}を作ってください`, ''); return }
+  const placesBefore = itemGroups(item).length
   if (itemGroups(item).includes(destination)) {
     removeItemFromGroup(activeAxis.value, item, destination)
     _showFlash(`「${item}」を ${destination} から外しました`, '')
@@ -683,6 +723,10 @@ function toggle(item) {
     addItemToGroup(activeAxis.value, item, destination)
     rememberGroup(destination)
     _showFlash(`「${item}」を ${destination} に追加`, item)
+    if (isRoute.value) {
+      if (placesBefore === 0) _askRoute({ item, kind: 'first', msg: `「${item}」を${destination}に入れました` })
+      else if (routeMoreSet.value.has(item)) _askRoute({ item, kind: 'more', msg: `「${item}」を${destination}にも入れました`, sub: `${itemGroups(item).join('・')}。ほかの場所にもありますか？` })
+    }
   }
 }
 function _showFlash(msg, item) {
@@ -813,7 +857,7 @@ const pickHinted = ref(false)
 const swipeHinted = ref(false)   // 左スワイプで一度でも非表示にしたら案内を消す
 function openPick(item, row) {
   if (hiddenOnly.value) return   // 非表示の品目は振り分けない（長押しでも開かない）
-  if (!groups.value.length) { _showFlash('先に分類先を作ってください', ''); return }
+  if (!groups.value.length) { _showFlash(`先に${G.value}を作ってください`, ''); return }
   pickHinted.value = true
   resetSwipe()
   stopWheelAtNearest()
@@ -951,6 +995,27 @@ function applyTapOrder() {
   exitTapOrder()
 }
 
+// ── 導線の「入れる｜順番」（User決定 2026-10-30）──────────────────────
+// 順番は奥のシート（件数 → ⇅ 並び替え → タップ順）に隠れていて気づけなかったので、画面の上で切り替える。
+// 順番: 今の場所の品目だけを並べ、棚の上から押すと 1, 2, 3…（タップ順の仕組みをそのまま使う）。
+// ⋮⋮ を長押しで運ぶ（押した行が番号になるのと取り合わないよう、掴めるのはつまみだけ）
+const routeMode = ref('put')   // 'put' 入れる | 'order' 順番
+const placeNo = computed(() => new Map(assignedItems.value.map((n, i) => [n, i + 1])))
+const ordListEl = ref(null)
+const ordDrag = useListDragReorder({
+  listEl: ordListEl,
+  rowSelector: '.af-ord-row',
+  keyAttr: 'item',
+  currentOrder: () => assignedItems.value,
+  commitOrder: _applyItemOrder,
+})
+function onOrdDown(e) {
+  if (tapSeq.value.length || !e.target.closest?.('.af-ord-handle')) return
+  ordDrag.onDown(e)
+}
+function setRouteMode(m) { routeMode.value = m; routeAsk.value = null; flash.value = ''; exitTapOrder(); ordDrag.cleanup() }
+watch(target, () => { if (routeMode.value === 'order') { exitTapOrder(); ordDrag.cleanup() } })
+
 const locateName = ref('')
 let _locateT = null
 function locate(item) {
@@ -1010,7 +1075,7 @@ watch(activeAxis, dismissUndo)
 const countSource = computed(() => latestCountOrder(getSnapshots(), new Set(config.order)))
 const countMode = ref('')        // '' = 閉じている / 'create' / 'reorder'
 const axisHasAssignments = computed(() => {
-  const map = (activeAxis.value === 0 ? config.tagsA : config.tagsB) ?? {}
+  const map = (activeAxis.value === ROUTE ? config.tagsR : activeAxis.value === 0 ? config.tagsA : config.tagsB) ?? {}
   return Object.values(map).some(v => v?.length)
 })
 function openCountOrder() { moreOpen.value = false; countMode.value = axisHasAssignments.value ? 'reorder' : 'create' }
@@ -1158,7 +1223,7 @@ function submitNew() {
     if (at >= 0) pos.value = at
     setWheelState('open')
   })
-  _showFlash(`分類先「${n}」を追加しました`, '')
+  _showFlash(`${G.value}「${n}」を追加しました`, '')
 }
 
 const delTarget = ref('')
@@ -1291,6 +1356,8 @@ onUnmounted(registerInnerLayerCloser(() => {
 onUnmounted(() => {
   groupDrag.cleanup()
   sheetDrag.cleanup()
+  ordDrag.cleanup()
+  clearTimeout(_askT)
   cancelLongPress()
   _dragging = false
   _wheelPointerId = null
@@ -1330,11 +1397,11 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 </script>
 
 <template>
-  <div class="af" @selectstart="onSelectStart">
+  <div :class="['af', { route: isRoute }]" @selectstart="onSelectStart">
     <header class="af-head">
       <button class="af-back" @click="emit('close')">‹ 閉じる</button>
-      <span class="af-title">{{ axisName ? `${axisName}の並び替え` : '振り分け' }}</span>
-      <button v-if="axisName" class="af-title-edit" aria-label="分け方の名前を変える・消す" @click="openAxisPanel(activeAxis)">✎</button>
+      <span class="af-title">{{ isRoute ? '🚶 導線' : axisName ? `${axisName}の並び替え` : '振り分け' }}</span>
+      <button v-if="axisName && !isRoute" class="af-title-edit" aria-label="分け方の名前を変える・消す" @click="openAxisPanel(activeAxis)">✎</button>
       <button
         v-if="axisName && countSource && axisHasAssignments" class="af-more" aria-label="その他の操作"
         :aria-expanded="moreOpen ? 'true' : 'false'" @click="moreOpen = !moreOpen"
@@ -1354,8 +1421,9 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
         <span class="af-prog-pct">{{ progressPct }}%</span>
       </div>
       <div class="af-prog-bar"><div class="af-prog-fill" :class="{ done: allDone }" :style="{ width: progressPct + '%' }"></div></div>
-      <!-- 残りをまとめる・もう一方の分け方へ（タブは外した・User決定 2026-10-10） -->
-      <div v-if="axisName" class="af-prog-acts">
+      <div v-if="moreCount" class="af-prog-more">まだ他の場所にもある {{ moreCount }}品目（全部の場所に入れたら「済み」に）</div>
+      <!-- 残りをまとめる・もう一方の分け方へ（タブは外した・User決定 2026-10-10）。導線には無い -->
+      <div v-if="axisName && !isRoute" class="af-prog-acts">
         <button v-if="restItems.length && !allDone" type="button" class="af-rest-btn" @click="restOpen = true">
           残り{{ restItems.length }}品目を「{{ REST_GROUP }}」へ…
         </button>
@@ -1378,6 +1446,14 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
     </div>
 
     <template v-else>
+      <!-- 導線のはじめの説明（✕ で消すまで出す） -->
+      <DismissibleHint v-if="isRoute" id="route-intro" class="af-route-intro">
+        <b>導線</b>は、棚卸で歩く順番です。
+        <span class="af-ri-step"><i>1</i><span>下の「＋ 場所を追加」で、冷蔵庫・冷凍庫などを<b>歩く順</b>に作ります</span></span>
+        <span class="af-ri-step"><i>2</i><span>場所を選んで、そこにある品目を押して入れます</span></span>
+        <span class="af-ri-step"><i>3</i><span>「順番」に切り替えて、棚の上から押すと番号が付きます</span></span>
+        <span class="af-ri-step"><i>4</i><span>2か所以上にある品目は「まだ」にすると、全部入れるまで未振り分けに残ります</span></span>
+      </DismissibleHint>
       <!-- 分け方のタブは外した（入口は在庫タブの並び替えカード）。もう一方へは小さな切り替えで -->
       <!-- まだ振り分けていない並び替えでは主役の入口。振り分け済みなら見出しの ⋯ の中へ下げる -->
       <button v-if="countSource && !axisHasAssignments" type="button" class="af-count-btn" @click="openCountOrder">
@@ -1419,7 +1495,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
             >
               <!-- 末尾の1枠。回した先に「次はここに足せる」が見えている -->
               <template v-if="c.add">
-                <span class="af-gadd">＋ 分類先を追加</span>
+                <span class="af-gadd">＋ {{ G }}を追加</span>
               </template>
               <template v-else>
                 <span class="af-gname">{{ c.name }}</span>
@@ -1439,11 +1515,43 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
           class="af-rail"
           :aria-hidden="banded ? 'true' : 'false'" :inert="banded ? '' : null"
         >
-          <button ref="editTriggerEl" class="af-rail-btn gear" aria-label="分類先をまとめて編集" @click="openEdit">⚙</button>
-          <button class="af-rail-btn del" aria-label="この分類先を消す" :disabled="!target" @click="askDelete(target)">🗑</button>
+          <button ref="editTriggerEl" class="af-rail-btn gear" :aria-label="`${G}をまとめて編集`" @click="openEdit">⚙</button>
+          <button class="af-rail-btn del" :aria-label="`この${G}を消す`" :disabled="!target" @click="askDelete(target)">🗑</button>
         </div>
       </div>
 
+      <!-- 導線: 入れる｜順番 -->
+      <div v-if="isRoute && groups.length" class="af-modes" role="radiogroup" aria-label="入れる・順番">
+        <button type="button" role="radio" :aria-checked="routeMode === 'put'" :class="{ on: routeMode === 'put' }" @click="setRouteMode('put')">入れる</button>
+        <button type="button" role="radio" :aria-checked="routeMode === 'order'" :class="{ on: routeMode === 'order' }" @click="setRouteMode('order')">順番</button>
+      </div>
+
+      <!-- 導線の順番: 今の場所の品目だけ。押した順に番号・⋮⋮ を長押しで運ぶ -->
+      <div v-if="isRoute && routeMode === 'order'" class="af-ord">
+        <p class="af-ord-hint">{{ target ? `${target}の中を、棚の上から数える順に押してください。もう一度押すと外れます。⋮⋮ を長押しすると運べます。` : '先に場所を作ってください' }}</p>
+        <div
+          ref="ordListEl" class="af-ord-list"
+          @pointerdown="onOrdDown" @pointermove="ordDrag.onMove" @pointerup="ordDrag.onUp"
+          @pointercancel="ordDrag.onUp" @lostpointercapture="ordDrag.onUp" @touchmove="ordDrag.onTouchMove"
+          @contextmenu.prevent
+        >
+          <div v-for="(item, i) in assignedItems" :key="item" :data-item="item" :class="['af-ord-row', { picked: tapOrderNo(item) > 0 }]">
+            <button type="button" class="af-ord-pick" @click="tapOrderPick(item)">
+              <span :class="['af-ord-no', { wait: tapSeq.length && !tapOrderNo(item) }]">{{ tapSeq.length ? (tapOrderNo(item) || '–') : i + 1 }}</span>
+              <span class="af-ord-name">{{ item }}</span>
+            </button>
+            <button type="button" class="af-ord-handle" :aria-label="`${item} を運ぶ。現在 ${i + 1} 番目。上下矢印キーで移動`" @keydown="ordDrag.onKeydown($event, item)">⋮⋮</button>
+          </div>
+          <div v-if="target && !assignedItems.length" class="af-empty">{{ target }}にはまだ品目がありません。「入れる」で入れてください。</div>
+        </div>
+        <div v-if="tapSeq.length" class="af-ord-bar">
+          <span>この順にする<small>{{ tapSeq.length }}品目に番号{{ assignedItems.length > tapSeq.length ? `・残り${assignedItems.length - tapSeq.length}は後ろへ` : '' }}</small></span>
+          <button type="button" class="af-ord-cancel" @click="exitTapOrder">やめる</button>
+          <button type="button" class="af-ord-ok" @click="applyTapOrder">確定</button>
+        </div>
+      </div>
+
+      <template v-else>
       <!-- 品目プール -->
       <div class="af-tools">
         <div class="af-search-wrap">
@@ -1466,7 +1574,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 
       <!-- 長押し・左スワイプの導線。どちらも見えない操作なので、一度使うまでは出しておく -->
       <div v-if="!hiddenOnly && poolItems.length && ((!pickHinted && groups.length && isHintShown('assign-longpress')) || (!swipeHinted && isHintShown('assign-swipe')))" class="af-pickhint">
-        <DismissibleHint v-if="!pickHinted && groups.length" id="assign-longpress">品目を<b>長押し</b>すると、分類先をその場で選べます</DismissibleHint>
+        <DismissibleHint v-if="!pickHinted && groups.length" id="assign-longpress">品目を<b>長押し</b>すると、{{ G }}をその場で選べます</DismissibleHint>
         <DismissibleHint v-if="!swipeHinted" id="assign-swipe">品目を<b>左にスワイプ</b>すると、非表示にします</DismissibleHint>
       </div>
 
@@ -1497,7 +1605,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
                 @touchend="onRowUp($event)"
                 @touchcancel="onRowCancel($event)"
               >
-                <span class="af-check">{{ itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
+                <span :class="['af-check', { no: isRoute && itemGroups(item).includes(target) }]">{{ itemGroups(item).includes(target) ? (isRoute ? placeNo.get(item) : '✓') : '＋' }}</span>
                 <span class="af-item-name">{{ item }}</span>
                 <span v-if="movedMarks[item]" :class="['af-item-moved', movedMarks[item]]">{{ movedMarks[item] === 'up' ? '↑ 前へ' : '↓ 後へ' }}</span>
                 <span v-if="isNew(item)" class="af-item-new">新規</span>
@@ -1505,6 +1613,11 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
                 <span v-if="itemGroups(item).length" class="af-item-tags">
                   <span v-for="g in itemGroups(item)" :key="g" class="af-item-tag" :class="{ cur: g === target }">{{ g }}</span>
                 </span>
+                <button
+                  v-if="isRoute && itemGroups(item).length" type="button" :class="['af-more-pill', { more: isMore(item) }]"
+                  :aria-pressed="isMore(item)" :aria-label="isMore(item) ? `${item}：まだ他の場所にもある。押すと済み` : `${item}：済み。押すと、まだ他の場所にもある`"
+                  @click.stop="toggleMore(item)" @pointerdown.stop @touchstart.stop
+                >{{ isMore(item) ? 'まだ' : '✓ 済み' }}</button>
                 <button
                   v-if="swipeItem === item && -swipeDx >= REVEAL_AT"
                   :class="['af-row-action', { full: swipeFull }]"
@@ -1528,7 +1641,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
             @touchend="onRowUp($event)"
             @touchcancel="onRowCancel($event)"
           >
-            <span class="af-check">{{ itemGroups(item).includes(target) ? '✓' : '＋' }}</span>
+            <span :class="['af-check', { no: isRoute && itemGroups(item).includes(target) }]">{{ itemGroups(item).includes(target) ? (isRoute ? placeNo.get(item) : '✓') : '＋' }}</span>
             <span class="af-item-name">{{ item }}</span>
             <span v-if="movedMarks[item]" :class="['af-item-moved', movedMarks[item]]">{{ movedMarks[item] === 'up' ? '↑ 前へ' : '↓ 後へ' }}</span>
             <span v-if="isNew(item)" class="af-item-new">新規</span>
@@ -1536,6 +1649,11 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
             <span v-if="itemGroups(item).length" class="af-item-tags">
               <span v-for="g in itemGroups(item)" :key="g" class="af-item-tag" :class="{ cur: g === target }">{{ g }}</span>
             </span>
+            <button
+              v-if="isRoute && itemGroups(item).length" type="button" :class="['af-more-pill', { more: isMore(item) }]"
+              :aria-pressed="isMore(item)" :aria-label="isMore(item) ? `${item}：まだ他の場所にもある。押すと済み` : `${item}：済み。押すと、まだ他の場所にもある`"
+              @click.stop="toggleMore(item)" @pointerdown.stop @touchstart.stop
+            >{{ isMore(item) ? 'まだ' : '✓ 済み' }}</button>
             <button
               v-if="swipeItem === item && -swipeDx >= REVEAL_AT"
               :class="['af-row-action', { full: swipeFull }]"
@@ -1552,6 +1670,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
            : '該当する品目がありません。' }}
         </div>
       </div>
+      </template>
     </template>
 
     <!-- グループ（まとめ方）そのものの設定 -->
@@ -1585,7 +1704,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
     >
       <header class="af-edit-head">
         <div>
-          <div class="af-edit-title">分類先の管理</div>
+          <div class="af-edit-title">{{ G }}の管理</div>
           <div class="af-edit-sub">{{ groups.length }}件 ・ カードを長押しして並べ替え</div>
         </div>
         <button ref="editDoneEl" class="af-edit-done" @click="closeEdit">完了</button>
@@ -1613,7 +1732,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
         </div>
       </div>
       <div class="af-edit-foot">
-        <button class="af-edit-add" @click="openAdd">＋ 分類先を追加</button>
+        <button class="af-edit-add" @click="openAdd">＋ {{ G }}を追加</button>
       </div>
     </div>
 
@@ -1632,9 +1751,9 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
     <!-- 分類先を足す -->
     <div v-if="addOpen" class="af-dialog-bg" @click.capture="swallowAssignedGhost" @click.self="closeAdd">
       <div class="af-dialog" role="dialog" aria-modal="true" aria-label="分類先を追加">
-        <div class="af-dialog-title">分類先を追加</div>
+        <div class="af-dialog-title">{{ G }}を追加</div>
         <input ref="addInputEl" v-model="newName" class="af-dialog-input" maxlength="20"
-               placeholder="分類先の名前（例：冷蔵庫）"
+               :placeholder="`${G}の名前（例：冷蔵庫）`"
                @input="addError = ''" @keyup.enter="submitNew" />
         <div v-if="addError" class="af-dialog-err">{{ addError }}</div>
         <div class="af-dialog-acts">
@@ -1647,7 +1766,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
     <!-- 名前を変える -->
     <div v-if="renameTarget" class="af-dialog-bg" @click.self="closeRename">
       <div class="af-dialog" role="dialog" aria-modal="true" aria-label="分類先の名前を変える">
-        <div class="af-dialog-title">分類先の名前を変える</div>
+        <div class="af-dialog-title">{{ G }}の名前を変える</div>
         <input ref="renameInputEl" v-model="renameText" class="af-dialog-input" maxlength="20"
                @input="renameError = ''" @keyup.enter="submitRename" />
         <div v-if="renameError" class="af-dialog-err">{{ renameError }}</div>
@@ -1811,7 +1930,21 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 
     <!-- 追加フィードバック -->
     <transition name="af-flash">
-      <div v-if="flash" class="af-flashbar" :class="{ lifted: undoState }">{{ flash }}</div>
+      <div v-if="flash && !routeAsk" class="af-flashbar" :class="{ lifted: undoState || tapSeq.length }">{{ flash }}</div>
+    </transition>
+
+    <!-- 導線: 入れた直後の一言（他の場所にもあるか） -->
+    <transition name="af-flash">
+      <div v-if="routeAsk" class="af-askbar" :class="{ lifted: undoState }" role="status">
+        <span class="af-undo-msg">{{ routeAsk.msg }}<span v-if="routeAsk.sub" class="af-undo-sub">{{ routeAsk.sub }}</span></span>
+        <template v-if="routeAsk.kind === 'first'">
+          <button type="button" class="af-undo-btn" @click="answerRoute(true)">他の場所にもある</button>
+        </template>
+        <template v-else>
+          <button type="button" class="af-undo-btn" @click="answerRoute(false)">これで全部</button>
+          <button type="button" class="af-ask-sub" @click="answerRoute(true)">まだある</button>
+        </template>
+      </div>
     </transition>
   </div>
 </template>
@@ -1819,6 +1952,8 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
 <style scoped>
 .af { position: fixed; inset: 0; z-index: 60; background: #f6fafb; display: flex; flex-direction: column; overflow: hidden;
   user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.af.route { --primary: #7c3aed; --primary-weak: #f5f3ff; --primary-border: #ddd6fe; }
+.af.route .af-item.in { background: #f5f3ff; }
 .af input, .af textarea { user-select: text; -webkit-user-select: text; -webkit-touch-callout: default; }
 .af-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #fff; border-bottom: 1px solid #d6e6ea; flex-shrink: 0; }
 .af-back { border: none; background: none; color: var(--primary, #0e7490); font-size: 14px; font-weight: 700; cursor: pointer; }
@@ -2193,6 +2328,41 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
   padding: 10px 18px; border-radius: 22px; z-index: 61; box-shadow: 0 6px 20px rgba(0,0,0,0.28);
 }
 .af-flashbar.lifted { bottom: 88px; }
+
+/* ── 導線（User決定 2026-10-30）──────────────────────────────── */
+.af-prog-more { margin-top: 4px; font-size: 11.5px; font-weight: 800; color: #b45309; }
+.af-route-intro { flex: none; margin: 8px 12px 0; background: #f5f3ff; color: #4c1d95; border-radius: 12px; padding: 10px 12px; font-size: 12.5px; line-height: 1.6; }
+.af-ri-step { display: flex; gap: 7px; align-items: baseline; margin-top: 3px; }
+.af-ri-step i { flex: none; font-style: normal; width: 18px; height: 18px; border-radius: 50%; background: #7c3aed; color: #fff; font-size: 11px; font-weight: 900; display: inline-flex; align-items: center; justify-content: center; }
+.af-modes { flex: none; display: grid; grid-template-columns: 1fr 1fr; margin: 8px 12px 2px; border: 1.5px solid #ddd6fe; border-radius: 12px; overflow: hidden; }
+.af-modes button { min-height: 40px; border: none; background: #fff; color: #7c3aed; font-size: 14px; font-weight: 900; cursor: pointer; }
+.af-modes button.on { background: #7c3aed; color: #fff; }
+.af-check.no { font-size: 12px; font-weight: 900; }
+.af-more-pill { flex-shrink: 0; margin-left: 6px; min-width: 64px; min-height: 34px; border-radius: 999px; border: 1.5px solid #86efac; background: #f0fdf4; color: #15803d; font-size: 12px; font-weight: 900; cursor: pointer; padding: 0 10px; }
+.af-more-pill.more { border-color: #fcd34d; background: #fffbeb; color: #b45309; }
+.af-ord { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.af-ord-hint { flex: none; margin: 6px 12px 4px; font-size: 12px; color: #5b21b6; background: #f5f3ff; border-radius: 10px; padding: 7px 10px; line-height: 1.6; }
+.af-ord-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 12px 96px; display: flex; flex-direction: column; gap: 6px; }
+.af-ord-row { display: flex; align-items: center; gap: 6px; background: #f5f3ff; border: 1.5px solid #ddd6fe; border-radius: 12px; }
+.af-ord-row.holding { border-color: #7c3aed; }
+.af-ord-pick { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; min-height: 46px; border: none; background: none; padding: 0 10px; font-size: 14.5px; font-weight: 800; color: #12303a; text-align: left; cursor: pointer; }
+.af-ord-no { flex: none; width: 28px; height: 28px; border-radius: 50%; background: #7c3aed; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 900; }
+.af-ord-no.wait { background: #fff; border: 1.5px dashed #c4b5fd; color: #a78bfa; }
+.af-ord-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.af-ord-handle { flex: none; width: 44px; min-height: 46px; border: none; background: none; color: #a78bfa; font-size: 16px; letter-spacing: -3px; cursor: grab; touch-action: none; }
+.af-ord-bar { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); width: calc(100% - 28px); max-width: 520px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; background: #7c3aed; color: #fff; border-radius: 14px; padding: 10px 12px; z-index: 61; box-shadow: 0 8px 22px rgba(76,29,149,.35); font-size: 14px; font-weight: 900; }
+.af-ord-bar > span { flex: 1; min-width: 0; }
+.af-ord-bar small { display: block; font-size: 11.5px; font-weight: 600; opacity: .9; }
+.af-ord-ok { min-height: 40px; border: none; border-radius: 10px; background: #fff; color: #7c3aed; font-size: 14px; font-weight: 900; padding: 0 16px; cursor: pointer; }
+.af-ord-cancel { min-height: 40px; border: none; background: none; color: #ede9fe; font-size: 13px; font-weight: 800; cursor: pointer; }
+.af-askbar {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+  width: calc(100% - 28px); max-width: 520px; box-sizing: border-box;
+  background: #1e1b4b; color: #fff; border-radius: 14px; padding: 10px 12px; z-index: 62; box-shadow: 0 8px 22px rgba(0,0,0,.3);
+}
+.af-askbar.lifted { bottom: 88px; }
+.af-ask-sub { flex-shrink: 0; min-height: 40px; border: none; border-radius: 10px; background: rgba(255,255,255,.14); color: #fff; font-size: 13px; font-weight: 800; padding: 0 12px; cursor: pointer; }
 .af-flash-enter-active, .af-flash-leave-active { transition: opacity 0.2s, transform 0.2s; }
 .af-flash-enter-from, .af-flash-leave-to { opacity: 0; transform: translateX(-50%) translateY(8px); }
 

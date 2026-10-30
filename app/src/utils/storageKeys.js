@@ -61,6 +61,7 @@ export const STORAGE_KEYS = {
   auditQueue:       '_audit_queue_v1',
   // ✕ で消した操作の説明・おすすめ（端末ごと。業務データではない）。各種設定から戻せる
   hints:            '_hints_v1',
+  routeMigrateAsked: '_route_migrate_asked_v1',   // 並び替え（保管場所など）を導線へ移すか訊いた（この端末で1回だけ）
   tasks:            'inventory_tasks_v1',  // カレンダーのやること（店で共有・サーバーと同期）
   tasksSeen:        '_tasks_seen_v1',      // この端末で他の人の追加を最後に確認した時刻（端末ごと）
   checklists:       'inventory_checklists_v1', // チェック表と日ごとの✓（店で共有・サーバーが正。表示を速くする写し）

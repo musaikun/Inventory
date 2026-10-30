@@ -3,7 +3,7 @@ import {
   WS_RATE_WINDOW_MS, WS_RATE_MAX_MSG,
   MAX_TOKEN_LEN, MAX_DEVICE_ID_LEN, MAX_DEVICE_NAME_LEN,
   MAX_INGREDIENT_LEN, MAX_UNIT_LEN, MAX_CHAT_TEXT_LEN, MAX_ORDER_QTY,
-  ACCOUNT_DELETION_INTERNAL_HEADER,
+  ACCOUNT_DELETION_INTERNAL_HEADER, ROUTE_KEYS,
 } from './constants.js'
 import { verifyAuthToken } from './authHandler.js'
 import { authContext, ctxCan } from './staffHandler.js'
@@ -92,6 +92,14 @@ export function normalizeConfig(src = {}) {
     // 並び替え（軸）ごとの品目の並び。無い（古い端末）なら送らない＝受けた端末が今の並びから作る
     ...(Array.isArray(src.axisItemOrderA) ? { axisItemOrderA: src.axisItemOrderA } : {}),
     ...(Array.isArray(src.axisItemOrderB) ? { axisItemOrderB: src.axisItemOrderB } : {}),
+    // 棚卸の導線（3つ目の枠・2026-10-30）。無い（古い端末）なら送らない＝前の値を keepImagesFromPrevious で引き継ぐ
+    ...(Array.isArray(src.axisGroupsR) ? {
+      axisGroupsR: src.axisGroupsR,
+      tagsR: src.tagsR && typeof src.tagsR === 'object' && !Array.isArray(src.tagsR) ? src.tagsR : {},
+      axisItemOrderR: Array.isArray(src.axisItemOrderR) ? src.axisItemOrderR : [],
+      tagsArchiveR: src.tagsArchiveR && typeof src.tagsArchiveR === 'object' && !Array.isArray(src.tagsArchiveR) ? src.tagsArchiveR : {},
+      routeMore: Array.isArray(src.routeMore) ? src.routeMore : [],
+    } : {}),
     // 削除した品目名（次の取込で聞くため）。無い（古い端末）なら送らない
     ...(Array.isArray(src.deletedItems) ? { deletedItems: src.deletedItems } : {}),
     hiddenItems:   Array.isArray(src.hiddenItems) ? src.hiddenItems : [],
@@ -105,11 +113,15 @@ export function normalizeConfig(src = {}) {
 /**
  * 写真（images）を知らない古い端末が送った config で、写真の割り当てを消さない。
  * 新しい端末は写真を全部外しても `images: {}` を送るので、キーが無いのは古い端末だけ。
+ * 導線（axisGroupsR ほか）も同じ。新しい端末は導線が無くても `axisGroupsR: []` を送る。
  */
 export function keepImagesFromPrevious(next, src, prev) {
   const has = src && typeof src.images === 'object' && src.images !== null && !Array.isArray(src.images)
   if (!has && prev && typeof prev.images === 'object' && prev.images && !Array.isArray(prev.images)) {
     next.images = prev.images
+  }
+  if (!Array.isArray(src?.axisGroupsR) && prev && Array.isArray(prev.axisGroupsR)) {
+    for (const k of ROUTE_KEYS) if (prev[k] !== undefined) next[k] = prev[k]
   }
   return next
 }

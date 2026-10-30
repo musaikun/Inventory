@@ -10,7 +10,7 @@
  * 返すのは要る権限の配列（空なら誰でも）。
  */
 const ITEM_MAPS = ['units', 'prices', 'categories', 'codes', 'prevMonths', 'lotSizes', 'images']
-const SORT_MAPS = ['tagsA', 'tagsB']
+const SORT_MAPS = ['tagsA', 'tagsB', 'tagsR']   // tagsR = 棚卸の導線（2026-10-30）
 const ORDER_MAPS = ['reorderPoints', 'replenishTargets']
 
 const _j = v => JSON.stringify(v ?? null)
@@ -35,12 +35,17 @@ export function configChangePerms(prev, next) {
   if (SORT_MAPS.some(k => _changedForExisting(prev, next, k, existing))) need.add('sort')
   const names = c => _arr(c?.axisNames).map(x => x || '').concat(['', '']).slice(0, 2)
   if (_j(names(prev)) !== _j(names(next))) need.add('sort')
-  for (const k of ['axisGroupsA', 'axisGroupsB']) if (_j(_arr(prev?.[k])) !== _j(_arr(next?.[k]))) need.add('sort')
+  for (const k of ['axisGroupsA', 'axisGroupsB', 'axisGroupsR']) if (_j(_arr(prev?.[k])) !== _j(_arr(next?.[k]))) need.add('sort')
   // 今ある品目どうしの並び（取込順・並び替えの順）
   const keptOrder = after.filter(n => before.includes(n))
   if (_j(keptOrder) !== _j(existing)) need.add('sort')
   const exSet = new Set(existing)
-  for (const k of ['axisItemOrderA', 'axisItemOrderB']) {
+  // 導線の「まだ他にある」も並び替えの操作（品目は今ある品目だけで比べる）
+  {
+    const a = _arr(prev?.routeMore).filter(n => exSet.has(n)).sort(), b = _arr(next?.routeMore).filter(n => exSet.has(n)).sort()
+    if (Array.isArray(prev?.routeMore) && _j(a) !== _j(b)) need.add('sort')
+  }
+  for (const k of ['axisItemOrderA', 'axisItemOrderB', 'axisItemOrderR']) {
     if (!Array.isArray(prev?.[k])) continue   // 古い設定（並びを持たない）からの最初の保存は比べない
     const a = _arr(prev[k]).filter(n => exSet.has(n)), b = _arr(next?.[k]).filter(n => exSet.has(n))
     if (_j(a) !== _j(b)) need.add('sort')

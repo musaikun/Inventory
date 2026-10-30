@@ -21,6 +21,8 @@ import { APP_NAME } from '../appInfo.js'
 import BoardPage from './BoardPage.vue'
 import { handoffs, unreadHandoffs, pullHandoffs } from '../composables/useHandoffs.js'
 import { useSortSetup } from '../composables/useSortSetup.js'
+import { useConfig } from '../composables/useConfig.js'
+import { STORAGE_KEYS } from '../utils/storageKeys.js'
 
 const props = defineProps({
   activeSession:      { type: Object, default: null },
@@ -101,15 +103,29 @@ const preview = computed(() => {
 const joinWaiting = computed(() => aliveTasks.value.filter(t => t.kind === 'staff_join' && !t.doneAt).length)
 
 // ── ショートカット ──
-const { sortStage, sortProgress, axesProgress, freeSlot, openSortAxis, addSortAxis } = useSortSetup()
-const sortLeft = computed(() => {
-  const { best, total } = sortProgress.value
-  return sortStage.value === '' ? 0 : total - (best?.assigned ?? 0)
+const { axesProgress, freeSlot, openSortAxis, addSortAxis, routeStats, openRoute } = useSortSetup()
+const { moveAxisToRoute } = useConfig()
+// 品目リスト整理 = 棚卸の導線（店に1つ）と、品目並び替え（仕入先など2つまで）の2つに分ける（User決定 2026-10-30）
+const hasRoute = computed(() => routeStats.value.places.length > 0)
+const routeLabel = computed(() => {
+  const p = routeStats.value.places
+  return p.length > 3 ? `${p.slice(0, 3).join(' → ')} → …（${p.length}か所）` : p.join(' → ')
 })
-const sheet = ref('')   // '' | 'sort' | 'data'（カードから開く2択の板）
+// 今の並び替えに「保管場所」のような分け方があれば、導線へ移すか1回だけ訊く（この端末で）
+const PLACE_RE = /保管|場所|棚|ロケーション|置き場|location/i
+const migrateFrom = computed(() => (hasRoute.value ? null : axesProgress.value.find(a => PLACE_RE.test(a.name)) || null))
+const _asked = () => { try { return localStorage.getItem(STORAGE_KEYS.routeMigrateAsked) === '1' } catch (_) { return true } }
+const _markAsked = () => { try { localStorage.setItem(STORAGE_KEYS.routeMigrateAsked, '1') } catch (_) {} }
+function answerMigrate(move) {
+  if (move && migrateFrom.value) moveAxisToRoute(migrateFrom.value.idx)
+  _markAsked()
+  sheet.value = 'sort'
+}
+const sheet = ref('')   // '' | 'sort'（導線か並び替えか）| 'cls'（品目並び替え）| 'migrate' | 'data'
 function pickSheet(fn) { sheet.value = ''; fn() }
+const sheetTitle = computed(() => ({ sort: '品目リスト整理', cls: '品目並び替え', migrate: '導線にしますか？', data: 'データ' })[sheet.value] || '')
 const newAxis = ref('')   // 分類がまだ無いときの名前の入力
-const AXIS_EXAMPLES = ['保管場所', '仕入先', 'ジャンル']
+const AXIS_EXAMPLES = ['仕入先', '用途', '温度帯']
 function addFirstAxis() {
   const n = newAxis.value.trim()
   if (n) pickSheet(() => addSortAxis(n))
@@ -127,8 +143,11 @@ const shortcuts = computed(() => [
     badge: props.activeOrderSession ? _runBadge(orderLive.value, 'or') : (props.orderDeadline ? { text: props.orderDeadline, kind: 'or' } : null),
     d: ['M6 3h12v18l-3-2-3 2-3-2-3 2z', 'M9 8h6M9 12h6'] },
   // 品目リスト整理（並び替え）。名前は「数える順」から変えた（ぱっと見て意味が分からない・User決定 2026-10-28）。在庫タブから移した。振り分けが終わるまで残りの数を出す（光らせると棚卸の中断中と紛れるので印だけ・User決定 2026-10-27）
+  // 印は導線のこと: まだ無ければ「まだ」、あって入っていない品目があればその数（品目を足したら気づける・User決定 2026-10-30）
   ...(can('sort') ? [{ key: 'sort', label: '品目リスト整理',
-    badge: sortStage.value === 'none' ? { text: 'まだ', kind: 'cy' } : sortLeft.value > 0 ? { text: `あと${sortLeft.value}`, kind: 'cy' } : null,
+    badge: !routeStats.value.total ? null
+      : !hasRoute.value ? { text: 'まだ', kind: 'cy' }
+      : routeStats.value.missing ? { text: `導線 ${routeStats.value.missing}`, kind: 'red' } : null,
     d: ['M4 6h10M4 12h16M4 18h7', 'M17 15l3 3-3 3'] }] : []),
   { key: 'sessions', label: '在庫',
     badge: props.reorderCount ? { text: String(props.reorderCount), kind: 'red' } : null,
@@ -148,7 +167,7 @@ const shortcuts = computed(() => [
 ])
 function onShortcut(k) {
   // 分類がまだ1つも無ければ、並び方の説明と名前の入力を出す（User決定 2026-10-28）
-  if (k === 'sort') { newAxis.value = ''; sheet.value = 'sort'; return }
+  if (k === 'sort') { newAxis.value = ''; sheet.value = migrateFrom.value && !_asked() ? 'migrate' : 'sort'; return }
   if (k === 'data') { sheet.value = 'data'; return }
   if (k === 'stock') { props.activeSession ? emit('resume', props.activeSession) : emit('stock'); return }
   if (k === 'order') { props.activeOrderSession ? emit('resume', props.activeOrderSession) : emit('order'); return }
@@ -244,13 +263,40 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 
     <Teleport to="body">
       <div v-if="sheet" class="ht-sh-bg" @click.self="sheet = ''">
-        <section class="ht-sh" :aria-label="sheet === 'sort' ? '品目リスト整理' : 'データ'">
-          <div class="ht-sh-h"><b>{{ sheet === 'sort' ? '品目リスト整理' : 'データ' }}</b><button type="button" aria-label="閉じる" @click="sheet = ''">✕</button></div>
-          <form v-if="sheet === 'sort' && !axesProgress.length" class="ht-sh-new" @submit.prevent="addFirstAxis">
+        <section class="ht-sh" :aria-label="sheetTitle">
+          <div class="ht-sh-h">
+            <button v-if="sheet === 'cls'" type="button" class="ht-sh-back" aria-label="戻る" @click="sheet = 'sort'">‹</button>
+            <b>{{ sheetTitle }}</b><button type="button" aria-label="閉じる" @click="sheet = ''">✕</button>
+          </div>
+          <template v-if="sheet === 'migrate'">
             <p class="ht-sh-ex">
-              品目を<b>分類</b>ごとに分けて、棚卸で数える順に並べます。<br>
-              たとえば「保管場所」で 冷蔵庫 → 冷凍庫 → 乾物棚 と分けると、歩く順に数えられます。
-              分類は2つまで作れます（例：保管場所と仕入先）。
+              これからは、棚卸で歩く順番は<b>導線</b>、仕入先などのまとまりは<b>品目並び替え</b>として分けます。<br>
+              今の並び替え「{{ migrateFrom?.name }}」は、棚卸で歩く順番ですか？
+            </p>
+            <button type="button" class="ht-sh-b route" @click="answerMigrate(true)"><b>導線にする</b><small>場所・振り分け・並び順はそのまま移ります</small></button>
+            <button type="button" class="ht-sh-b" @click="answerMigrate(false)"><b>並び替えのまま</b><small>導線は別に作ります</small></button>
+          </template>
+          <template v-else-if="sheet === 'sort'">
+            <button type="button" class="ht-sh-b route" @click="pickSheet(() => openRoute())">
+              <b>🚶 導線作成</b>
+              <small v-if="hasRoute">{{ routeLabel }}</small>
+              <small v-else>棚卸で歩く順番。場所ごとに品目を入れ、その順で数えます</small>
+              <span v-if="hasRoute" class="ht-sh-bar" aria-hidden="true"><span :style="{ width: (routeStats.total ? routeStats.done / routeStats.total * 100 : 0) + '%' }"></span></span>
+              <small v-if="hasRoute && routeStats.more" class="more">2か所以上の途中 {{ routeStats.more }}品目</small>
+            </button>
+            <button v-if="hasRoute && routeStats.missing" type="button" class="ht-sh-alert" @click="pickSheet(() => openRoute({ unassigned: true }))">
+              導線に入っていない品目 {{ routeStats.missing }}<span>入れる ›</span>
+            </button>
+            <button type="button" class="ht-sh-b" @click="sheet = 'cls'">
+              <b>⇅ 品目並び替え</b>
+              <small v-if="axesProgress.length">{{ axesProgress.map(a => `${a.name} ${a.assigned} / ${a.total}`).join(' ・ ') }}</small>
+              <small v-else>仕入先・用途などのまとまり。発注書の分け方や一覧の絞り込みに</small>
+            </button>
+          </template>
+          <form v-else-if="sheet === 'cls' && !axesProgress.length" class="ht-sh-new" @submit.prevent="addFirstAxis">
+            <p class="ht-sh-ex">
+              品目を<b>仕入先</b>や<b>用途</b>などでまとめます。発注書を仕入先ごとに分けたり、一覧を絞ったりするのに使います。<br>
+              棚卸で歩く順番は「導線作成」で作ります。並び替えは2つまで作れます。
             </p>
             <label class="ht-sh-lb">分類の名前<input v-model="newAxis" type="text" maxlength="20" placeholder="例：保管場所" class="ht-sh-in" /></label>
             <div class="ht-sh-chips">
@@ -258,7 +304,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
             </div>
             <button type="submit" class="ht-sh-b add" :disabled="!newAxis.trim()"><b>＋ 分類を追加</b></button>
           </form>
-          <template v-else-if="sheet === 'sort'">
+          <template v-else-if="sheet === 'cls'">
             <button v-for="a in axesProgress" :key="a.idx" type="button" class="ht-sh-b" @click="pickSheet(() => openSortAxis(a.idx))">
               <b>{{ a.name }}</b>
               <span class="ht-sh-bar" aria-hidden="true"><span :style="{ width: (a.total ? a.assigned / a.total * 100 : 0) + '%' }"></span></span>
@@ -364,6 +410,12 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-sh-b small { font-size: 11.5px; font-weight: 700; color: var(--text-muted); }
 .ht-sh-b small.ok { color: #17663a; }
 .ht-sh-b.add { background: none; border: 1.5px dashed #9ccfdb; color: #0b5f73; }
+.ht-sh-b.route { background: #f5f3ff; box-shadow: inset 0 0 0 2px #7c3aed; }
+.ht-sh-b.route b { color: #6d28d9; }
+.ht-sh-b.route .ht-sh-bar span { background: #7c3aed; }
+.ht-sh-b small.more { color: #b45309; }
+.ht-sh-alert { display: flex; justify-content: space-between; align-items: center; border: none; border-radius: 12px; background: #fef2f2; color: #b91c1c; font: inherit; font-size: 13px; font-weight: 800; padding: 11px 14px; cursor: pointer; margin-top: -4px; }
+.ht-sh-h .ht-sh-back { font-size: 24px; line-height: 1; min-width: 32px; text-align: left; padding: 0; }
 .ht-sh-new { display: grid; gap: 10px; }
 .ht-sh-ex { margin: 0; font-size: 13px; line-height: 1.7; color: var(--text); background: #f2fafc; border-radius: 12px; padding: 12px; }
 .ht-sh-lb { display: grid; gap: 4px; font-size: 12px; font-weight: 800; color: var(--text-muted); }

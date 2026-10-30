@@ -12,7 +12,8 @@ export const pendingImportFile = ref(null)
 
 // 振り分けページ（AxisAssignFocus）をアプリ全体で開く
 export const showAxisAssign  = ref(false)
-export const axisAssignInitial = ref(0)   // 開いたとき最初に選択する並び替え（0=①, 1=②）
+export const axisAssignInitial = ref(0)   // 開いたとき最初に選択する並び替え（0=①, 1=②, 2=棚卸の導線）
+export const axisAssignUnassigned = ref(false)   // 開いたとき「未振り分けのみ」で絞る（導線に入っていない品目の知らせから）
 
 // 発注スケジュール設定（OrderScheduleModal）。App の戻る/ESC 制御に載せるため共有状態にする。
 export const showOrderSchedule = ref(false)

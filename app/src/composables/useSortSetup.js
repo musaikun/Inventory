@@ -2,8 +2,8 @@
 // ホームの「並び替え」タイルと、はじめて使うときの大きなおすすめで共通（User決定 2026-10-04）。
 // 名前の付いた並び替えのうち、いちばん振り分けが進んでいるもので判断する。
 import { computed } from 'vue'
-import { useConfig } from './useConfig.js'
-import { showAxisAssign, axisAssignInitial } from './appMenuState.js'
+import { useConfig, ROUTE } from './useConfig.js'
+import { showAxisAssign, axisAssignInitial, axisAssignUnassigned } from './appMenuState.js'
 import { can, denyMessage } from './useAuth.js'
 
 export function useSortSetup() {
@@ -66,6 +66,7 @@ export function useSortSetup() {
   function openSortAxis(idx) {
     if (!can('sort')) { window.alert(denyMessage('sort')); return false }
     axisAssignInitial.value = idx
+    axisAssignUnassigned.value = false
     showAxisAssign.value = true
     return true
   }
@@ -81,5 +82,28 @@ export function useSortSetup() {
     return openSortAxis(idx)
   }
 
-  return { sortProgress, sortStage, axesProgress, freeSlot, openSort, openSortAxis, addSortAxis }
+  // ── 棚卸の導線（並び替えとは別の枠・User決定 2026-10-30）──────────────
+  // places: 場所の名前（歩く順）／ missing: どの場所にも入っていない品目（非表示は除く）／ more: 「まだ他にある」
+  const routeStats = computed(() => {
+    const hidden = new Set(config.hiddenItems ?? [])
+    const items = (config.order ?? []).filter(n => !hidden.has(n))
+    const tags = config.tagsR ?? {}
+    const more = new Set(config.routeMore ?? [])
+    let missing = 0, moreN = 0
+    for (const it of items) {
+      if (!tags[it]?.length) missing++
+      else if (more.has(it)) moreN++
+    }
+    return { places: [...(config.axisGroupsR ?? [])], total: items.length, missing, more: moreN, done: items.length - missing - moreN }
+  })
+  /** 導線の振り分けを開く。unassigned = 入っていない品目だけを出して開く */
+  function openRoute({ unassigned = false } = {}) {
+    if (!can('sort')) { window.alert(denyMessage('sort')); return false }
+    axisAssignInitial.value = ROUTE
+    axisAssignUnassigned.value = unassigned
+    showAxisAssign.value = true
+    return true
+  }
+
+  return { sortProgress, sortStage, axesProgress, freeSlot, openSort, openSortAxis, addSortAxis, routeStats, openRoute }
 }

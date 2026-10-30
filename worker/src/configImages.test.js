@@ -33,3 +33,18 @@ describe('handleConfigPut: 写真の割り当て', () => {
     expect(db.saved.images).toEqual({})
   })
 })
+
+describe('handleConfigPut: 棚卸の導線（2026-10-30）', () => {
+  const R = { axisGroupsR: ['冷蔵庫'], tagsR: { トマト: ['冷蔵庫'] }, axisItemOrderR: ['トマト'], tagsArchiveR: {}, routeMore: [] }
+  it('導線を知らない端末の保存では、前の導線を引き継ぐ', async () => {
+    const db = fakeDb({ order: ['トマト'], images: {}, ...R })
+    await handleConfigPut(db, 'ABCD', { order: ['トマト'], images: {} })
+    expect(db.saved.axisGroupsR).toEqual(['冷蔵庫'])
+    expect(db.saved.tagsR).toEqual({ トマト: ['冷蔵庫'] })
+  })
+  it('導線を送った保存はその値で上書きする', async () => {
+    const db = fakeDb({ order: ['トマト'], images: {}, ...R })
+    await handleConfigPut(db, 'ABCD', { order: ['トマト'], images: {}, axisGroupsR: [], tagsR: {} })
+    expect(db.saved.axisGroupsR).toEqual([])
+  })
+})

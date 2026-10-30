@@ -125,3 +125,23 @@ describe('keepImagesFromPrevious: 古い端末の config で写真を消さな�
     expect(keepImagesFromPrevious(normalizeConfig(src), src, prev).images).toEqual({})
   })
 })
+
+describe('棚卸の導線（3つ目の枠・2026-10-30）', () => {
+  const route = { axisGroupsR: ['冷蔵庫'], tagsR: { 牛乳: ['冷蔵庫'] }, axisItemOrderR: ['牛乳'], tagsArchiveR: { 牛乳: ['冷蔵庫'] }, routeMore: ['牛乳'] }
+  it('新しい端末の導線はそのまま中継する', () => {
+    const c = normalizeConfig({ order: ['牛乳'], ...route })
+    expect(c.axisGroupsR).toEqual(['冷蔵庫'])
+    expect(c.tagsR).toEqual({ 牛乳: ['冷蔵庫'] })
+    expect(c.routeMore).toEqual(['牛乳'])
+  })
+  it('導線を知らない古い端末の config では、前の導線を引き継ぐ', () => {
+    const src = { order: ['牛乳'], images: {} }
+    const next = keepImagesFromPrevious(normalizeConfig(src), src, { ...route })
+    expect(next.axisGroupsR).toEqual(['冷蔵庫'])
+    expect(next.tagsR).toEqual({ 牛乳: ['冷蔵庫'] })
+  })
+  it('新しい端末が導線を空にしたら空にする', () => {
+    const src = { order: ['牛乳'], images: {}, axisGroupsR: [], tagsR: {} }
+    expect(keepImagesFromPrevious(normalizeConfig(src), src, { ...route }).axisGroupsR).toEqual([])
+  })
+})

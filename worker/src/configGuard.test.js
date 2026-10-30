@@ -24,6 +24,13 @@ describe('config の書き換えに要る権限', () => {
     expect(configChangePerms(base, next({ reorderPoints: { 塩: 2 } }))).toEqual(['orderSettings'])
     expect(configChangePerms(base, next({ orderSchedules: [{ id: 'a', days: [1] }] }))).toEqual(['orderSettings'])
   })
+  it('棚卸の導線（場所・振り分け・並び・まだ他にある）は sort（2026-10-30）', () => {
+    expect(configChangePerms(base, next({ axisGroupsR: ['冷蔵庫'] }))).toEqual(['sort'])
+    expect(configChangePerms(base, next({ tagsR: { トマト: ['冷蔵庫'] } }))).toEqual(['sort'])
+    const withRoute = next({ axisGroupsR: ['冷蔵庫'], tagsR: { トマト: ['冷蔵庫'] }, routeMore: [] })
+    expect(configChangePerms(withRoute, { ...structuredClone(withRoute), routeMore: ['トマト'] })).toEqual(['sort'])
+    expect(configChangePerms(base, next({ axisGroupsR: [], routeMore: [] })), '未設定と空は同じ').toEqual([])
+  })
   it('既定値どうし（未設定と空）は変更に数えない', () => {
     const { orderSchedules, axisNames, ...old } = base
     expect(configChangePerms({ ...old, axisNames: undefined }, { ...old, axisNames: ['', ''], orderSchedules: [], orderAssumptions: null })).toEqual([])

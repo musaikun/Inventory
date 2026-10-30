@@ -12,7 +12,7 @@ import {
   MAX_ID_LEN, MAX_DEVICE_NAME_LEN, MAX_DEVICE_ID_LEN,
   MAX_SNAPSHOT_ITEMS, MAX_SNAPSHOT_LOG_ENTRIES, MAX_SNAPSHOT_PARTICIPANTS, MAX_SNAPSHOT_LABELS, MAX_ENTRY_AT_MS,
   AUDIT_ROWS_PER_STATEMENT, MAX_AUDIT_PER_REQUEST,
-  ORDER_ROWS_PER_STATEMENT, MOVEMENT_ROWS_PER_STATEMENT,
+  ORDER_ROWS_PER_STATEMENT, MOVEMENT_ROWS_PER_STATEMENT, ROUTE_KEYS,
 } from './constants.js'
 import {
   parseClientId, parseDate, parseQty, parseOptionalNumber, parseEnum, parseCount,
@@ -112,11 +112,18 @@ export async function handleConfigPut(db, code, body) {
   if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
   // 写真（images）を知らない古い端末（更新前の PWA）の保存で、写真の割り当てを消さない。
   // 新しい端末は写真が0枚でも `images: {}` を送るので、キーが無いときだけ前の値を引き継ぐ。
-  if (body && typeof body === 'object' && !Array.isArray(body) && body.images === undefined) {
+  // 導線（axisGroupsR ほか・2026-10-30）も同じ。導線を知らない端末の保存で消さない。
+  const lacksImages = body?.images === undefined, lacksRoute = !Array.isArray(body?.axisGroupsR)
+  if (body && typeof body === 'object' && !Array.isArray(body) && (lacksImages || lacksRoute)) {
     try {
-      const prev = await db.prepare('SELECT config_json FROM store_configs WHERE shop_code = ?').bind(code).first()
-      const prevImages = prev ? JSON.parse(prev.config_json)?.images : null
-      if (prevImages && typeof prevImages === 'object' && !Array.isArray(prevImages)) body = { ...body, images: prevImages }
+      const prevRow = await db.prepare('SELECT config_json FROM store_configs WHERE shop_code = ?').bind(code).first()
+      const prev = prevRow ? JSON.parse(prevRow.config_json) : null
+      const prevImages = prev?.images
+      if (lacksImages && prevImages && typeof prevImages === 'object' && !Array.isArray(prevImages)) body = { ...body, images: prevImages }
+      if (lacksRoute && Array.isArray(prev?.axisGroupsR)) {
+        body = { ...body }
+        for (const k of ROUTE_KEYS) if (prev[k] !== undefined) body[k] = prev[k]
+      }
     } catch (_) { /* 前の値が読めなければそのまま保存する */ }
   }
   const now = _now()

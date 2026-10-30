@@ -32,6 +32,7 @@ const CONFIG_KEY  = STORAGE_KEYS.config
 const ALIASES_KEY = STORAGE_KEYS.aliases
 
 export const AXIS_NAME_MAX = 10   // 分類名の文字数上限
+export const ROUTE = 2             // 棚卸の導線の axisIndex（並び替えの 0・1 とは別の枠）
 const MASTER_KEY  = STORAGE_KEYS.master
 
 let _onConfigChanged = null
@@ -64,6 +65,13 @@ const config = reactive({
   // order（取込ファイルの並び・手で足した品目はコード順の位置）は並び替えの操作で書き換えない
   axisItemOrderA: [],
   axisItemOrderB: [],
+  // 棚卸の導線（User決定 2026-10-30）。並び替え（2つ）とは別の3つ目の枠・店に1つ。中身は並び替えと同じ形
+  // （場所＝グループ・品目 → 場所・品目の並び・割り当ての記憶）。axisIndex は ROUTE（2）
+  tagsR:          {},        // 品目 → 場所（複数の場所にある品目は複数）
+  axisGroupsR:    [],        // 場所の一覧（歩く順）
+  axisItemOrderR: [],        // 品目の並び（場所の中の順）
+  tagsArchiveR:   {},        // 割り当ての記憶（取込・削除をまたいで戻す）
+  routeMore:      [],        // 「まだ他の場所にもある」品目。場所があっても未振り分けに残す
   // 削除した品目名（新しい順・上限あり）。次の取込で黙って復活させないために覚える（User決定 2026-10-07）
   deletedItems:   [],
   hiddenItems:    [],        // 非表示にした品目名（マスタは不変・進捗の分母から除外）
@@ -133,6 +141,11 @@ function _serializeConfigData() {
     axisGroupsB:   config.axisGroupsB,
     axisItemOrderA: config.axisItemOrderA,
     axisItemOrderB: config.axisItemOrderB,
+    tagsR:         config.tagsR,
+    axisGroupsR:   config.axisGroupsR,
+    axisItemOrderR: config.axisItemOrderR,
+    tagsArchiveR:  config.tagsArchiveR,
+    routeMore:     config.routeMore,
     deletedItems:  config.deletedItems,
     hiddenItems:   config.hiddenItems,
     hiddenAuto:    config.hiddenAuto,
@@ -169,6 +182,11 @@ function _assignConfigData(src) {
     : (Object.values(tags).some(x => x?.length) ? [...config.order] : [])
   config.axisItemOrderA = _seedAxisOrder(src.axisItemOrderA, config.tagsA)
   config.axisItemOrderB = _seedAxisOrder(src.axisItemOrderB, config.tagsB)
+  config.tagsR          = _normTags(src.tagsR)
+  config.axisGroupsR    = Array.isArray(src.axisGroupsR) ? src.axisGroupsR.filter(n => typeof n === 'string') : []
+  config.axisItemOrderR = Array.isArray(src.axisItemOrderR) ? src.axisItemOrderR.filter(n => typeof n === 'string') : []
+  config.tagsArchiveR   = _normTags(src.tagsArchiveR)
+  config.routeMore      = Array.isArray(src.routeMore) ? src.routeMore.filter(n => typeof n === 'string') : []
   config.deletedItems   = Array.isArray(src.deletedItems) ? src.deletedItems.filter(n => typeof n === 'string').slice(0, DELETED_CAP) : []
   config.hiddenItems   = Array.isArray(src.hiddenItems) ? src.hiddenItems : []
   config.hiddenAuto    = Array.isArray(src.hiddenAuto) ? src.hiddenAuto : []
@@ -315,16 +333,22 @@ export function applyRemoteConfig(cfg) {
   // 手元の単価を残す。空で上書きすると、オーナーの2台目がゲストで入った後の保存で店の単価が消える。
   // 「単価なし」を伝えるときはサーバーが prices: {} を明示する（GET /config）。
   const keepPrices = cfg.prices === undefined ? config.prices : null
+  // 導線を知らない古い端末から届いた config では、手元の導線を消さない（キーが無いのは古い端末だけ）
+  const keepRoute = cfg.axisGroupsR === undefined ? _routeData() : null
   _assignConfigData(cfg)
+  if (keepRoute) Object.assign(config, keepRoute)
   if (keepImages && Object.keys(keepImages).length) config.images = keepImages
   if (keepPrices) config.prices = keepPrices
   _saveLocalOnly()
 }
 
+const ROUTE_KEYS = ['tagsR', 'axisGroupsR', 'axisItemOrderR', 'tagsArchiveR', 'routeMore']
+function _routeData() { return Object.fromEntries(ROUTE_KEYS.map(k => [k, config[k]])) }
+
 // 振り分けアーカイブの上限（古いキーから捨てる）
 const ARCHIVE_CAP = 2000
 function _pruneArchive() {
-  for (const arch of [config.tagsArchiveA, config.tagsArchiveB]) {
+  for (const arch of [config.tagsArchiveA, config.tagsArchiveB, config.tagsArchiveR]) {
     const keys = Object.keys(arch)
     if (keys.length > ARCHIVE_CAP) for (const k of keys.slice(0, keys.length - ARCHIVE_CAP)) delete arch[k]
   }
@@ -401,6 +425,10 @@ function _applyImportPlan(plan) {
     if (plan.tagsA[nm]?.length) config.tagsArchiveA[nm] = [...plan.tagsA[nm]]
     if (plan.tagsB[nm]?.length) config.tagsArchiveB[nm] = [...plan.tagsB[nm]]
   }
+  // 導線は取込では変えない。リストから消えた品目は外し、戻ってきた品目は記憶から戻す
+  for (const nm of Object.keys(config.tagsR)) if (!inPlan.has(nm)) delete config.tagsR[nm]
+  for (const nm of plan.order) if (config.tagsR[nm] === undefined && Array.isArray(config.tagsArchiveR[nm])) config.tagsR[nm] = [...config.tagsArchiveR[nm]]
+  config.routeMore = (config.routeMore ?? []).filter(n => inPlan.has(n))
   _pruneArchive()
   _save()   // ここで前回の退避が失効する
 
@@ -558,7 +586,9 @@ export function useConfig() {
     // 軸（軸名・グループ定義）は店舗の永続設定。品目を空にしても消さない。
     config.tagsA         = {}
     config.tagsB         = {}
-    if (opts.resetAssignments === true) { config.tagsArchiveA = {}; config.tagsArchiveB = {} }
+    config.tagsR         = {}
+    config.routeMore     = []
+    if (opts.resetAssignments === true) { config.tagsArchiveA = {}; config.tagsArchiveB = {}; config.tagsArchiveR = {} }
     config.hiddenItems   = []
     config.hiddenAuto    = []
     config.hiddenAt      = {}
@@ -585,6 +615,8 @@ export function useConfig() {
     // 軸（軸名・グループ定義）は店舗の永続設定。練習でも消さない（終了時に復元もされる）。
     config.tagsA         = {}
     config.tagsB         = {}
+    config.tagsR         = {}
+    config.routeMore     = []
     config.hiddenItems   = []
     config.hiddenAuto    = []
     config.hiddenAt      = {}
@@ -716,6 +748,7 @@ export function useConfig() {
     // 同名品目が過去に振り分けられていれば復元（削除→再追加・個人利用の積み上げに対応）
     if (config.tagsA[n] === undefined && Array.isArray(config.tagsArchiveA[n])) config.tagsA[n] = [...config.tagsArchiveA[n]]
     if (config.tagsB[n] === undefined && Array.isArray(config.tagsArchiveB[n])) config.tagsB[n] = [...config.tagsArchiveB[n]]
+    if (config.tagsR[n] === undefined && Array.isArray(config.tagsArchiveR[n])) config.tagsR[n] = [...config.tagsArchiveR[n]]
     _save()
     return true
   }
@@ -729,8 +762,12 @@ export function useConfig() {
     if (n !== oldName && config.order.includes(n)) return false
     if (n !== oldName) {
       config.order[idx] = n
-      for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes, config.reorderPoints, config.replenishTargets, config.images, config.tagsA, config.tagsB]) {
+      for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes, config.reorderPoints, config.replenishTargets, config.images, config.tagsA, config.tagsB, config.tagsR]) {
         if (obj[oldName] !== undefined) { obj[n] = obj[oldName]; delete obj[oldName] }
+      }
+      for (const k of ['axisItemOrderA', 'axisItemOrderB', 'axisItemOrderR', 'routeMore']) {
+        const i = (config[k] ?? []).indexOf(oldName)
+        if (i >= 0) config[k][i] = n
       }
       for (const [alias, target] of Object.entries(config.dictionary)) {
         if (target === oldName) config.dictionary[alias] = n
@@ -863,6 +900,11 @@ export function useConfig() {
 
   // 並び替え（軸）を丸ごと削除: 名前・グループ・割り当てをすべて消す
   function clearAxis(axisIndex) {
+    if (axisIndex === ROUTE) {
+      config.tagsR = {}; config.axisGroupsR = []; config.tagsArchiveR = {}; config.axisItemOrderR = []; config.routeMore = []
+      _save()
+      return true
+    }
     if (axisIndex !== 0 && axisIndex !== 1) return false
     const names = Array.isArray(config.axisNames) ? [...config.axisNames] : ['', '']
     names[axisIndex] = ''
@@ -875,13 +917,13 @@ export function useConfig() {
 
   // ── 汎用軸のグループ（場所・仕入先など）管理 ────────────────────────────────
   function _axisList(axisIndex) {
-    return axisIndex === 0 ? config.axisGroupsA : axisIndex === 1 ? config.axisGroupsB : null
+    return axisIndex === 0 ? config.axisGroupsA : axisIndex === 1 ? config.axisGroupsB : axisIndex === ROUTE ? config.axisGroupsR : null
   }
   function _axisMap(axisIndex) {
-    return axisIndex === 0 ? config.tagsA : axisIndex === 1 ? config.tagsB : null
+    return axisIndex === 0 ? config.tagsA : axisIndex === 1 ? config.tagsB : axisIndex === ROUTE ? config.tagsR : null
   }
   function _archiveMap(axisIndex) {
-    return axisIndex === 0 ? config.tagsArchiveA : axisIndex === 1 ? config.tagsArchiveB : null
+    return axisIndex === 0 ? config.tagsArchiveA : axisIndex === 1 ? config.tagsArchiveB : axisIndex === ROUTE ? config.tagsArchiveR : null
   }
 
   // 割り当ての変更をアーカイブへ反映（品目名キーで永続記憶）
@@ -1022,7 +1064,7 @@ export function useConfig() {
    * 並び替え（軸）の品目の並び。軸の並び → 残りは order の順。今ある品目だけ
    */
   function axisItemSequence(axisIndex) {
-    const own = (axisIndex === 0 ? config.axisItemOrderA : axisIndex === 1 ? config.axisItemOrderB : null) ?? []
+    const own = (axisIndex === 0 ? config.axisItemOrderA : axisIndex === 1 ? config.axisItemOrderB : axisIndex === ROUTE ? config.axisItemOrderR : null) ?? []
     const known = new Set(config.order)
     const seq = [...new Set(own.filter(n => known.has(n)))]
     const inSeq = new Set(seq)
@@ -1032,6 +1074,7 @@ export function useConfig() {
   function _setAxisItemOrder(axisIndex, seq) {
     if (axisIndex === 0) config.axisItemOrderA = seq
     else if (axisIndex === 1) config.axisItemOrderB = seq
+    else if (axisIndex === ROUTE) config.axisItemOrderR = seq
   }
 
   /**
@@ -1041,7 +1084,7 @@ export function useConfig() {
    * @param {string[]} names 並べ替えたい品目を、新しい順で
    */
   function reorderAxisItems(axisIndex, names) {
-    if (axisIndex !== 0 && axisIndex !== 1) return false
+    if (axisIndex !== 0 && axisIndex !== 1 && axisIndex !== ROUTE) return false
     if (!Array.isArray(names) || names.length < 2) return false
     const seq = axisItemSequence(axisIndex)
     const known = new Set(seq)
@@ -1058,7 +1101,7 @@ export function useConfig() {
 
   /** 並び替え（軸）の品目の並びを置き換える（今ある品目だけ。足りない品目は order の順で後ろ） */
   function setAxisItemOrder(axisIndex, names) {
-    if (axisIndex !== 0 && axisIndex !== 1) return false
+    if (axisIndex !== 0 && axisIndex !== 1 && axisIndex !== ROUTE) return false
     if (!Array.isArray(names)) return false
     const known = new Set(config.order)
     const seq = [...new Set(names.filter(n => known.has(n)))]
@@ -1178,8 +1221,42 @@ export function useConfig() {
     if (arr.length) map[item] = arr
     else            delete map[item]
     _syncArchive(axisIndex, item)
+    // 導線: どの場所にも無くなったら「まだ他にある」も外す（未振り分けに戻るので印は要らない）
+    if (axisIndex === ROUTE && !arr.length) config.routeMore = (config.routeMore ?? []).filter(n => n !== item)
     _save()
     return true
+  }
+
+  // ── 導線の「まだ他の場所にもある」（User決定 2026-10-30）────────────────
+  // 1か所目に入れたら済み。2か所以上にある品目だけ「まだ」にすると、場所があっても未振り分けに残る
+  function setRouteMore(item, more) {
+    if (!config.order.includes(item)) return false
+    const cur = config.routeMore ?? []
+    const has = cur.includes(item)
+    if (more && !has) config.routeMore = [...cur, item]
+    else if (!more && has) config.routeMore = cur.filter(n => n !== item)
+    else return true
+    _save()
+    return true
+  }
+
+  /**
+   * 並び替え（0・1）を導線へ移す（「保管場所」などを作っていた店・1回だけ訊く）。
+   * 場所・割り当て・並び・記憶をそのまま導線へ写し、並び替えからは消す。導線が既にあれば何もしない
+   */
+  function moveAxisToRoute(axisIndex) {
+    if (axisIndex !== 0 && axisIndex !== 1) return false
+    if ((config.axisGroupsR ?? []).length) return false
+    const A = axisIndex === 0
+    const tags = A ? config.tagsA : config.tagsB
+    const list = [...(A ? config.axisGroupsA : config.axisGroupsB)]
+    for (const gs of Object.values(tags)) for (const g of gs ?? []) if (!list.includes(g)) list.push(g)   // 一覧に無い割り当ても場所にする
+    config.axisGroupsR    = list
+    config.tagsR          = Object.fromEntries(Object.entries(tags).map(([k, v]) => [k, [...v]]))
+    config.axisItemOrderR = [...(A ? config.axisItemOrderA : config.axisItemOrderB)]
+    config.tagsArchiveR   = Object.fromEntries(Object.entries(A ? config.tagsArchiveA : config.tagsArchiveB).map(([k, v]) => [k, [...v]]))
+    config.routeMore      = []
+    return clearAxis(axisIndex)
   }
 
   // 複数品目をグループへ一括追加（group が空なら各品目の割り当てを全解除＝その他）
@@ -1213,9 +1290,10 @@ export function useConfig() {
     const idx = config.order.indexOf(name)
     if (idx < 0) return false
     config.order.splice(idx, 1)
-    for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes, config.reorderPoints, config.replenishTargets, config.images, config.tagsA, config.tagsB, config.hiddenAt]) {
+    for (const obj of [config.units, config.prices, config.categories, config.codes, config.prevMonths, config.lotSizes, config.reorderPoints, config.replenishTargets, config.images, config.tagsA, config.tagsB, config.tagsR, config.hiddenAt]) {
       delete obj[name]
     }
+    { const i = (config.routeMore ?? []).indexOf(name); if (i >= 0) config.routeMore.splice(i, 1) }
     const mi = config.manualItems.indexOf(name)
     if (mi >= 0) config.manualItems.splice(mi, 1)
     delete config.itemAdded[name]
@@ -1239,7 +1317,7 @@ export function useConfig() {
     const out = names.map(n => ({
       name: n, added: config.itemAdded[n], unit: config.units[n] ?? null, price: config.prices[n] ?? null,
       category: config.categories[n] ?? null, code: config.codes[n] ?? null, lot: config.lotSizes[n] ?? null,
-      image: config.images[n] ?? null, tagsA: config.tagsA[n] ?? null, tagsB: config.tagsB[n] ?? null,
+      image: config.images[n] ?? null, tagsA: config.tagsA[n] ?? null, tagsB: config.tagsB[n] ?? null, tagsR: config.tagsR[n] ?? null,
     }))
     for (const n of names) {
       removeConfigItem(n)
@@ -1258,6 +1336,7 @@ export function useConfig() {
       if (r.image) config.images[r.name] = r.image
       if (r.tagsA) config.tagsA[r.name] = r.tagsA
       if (r.tagsB) config.tagsB[r.name] = r.tagsB
+      if (r.tagsR) config.tagsR[r.name] = r.tagsR
       if (r.added) config.itemAdded[r.name] = r.added
       n++
     }
@@ -1375,6 +1454,7 @@ export function useConfig() {
     activeItemCount,
     hideItem,
     removeItemsAddedIn, restoreAddedItems,
+    setRouteMore, moveAxisToRoute,
     unhideItem,
     hideItems,
     unhideItems,

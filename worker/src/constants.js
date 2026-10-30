@@ -205,3 +205,6 @@ export const MOVEMENT_RESTORE_WINDOW_MS = 24 * 60 * 60 * 1000   // 取り消し�
 export const MAX_SUPPLIER_LEN    = 100              // 発注の仕入先・軸名
 export const MAX_ID_LEN          = 64               // client採番ID（order/movement）
 export const MAX_STORE_NAME_LEN  = 50
+
+// 棚卸の導線（品目リストの3つ目の枠・2026-10-30）のキー。導線を知らない古い端末の保存で消さないために引き継ぐ
+export const ROUTE_KEYS = ['axisGroupsR', 'tagsR', 'axisItemOrderR', 'tagsArchiveR', 'routeMore']

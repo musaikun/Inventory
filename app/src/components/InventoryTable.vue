@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, reactive, watch, nextTick, onUnmounted } from 'vue'
-import { useConfig } from '../composables/useConfig.js'
+import { useConfig, ROUTE } from '../composables/useConfig.js'
 import { useRowHideSwipe, REVEAL_AT } from '../composables/useRowHideSwipe.js'
 import { sortHiddenByRecent, hiddenAtLabel } from '../utils/hiddenItems.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
@@ -92,12 +92,17 @@ function _isSupply(item) {
 }
 
 // ── 並べ替え / フィルター ─────────────────────────────────────────────────────
-const sortMode     = ref('category')  // 'category' | 'alpha' | 'axisA' | 'axisB' | 'hidden' | 'hiddenAt'
+// 'route'（棚卸の導線・User決定 2026-10-30）| 'category' | 'alpha' | 'axisA' | 'axisB' | 'hidden' | 'hiddenAt'
+// 導線があれば最初は導線の順（作った導線を使う側。無ければ今までどおりジャンル）
+const hasRoute     = computed(() => (config.value.axisGroupsR ?? []).length > 0)
+const ROUTE_NONE   = '導線に入っていない'   // 導線の並びで、どの場所にも入っていない品目の見出し（最後に出す）
+const sortMode     = ref(hasRoute.value ? 'route' : 'category')
 const filterMode   = ref('all')       // 'all' | 'filled' | 'empty'
 
 // 並べ替え軸の選択肢（軸名が設定されている汎用軸のみ追加）
 const sortOpts = computed(() => {
   const opts = [
+    ...(hasRoute.value ? [{ value: 'route', label: '🚶 導線' }] : []),
     { value: 'category', label: 'ジャンル' },
   ]
   const names = config.value.axisNames ?? ['', '']
@@ -130,7 +135,7 @@ function onAddAxis() {
 }
 // アクティブな自作並び替えタブの ✎ から振り分けページへ
 function openAxisEdit(value) {
-  axisAssignInitial.value = value === 'axisA' ? 0 : 1
+  axisAssignInitial.value = value === 'route' ? ROUTE : value === 'axisA' ? 0 : 1
   showAxisAssign.value = true
 }
 
@@ -161,11 +166,12 @@ const _effectiveSort = computed(() => {
   const names = config.value.axisNames ?? ['', '']
   if (m === 'axisA' && !names[0]) return 'order'
   if (m === 'axisB' && !names[1]) return 'order'
+  if (m === 'route' && !hasRoute.value) return 'category'
   return m
 })
 // 非表示の品目だけを見るタブ（hiddenTabs のときだけ選べる）
 const _isHiddenMode = computed(() => _effectiveSort.value === 'hidden' || _effectiveSort.value === 'hiddenAt')
-const _isGroupedMode = computed(() => ['category', 'alpha', 'axisA', 'axisB', 'hidden'].includes(_effectiveSort.value))
+const _isGroupedMode = computed(() => ['route', 'category', 'alpha', 'axisA', 'axisB', 'hidden'].includes(_effectiveSort.value))
 // チップ表示（hiddenTabs）用: 作ったグループだけを枠に入れ、それ以外は並べて出す
 const axisChipOpts  = computed(() => sortOpts.value.filter(o => o.value === 'axisA' || o.value === 'axisB'))
 const plainChipOpts = computed(() => sortOpts.value.filter(o => o.value !== 'axisA' && o.value !== 'axisB'))
@@ -267,6 +273,8 @@ function _isFilled(item) {
 }
 
 // ── カテゴリごとの実際の進捗（フィルターに依存しない・スコープ反映）──────────
+// 導線の場所ごとの件数（rows より前に置く。rows は下の watch で作るときにすぐ読まれる）
+const routeStats = computed(() => _axisStats(config.value.tagsR, ROUTE_NONE))
 const catRealStats = computed(() => {
   const map = {}
   const all = [
@@ -324,6 +332,7 @@ const rows = computed(() => {
     lotSize:   config.value.lotSizes?.[item]    ?? null,
     tagA:      config.value.tagsA?.[item]       ?? [],
     tagB:      config.value.tagsB?.[item]       ?? [],
+    tagR:      config.value.tagsR?.[item]       ?? [],
   }))
 
   // 2. config.value.order に含まれないカスタム品目
@@ -342,6 +351,7 @@ const rows = computed(() => {
       lotSize:   config.value.lotSizes?.[item]    ?? null,
       tagA:      config.value.tagsA?.[item]       ?? [],
       tagB:      config.value.tagsB?.[item]       ?? [],
+      tagR:      config.value.tagsR?.[item]       ?? [],
     }))
 
   // 3. カテゴリスコープフィルター（食材 / 資材・備品）
@@ -418,18 +428,19 @@ const rows = computed(() => {
     return result
   }
 
-  if (mode === 'category' || mode === 'axisA' || mode === 'axisB' || mode === 'hidden') {
-    // ジャンル / 汎用軸によるグループ化（共通ロジック）。非表示設定品目は取込由来のジャンル別
-    // 軸は多ロケーション対応: 1品目が複数グループに属する場合、各グループに複製して出す
-    const emptyLabel = 'その他'
+  if (mode === 'route' || mode === 'category' || mode === 'axisA' || mode === 'axisB' || mode === 'hidden') {
+    // ジャンル / 汎用軸 / 導線によるグループ化（共通ロジック）。非表示設定品目は取込由来のジャンル別
+    // 軸・導線は多ロケーション対応: 1品目が複数グループに属する場合、各グループに複製して出す
+    const emptyLabel = mode === 'route' ? ROUTE_NONE : 'その他'
     const groupsOf = (row) => {
       if (mode === 'category' || mode === 'hidden') return [row.category ?? 'その他']
-      const arr = mode === 'axisA' ? row.tagA : row.tagB
-      return (Array.isArray(arr) && arr.length) ? arr : ['その他']
+      const arr = mode === 'route' ? row.tagR : mode === 'axisA' ? row.tagA : row.tagB
+      return (Array.isArray(arr) && arr.length) ? arr : [emptyLabel]
     }
     // 非表示設定品目は見えている行（非表示の品目だけ）が件数そのもの
     const statsMap = mode === 'hidden' ? {}
       : mode === 'category' ? catRealStats.value
+      : mode === 'route' ? routeStats.value
       : mode === 'axisA' ? axisAStats.value
       :                    axisBStats.value
 
@@ -443,8 +454,8 @@ const rows = computed(() => {
     // グループの中の並び（User 2026-10-04）
     // - 並び替え（軸）: その並び替えで決めた順（振り分けの画面・数えた順）。無い品目は品目リストの順で後ろ
     // - ジャンル: 商品コードがあればコード順、無い品目は品目リスト（取込ファイル）の順で後ろ
-    if (mode === 'axisA' || mode === 'axisB') {
-      const own = (mode === 'axisA' ? config.value.axisItemOrderA : config.value.axisItemOrderB) ?? []
+    if (mode === 'route' || mode === 'axisA' || mode === 'axisB') {
+      const own = (mode === 'route' ? config.value.axisItemOrderR : mode === 'axisA' ? config.value.axisItemOrderA : config.value.axisItemOrderB) ?? []
       const rank = new Map()
       own.forEach((n, i) => { if (!rank.has(n)) rank.set(n, i) })
       const base = own.length
@@ -466,7 +477,8 @@ const rows = computed(() => {
     }
     // ジャンルは分類コード順（未設定は末尾）、軸は五十音順（未設定は末尾）
     // 軸は「振り分けページで定義したグループ順」を優先（未定義グループは末尾）
-    const axisOrder = mode === 'axisA' ? (config.value.axisGroupsA ?? [])
+    const axisOrder = mode === 'route' ? (config.value.axisGroupsR ?? [])
+      : mode === 'axisA' ? (config.value.axisGroupsA ?? [])
       : mode === 'axisB' ? (config.value.axisGroupsB ?? [])
       : []
     const sorted = [...groupMap.entries()].sort(([a], [b]) => {
@@ -575,6 +587,7 @@ const grandTotal = computed(() => {
 // preview: 現在の並び替え軸で、その品目が振り分けられているグループ名（多ロケーションは複数）
 function previewGroups(row) {
   const m = _effectiveSort.value
+  if (m === 'route') return Array.isArray(row.tagR) ? row.tagR : []
   if (m === 'axisA') return Array.isArray(row.tagA) ? row.tagA : []
   if (m === 'axisB') return Array.isArray(row.tagB) ? row.tagB : []
   if (m === 'category') return row.category ? [row.category] : []
@@ -744,7 +757,7 @@ const kanaRealStats = computed(() => {
 })
 
 // 汎用軸ごとの進捗（catRealStats と同じくフィルター非依存・スコープ反映）
-function _axisStats(tagMap) {
+function _axisStats(tagMap, emptyLabel = 'その他') {
   const map = {}
   const all = [
     ...config.value.order,
@@ -755,7 +768,7 @@ function _axisStats(tagMap) {
     if (props.categoryScope === 'food'   && _isSupply(item)) continue
     if (props.categoryScope === 'supply' && !_isSupply(item)) continue
     const arr = tagMap?.[item]
-    const groups = (Array.isArray(arr) && arr.length) ? arr : ['その他']
+    const groups = (Array.isArray(arr) && arr.length) ? arr : [emptyLabel]
     for (const grp of groups) {
       if (!map[grp]) map[grp] = { total: 0, filled: 0 }
       map[grp].total++
@@ -866,7 +879,7 @@ function fmtYen(n) {
           :class="['seg-btn', { active: sortMode === opt.value }]"
           @click="selectSort(opt.value)"
         >{{ opt.label }}<span
-            v-if="sortMode === opt.value && (opt.value === 'axisA' || opt.value === 'axisB') && canManage"
+            v-if="sortMode === opt.value && (opt.value === 'route' || opt.value === 'axisA' || opt.value === 'axisB') && canManage"
             class="seg-edit"
             title="この並び替えのグループを編集"
             @click.stop="openAxisEdit(opt.value)"

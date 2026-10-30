@@ -95,7 +95,7 @@ import MovementPage from './components/MovementPage.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
 import BusyOverlay from './components/BusyOverlay.vue'
 import { initConnectivity, isOnline } from './composables/useConnectivity.js'
-import { settingsSection, showAxisAssign, axisAssignInitial, showOrderSchedule, showDeleteAccount, pendingDiscardId, consumeModalLayerBack, consumeDeleteAccountBack, consumeInnerLayerBack, isBackBlocked } from './composables/appMenuState.js'
+import { settingsSection, showAxisAssign, axisAssignInitial, axisAssignUnassigned, showOrderSchedule, showDeleteAccount, pendingDiscardId, consumeModalLayerBack, consumeDeleteAccountBack, consumeInnerLayerBack, isBackBlocked } from './composables/appMenuState.js'
 import SessionDetailPage from './components/SessionDetailPage.vue'
 import GuestResultView from './components/GuestResultView.vue'
 import { findCandidates as matcherFind, findSimilarNames } from './utils/itemMatcher.js'
@@ -3977,7 +3977,8 @@ function dismissReview() {
     <AxisAssignFocus
       v-if="showAxisAssign"
       :initial-axis="axisAssignInitial"
-      @close="showAxisAssign = false"
+      :start-unassigned="axisAssignUnassigned"
+      @close="showAxisAssign = false; axisAssignUnassigned = false"
       @hide-item="onHideItem($event, { silent: true })"
       @unhide-item="onUnhideItem"
       @hide-items="onHideItems"
