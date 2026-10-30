@@ -1,6 +1,7 @@
 import { reactive, computed, ref } from 'vue'
 import { useConfig } from './useConfig.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
+import { localDateKey } from '../utils/localDate.js'
 import { sortByCategoryAndCode, categoryOrderOf } from '../services/snapshotView.js'
 
 // ── モジュールスコープ シングルトン ────────────────────────────────────────────
@@ -13,7 +14,7 @@ const completedAt = ref(null)      // null=進行中, ISO文字列=完了済み
 function _save() {
   try {
     localStorage.setItem(STORAGE_KEYS.inventory, JSON.stringify({
-      date:         new Date().toISOString().slice(0, 10),
+      date:         localDateKey(),   // UTC だと日本時間の朝9時に日付が変わり、数えかけが捨てられる
       data:         { ...inventory },
       recountFlags: { ...recountFlags },
       entryLog:     [...entryLog],
@@ -27,11 +28,11 @@ function _load() {
     const raw = localStorage.getItem(STORAGE_KEYS.inventory)
     if (!raw) return
     const saved = JSON.parse(raw)
-    const today = new Date().toISOString().slice(0, 10)
-
     // 完了済みセッションは日付をまたいでも保持
     // 未完了かつ日付変更 → 当日分として再開しない（破棄）
-    if (!saved.completedAt && saved.date !== today) return
+    // 以前の版は UTC の日付で保存していたので、それも当日として読む
+    const today = [localDateKey(), new Date().toISOString().slice(0, 10)]
+    if (!saved.completedAt && !today.includes(saved.date)) return
 
     Object.assign(inventory, saved.data ?? {})
     Object.assign(recountFlags, saved.recountFlags ?? {})
@@ -180,7 +181,7 @@ export function useInventory() {
       return /^[=+\-@|]/.test(val) ? `'${val}` : val
     }
 
-    const date   = new Date().toISOString().slice(0, 10)
+    const date   = localDateKey()
     // 読み込んだ情報を全て出力（復元で往復できるフラット形式）
     const header = '日付,商品コード,品目名,カテゴリ,単位,入数,前月実績,数量,単価,在庫金額'
     const rows = [header]

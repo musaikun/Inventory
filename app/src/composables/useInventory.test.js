@@ -4,6 +4,7 @@ import {
   applyRemoteUpdate,
   applyRemoteRemove,
 } from './useInventory.js'
+import { STORAGE_KEYS } from '../utils/storageKeys.js'
 
 const inv = useInventory()
 
@@ -76,5 +77,16 @@ describe('useInventory', () => {
     applyRemoteUpdate('玉ねぎ', 3, '箱', 'B')
     applyRemoteRemove('玉ねぎ')
     expect(inv.inventory['玉ねぎ']).toBeUndefined()
+  })
+})
+
+describe('保存の日付', () => {
+  it('日付は端末の地域の日付で残す（UTC だと日本時間の朝9時に日付が変わる）', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
+    localStorage.clear()
+    inv.reset()
+    inv.setItem('玉ねぎ', 5, '箱')
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.inventory))
+    expect(saved.date).toBe(localDateKey())
   })
 })
