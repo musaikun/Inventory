@@ -1,6 +1,7 @@
 import { reactive, ref, toRaw } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { sortByCategoryAndCode } from '../services/snapshotView.js'
+import { localDateKey } from '../utils/localDate.js'
 import {
   clientSavedMs, serverSavedMs, serverRevision, isSnapshotDirty,
 } from '../utils/snapshotSync.js'
@@ -112,7 +113,8 @@ export function useHistory() {
   function buildSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null, categories = null, sessionId = null, activeMs = null, lotSizes = null, prevMonths = null, tagsA = null, tagsB = null, axisNames = null, layout = null) {
     if (Object.keys(inventory).length === 0) return null
 
-    const today = new Date().toISOString().slice(0, 10)
+    // 端末の地域の日付。UTC だと日本時間 0〜9時に完了した棚卸が前日の日付になる
+    const today = localDateKey()
 
     // config.order 順全件 → カスタム品目（config.orderに含まれないもの）
     const allKeys = [

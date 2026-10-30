@@ -2,11 +2,19 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-10-30 — version 0.183.2 / 履歴の日付を端末の日付に
+
+User: 履歴の日付も直す。
+- `useHistory.buildSnapshot` の `date` を `localDateKey()` に。日本時間 0〜9時に完了した棚卸が前日の日付で残っていた。`takenAt`（= snapshot.date）も同じ値になるので、分析・カレンダーの日付も揃う。
+- サーバーは送られた日付をそのまま使い、未来日の拒否は無い（`parseDate`）。セッションの履歴は session_id で一意なので、日付の変更で衝突しない。保存済みの履歴は書き換えない。
+- 検証: app vitest 2181 pass（新規 `useHistory.localDate.test.js`。修正前のコードで fail を確認）・build OK。
+- version: 0.183.1 → **0.183.2**。
+
 ## 2026-10-30 — version 0.183.1 / 数えかけの在庫が日本時間の朝9時に捨てられる不具合
 
 User: 0.183.0 の調査で見つけた UTC 日付の件も直す。
 - `useInventory`: 保存の日付を `localDateKey()` に。読込は端末の日付と UTC の日付のどちらでも当日として扱う（以前の版の保存を捨てないため）。CSV の日付列・ファイル名も端末の日付に。
-- 未修正: `useHistory.buildSnapshot` の `date`（履歴の日付）も UTC。日本時間 0〜9時に完了した棚卸は前日の日付になる。保存済みデータとサーバー側の扱いに関わるため別途。
+- `useHistory.buildSnapshot` の `date`（履歴の日付）も UTC だった → 0.183.2 で修正。
 - 検証: useInventory vitest 10 pass（TZ=Asia/Tokyo でも）・build OK。
 - version: 0.183.0 → **0.183.1**。
 
