@@ -9,6 +9,9 @@ const inventory   = reactive({})
 const recountFlags = reactive({})  // { [item]: { by, at } } 「あとで数える」フラグ（未入力品目にも立つ）
 const entryLog    = reactive([])   // 今日の入力順（初入力の順番を記録）
 const completedAt = ref(null)      // null=進行中, ISO文字列=完了済み
+// 「未入力に戻した」品目と時刻 { [item]: ms }。D1 で別のブラウザの在庫と品目ごとに合わせるとき、
+// 消した品目が他方の記録から生き返らないように一緒に送る
+const removedAt   = reactive({})
 
 // ── 在庫ロード / セーブ ──────────────────────────────────────────────────────
 function _save() {
@@ -19,6 +22,7 @@ function _save() {
       recountFlags: { ...recountFlags },
       entryLog:     [...entryLog],
       completedAt:  completedAt.value,
+      removedAt:    { ...removedAt },
     }))
   } catch (_) {}
 }
@@ -40,10 +44,14 @@ function _load() {
       entryLog.splice(0, entryLog.length, ...saved.entryLog)
     }
     completedAt.value = saved.completedAt ?? null
+    Object.assign(removedAt, saved.removedAt ?? {})
   } catch (_) {}
 }
 
 _load()
+
+/** 未入力に戻した品目と時刻（D1 へ送る用） */
+export function getRemovedAt() { return { ...removedAt } }
 
 // ── リモート同期用（useSync から呼ばれる）────────────────────────────────────
 /**
@@ -53,6 +61,7 @@ _load()
 export function applyRemoteUpdate(ingredient, qty, unit, enteredBy = '', updatedAt = Date.now()) {
   if (completedAt.value) return  // 完了済みはリモート更新を受け付けない
   inventory[ingredient] = { qty, unit: unit ?? '', enteredBy, updatedAt }
+  delete removedAt[ingredient]
   _save()
 }
 
@@ -62,6 +71,7 @@ export function applyRemoteUpdate(ingredient, qty, unit, enteredBy = '', updated
 export function applyRemoteRemove(ingredient) {
   if (completedAt.value) return  // 完了済みはリモート削除を受け付けない
   delete inventory[ingredient]
+  removedAt[ingredient] = Date.now()
   _save()
 }
 
@@ -76,6 +86,7 @@ export function applyPersistedInventory(inv, flags) {
   for (const k of Object.keys(recountFlags)) delete recountFlags[k]
   Object.assign(recountFlags, flags ?? {})
   entryLog.splice(0, entryLog.length, ...Object.keys(inv ?? {}))
+  for (const k of Object.keys(removedAt)) delete removedAt[k]
   _save()
 }
 
@@ -95,6 +106,7 @@ export function resetLocalData() {
   for (const k of Object.keys(recountFlags)) delete recountFlags[k]
   entryLog.splice(0, entryLog.length)
   completedAt.value = null
+  for (const k of Object.keys(removedAt)) delete removedAt[k]
   try { localStorage.removeItem(STORAGE_KEYS.inventory) } catch (_) {}
 }
 
@@ -125,6 +137,7 @@ export function useInventory() {
     const rawQty   = add && existing ? existing.qty + qty : qty
     const finalQty = Math.round(rawQty * 10000) / 10000
     inventory[ingredient] = { qty: finalQty, unit, enteredBy, updatedAt: Date.now(), localEntry: true }
+    delete removedAt[ingredient]
     if (isNew) entryLog.push(ingredient)
     _save()
   }
@@ -138,11 +151,13 @@ export function useInventory() {
       inventory[ingredient] = { qty, unit: unit || config.units?.[ingredient] || '', enteredBy, updatedAt: Date.now() }
       entryLog.push(ingredient)
     }
+    delete removedAt[ingredient]
     _save()
   }
 
   function removeItem(ingredient) {
     delete inventory[ingredient]
+    removedAt[ingredient] = Date.now()
     _save()
   }
 
@@ -171,6 +186,7 @@ export function useInventory() {
     Object.keys(recountFlags).forEach(k => delete recountFlags[k])
     entryLog.splice(0, entryLog.length)
     completedAt.value = null
+    Object.keys(removedAt).forEach(k => delete removedAt[k])
     _save()
   }
 

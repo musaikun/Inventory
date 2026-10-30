@@ -140,14 +140,49 @@ export async function handleInventoryGet(db, code) {
   return row ? JSON.parse(row.inventory_json) : null
 }
 
+/**
+ * 同じセッションの進行中在庫を品目ごとに合わせる（純粋関数）。
+ *
+ * 同じ店にログインしたブラウザ（同じ人の LINE のアプリ内ブラウザと Safari 等）は、
+ * それぞれ自分の手元の在庫を送ってくる。以前は後から来たものが丸ごと置き換え、
+ * 別のブラウザで入れた品目が D1 から消えていた（2026-10-30 実使用）。
+ * 品目は updatedAt の新しい方を採る。removedAt（未入力に戻した時刻）より古い品目は落とす。
+ * 別のセッション・セッション不明のときは従来どおり置き換える。
+ */
+export function mergeInventoryPayload(prev, next) {
+  if (!prev || !next?.sessionId || prev.sessionId !== next.sessionId) return next
+  const removedAt = { ...(prev.removedAt ?? {}) }
+  for (const [k, at] of Object.entries(next.removedAt ?? {})) {
+    if (typeof at === 'number' && at > (removedAt[k] ?? 0)) removedAt[k] = at
+  }
+  const inventory = {}
+  for (const src of [prev.inventory ?? {}, next.inventory ?? {}]) {
+    for (const [k, v] of Object.entries(src)) {
+      if (!v || typeof v.qty !== 'number') continue
+      if (inventory[k] && (inventory[k].updatedAt ?? 0) > (v.updatedAt ?? 0)) continue
+      inventory[k] = v
+    }
+  }
+  for (const [k, at] of Object.entries(removedAt)) {
+    if (inventory[k] && (inventory[k].updatedAt ?? 0) < at) delete inventory[k]
+  }
+  return {
+    ...next,
+    inventory,
+    removedAt,
+    savedAt: Math.max(prev.savedAt ?? 0, next.savedAt ?? 0),
+  }
+}
+
 // PUT /store/:code/inventory
 export async function handleInventoryPut(db, code, body) {
   if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
   const now = _now()
+  const merged = mergeInventoryPayload(await handleInventoryGet(db, code).catch(() => null), body)
   await db.prepare(`
     INSERT INTO store_inventory (shop_code, inventory_json, updated_at) VALUES (?, ?, ?)
     ON CONFLICT(shop_code) DO UPDATE SET inventory_json = excluded.inventory_json, updated_at = excluded.updated_at
-  `).bind(code, JSON.stringify(body), now).run()
+  `).bind(code, JSON.stringify(merged), now).run()
   return { ok: true }
 }
 

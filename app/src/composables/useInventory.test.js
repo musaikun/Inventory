@@ -90,3 +90,18 @@ describe('保存の日付', () => {
     expect(saved.date).toBe(localDateKey())
   })
 })
+
+describe('未入力に戻した時刻', () => {
+  it('戻すと記録され、入れ直すと消える', async () => {
+    const { getRemovedAt } = await import('./useInventory.js')
+    inv.reset()
+    inv.setItem('玉ねぎ', 5, '箱')
+    inv.removeItem('玉ねぎ')
+    expect(getRemovedAt().玉ねぎ).toBeTypeOf('number')
+    inv.setItem('玉ねぎ', 3, '箱')
+    expect(getRemovedAt().玉ねぎ).toBeUndefined()
+    inv.removeItem('玉ねぎ')
+    inv.reset()
+    expect(getRemovedAt()).toEqual({})
+  })
+})

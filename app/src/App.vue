@@ -2,7 +2,7 @@
 import { ref, computed, watch, watchEffect, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRegisterSW } from 'virtual:pwa-register/vue'
 import { useVoice, parseText } from './composables/useVoice.js'
-import { useInventory, applyRemoteUpdate, applyRemoteRemove, applyRemoteRecountFlag, applyPersistedInventory } from './composables/useInventory.js'
+import { useInventory, applyRemoteUpdate, applyRemoteRemove, applyRemoteRecountFlag, applyPersistedInventory, getRemovedAt } from './composables/useInventory.js'
 import { localDateKey } from './utils/localDate.js'
 import { useConfig, applyRemoteConfig, setConfigChangedCallback, setItemAddSession } from './composables/useConfig.js'
 import { useHistory } from './composables/useHistory.js'
@@ -684,15 +684,11 @@ async function onSessionResume(session) {
   }
 }
 
-// このセッションのライブなルームがあるのに入れなかった（別の端末がホスト中）ときのセッション ID
-const roomHeldElsewhere = ref(null)
-
 // ルーム自動復帰（再開時）
 // 店舗ルームは shopCode 単位の共有シングルトンのため、DO のアクティブセッションが
 // このセッションと一致する時だけ復帰する。不一致なら乗っ取らず退出しオフライン継続。
 async function _reconnectToRoom(session) {
   const rtype = session?.type === 'order' ? 'order' : 'stock'
-  roomHeldElsewhere.value = null
   try {
     // まず GET /status で確認（ルームを作らない）。ライブで同一セッションの時だけ復帰接続する。
     // ここで createRoom で確認すると、ライブでなくても hostToken を発行＝幽霊ルームが残る。
@@ -703,10 +699,7 @@ async function _reconnectToRoom(session) {
     }
     // 期待セッションIDを設定: joined ハンドラが同一セッション時のみ DO 在庫を適用
     setExpectedSessionId(session.id)
-    // 入れなかったとき（別の端末がホスト中）に D1 を上書きしないよう、先に立てておく。入れたら下で外す
-    roomHeldElsewhere.value = session.id
     await createRoom(rtype)
-    if (syncState.isConnected && syncIsHost.value) roomHeldElsewhere.value = null
     if (syncState.isSessionActive && syncState.sessionId === session.id) {
       // 本物の再接続: このセッションのライブルームに復帰（ゲスト入力含む在庫を適用済み）
       showToast(`ルーム ${syncState.roomCode} に復帰しました`, 2500, 'join')
@@ -1788,6 +1781,7 @@ function _inventoryPayload() {
   return {
     inventory:    { ...inventory },
     recountFlags: { ...recountFlags },
+    removedAt:    getRemovedAt(),   // サーバーが品目ごとに合わせるとき、消した品目を生き返らせない
     sessionId:    pendingSession.value?.id ?? null,
     savedAt:      Date.now(),
   }
@@ -1801,9 +1795,6 @@ function _persistInventoryToD1() {
   if (!shopCode.value || isCompleted.value) return
   if (currentView.value !== 'session') return
   if (syncActive.value && !syncIsHost.value) return
-  // このセッションのルームを別の端末がホストしている（自分は入れずにオフライン継続）。
-  // 自分の手元は古い／空なので、D1 の在庫をこれで上書きしない
-  if (!syncActive.value && roomHeldElsewhere.value === pendingSession.value?.id) return
   clearTimeout(_invD1Timer)
   // 連続入力で3秒デバウンスが永遠にリセットされても、最大30秒で必ず保存
   if (Date.now() - _invD1LastSave > 30000) { _flushInventoryToD1(); return }
@@ -1867,9 +1858,26 @@ async function _restoreInventoryFromD1() {
     if (!entry || typeof entry.qty !== 'number') continue
     const local = inventory[ingredient]
     if (local && (local.updatedAt ?? 0) >= (entry.updatedAt ?? 0)) continue
+    if ((remote.removedAt?.[ingredient] ?? 0) > (entry.updatedAt ?? 0)) continue
     applyRemoteUpdate(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '', entry.updatedAt)
   }
+  // 別のブラウザで「未入力に戻した」品目。手元の入力がそれより古ければ消す
+  for (const [ingredient, at] of Object.entries(remote.removedAt ?? {})) {
+    const local = inventory[ingredient]
+    if (local && (local.updatedAt ?? 0) < at && !remote.inventory[ingredient]) applyRemoteRemove(ingredient)
+  }
 }
+
+// 別のブラウザ（LINE のアプリ内ブラウザ ⇔ Safari 等）から戻ってきたとき、そちらで入れた分を取り込む。
+// ブラウザごとに手元の保存は別なので、ルームに入っていないと行き来した分が見えない（2026-10-30 実使用）
+function _onVisible() {
+  if (document.visibilityState !== 'visible') return
+  if (currentView.value !== 'session' || !pendingSession.value?.id || isCompleted.value) return
+  if (syncActive.value) return   // ルームに入っていればルームが揃える
+  _restoreInventoryFromD1().catch(() => {})
+}
+onMounted(() => document.addEventListener('visibilitychange', _onVisible))
+onUnmounted(() => document.removeEventListener('visibilitychange', _onVisible))
 
 // ── セッション管理 ─────────────────────────────────────────────────────────────
 const completedAtDisplay = computed(() => {
