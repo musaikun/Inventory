@@ -16,6 +16,7 @@ import { clearDeletedAccountLocalData } from '../composables/accountData.js'
 import { resetAnalytics } from '../utils/analytics.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { resolveRequestId, mapDeletionError } from '../utils/accountDeletionFlow.js'
+import PasswordReveal from './PasswordReveal.vue'
 
 const emit = defineEmits(['close', 'deleted'])
 
@@ -242,18 +243,20 @@ function onOverlay() {
         </div>
 
         <label class="da-label" for="da-pin">現在の PIN（4桁）</label>
-        <input
-          id="da-pin"
-          ref="pinRef"
-          type="password"
-          inputmode="numeric"
-          class="da-input"
-          placeholder="●●●●"
-          :value="pin"
-          @input="onPinInput"
-          maxlength="4"
-          autocomplete="off"
-        />
+        <PasswordReveal v-slot="{ type }">
+          <input
+            id="da-pin"
+            ref="pinRef"
+            :type="type"
+            inputmode="numeric"
+            class="da-input"
+            placeholder="●●●●"
+            :value="pin"
+            @input="onPinInput"
+            maxlength="4"
+            autocomplete="off"
+          />
+        </PasswordReveal>
 
         <label class="da-label" for="da-confirm">確認のため店舗コードを入力</label>
         <input

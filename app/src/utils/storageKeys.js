@@ -31,6 +31,7 @@ export const STORAGE_KEYS = {
   // （serverはcanonical snapshot全体でfingerprintを作るので、組み立て直すと確定できない）
   completionIntent: '_completion_intent_v1',
   pendingSaves:     '_pending_saves_v1',  // D1へ未送信の保存（再起動をまたいで再送するため端末に残す）
+  inventorySentAt:  '_inventory_sent_at', // 棚卸データを最後に D1 へ送れた版の savedAt（未送信の品目を出すため）
   rejectedSaves:    '_rejected_saves_v1',  // サーバーに拒否された保存（リロードしても事実を消さない）
   authToken:        '_auth_token',
   authStoreName:    '_auth_store_name',

@@ -14,6 +14,7 @@ const pendingSize     = ref(0)
 const pendingPersisted = ref(true)
 const unpersistedCount = ref(0)
 const rejectedSaves    = ref([])
+const pendingDetails   = ref([])
 const retryPendingSaves = vi.fn()
 const dismissRejectedSaves = vi.fn(() => { rejectedSaves.value = [] })
 
@@ -25,7 +26,7 @@ vi.mock('../composables/useConnectivity.js', () => ({
 vi.mock('../composables/useStore.js', () => ({
   saveState, saveFailures, pendingPersisted, unpersistedCount, rejectedSaves,
   pendingCount: computed(() => pendingSize.value),
-  retryPendingSaves, dismissRejectedSaves,
+  retryPendingSaves, dismissRejectedSaves, pendingDetails,
 }))
 
 let app = null
@@ -53,6 +54,7 @@ describe('ConnectionBanner', () => {
     pendingPersisted.value = true
     unpersistedCount.value = 0
     rejectedSaves.value = []
+    pendingDetails.value = []
     vi.clearAllMocks()
   })
   afterEach(() => {
@@ -176,5 +178,29 @@ describe('ConnectionBanner', () => {
     await mountBanner()
     host.querySelector('.cb-retry').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     expect(retryPendingSaves).toHaveBeenCalled()
+  })
+
+  it('未送信の帯をタップすると、送れていない品目が出る', async () => {
+    saveState.value = 'pending'
+    pendingSize.value = 1
+    pendingDetails.value = [{ key: 'k', kind: 'inventory', label: '棚卸データ', note: '',
+      items: [{ name: 'トマト', qty: 17, unit: 'ケ', at: Date.now() }] }]
+    await mountBanner()
+    expect(host.querySelector('.cb-panel')).toBeNull()
+    host.querySelector('.cb-caret').click()
+    await nextTick()
+    const panel = host.querySelector('.cb-panel')
+    expect(panel.textContent).toContain('トマト')
+    expect(panel.textContent).toContain('17ケ')
+    host.querySelector('.cb-close').click()
+    await nextTick()
+    expect(host.querySelector('.cb-panel')).toBeNull()
+  })
+
+  it('中身が分からないときは開けない', async () => {
+    saveState.value = 'pending'
+    pendingSize.value = 1
+    await mountBanner()
+    expect(host.querySelector('.cb-caret')).toBeNull()
   })
 })

@@ -7,6 +7,7 @@ import { isAuthenticated, storeName, login, logout } from '../composables/useAut
 import { shopCode } from '../composables/useStore.js'
 import DeleteAccountModal from './DeleteAccountModal.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
+import PasswordReveal from './PasswordReveal.vue'
 
 // Google Play の公開Web削除リソースは store listing 上のアプリ名（＝PWA manifest の name）と
 // 一致している必要がある。表示名を変える場合は vite.config.js の manifest と併せて更新する。
@@ -107,10 +108,12 @@ function onDeleted() {
             :value="code" @input="onCodeInput" maxlength="8" placeholder="例：ABCDEF" autocomplete="off"
           />
           <label class="dap-label" for="dap-pin">PIN（4桁）</label>
-          <input
-            id="dap-pin" class="dap-input" type="password" inputmode="numeric"
-            :value="pin" @input="onPinInput" maxlength="4" placeholder="●●●●" autocomplete="off"
-          />
+          <PasswordReveal v-slot="{ type }">
+            <input
+              id="dap-pin" class="dap-input" :type="type" inputmode="numeric"
+              :value="pin" @input="onPinInput" maxlength="4" placeholder="●●●●" autocomplete="off"
+            />
+          </PasswordReveal>
           <div v-if="loginError" class="dap-error" role="alert">{{ loginError }}</div>
           <button class="dap-btn dap-btn-primary" :disabled="loginLoading" @click="onLogin">
             <LoadingSpinner v-if="loginLoading" size="sm" inline label="ログイン中" />

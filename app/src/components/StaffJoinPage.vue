@@ -6,6 +6,7 @@
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { getInvite, joinAsStaff, pendingJoin, checkPendingJoin, forgetPendingJoin, ROLE_LABELS } from '../composables/useAuth.js'
+import PasswordReveal from './PasswordReveal.vue'
 
 const props = defineProps({ token: { type: String, default: '' } })
 const emit = defineEmits(['done', 'cancel'])
@@ -94,11 +95,15 @@ const digits = v => v.replace(/\D/g, '').slice(0, 6)
         <label class="sj-label" for="sj-name">名前（店で呼ばれている名前）</label>
         <input id="sj-name" v-model="name" class="sj-input" maxlength="30" autocomplete="username" />
         <label class="sj-label" for="sj-pin">暗証番号（6桁の数字）</label>
-        <input id="sj-pin" :value="pin" class="sj-input" type="password" inputmode="numeric" maxlength="6" placeholder="●●●●●●"
-          autocomplete="new-password" @input="pin = digits($event.target.value); $event.target.value = pin" />
+        <PasswordReveal v-slot="{ type }">
+          <input id="sj-pin" :value="pin" class="sj-input" :type="type" inputmode="numeric" maxlength="6" placeholder="●●●●●●"
+            autocomplete="new-password" @input="pin = digits($event.target.value); $event.target.value = pin" />
+        </PasswordReveal>
         <label class="sj-label" for="sj-pin2">暗証番号（確認）</label>
-        <input id="sj-pin2" :value="pin2" class="sj-input" type="password" inputmode="numeric" maxlength="6" placeholder="●●●●●●"
-          autocomplete="new-password" @input="pin2 = digits($event.target.value); $event.target.value = pin2" @keydown.enter="submit" />
+        <PasswordReveal v-slot="{ type }">
+          <input id="sj-pin2" :value="pin2" class="sj-input" :type="type" inputmode="numeric" maxlength="6" placeholder="●●●●●●"
+            autocomplete="new-password" @input="pin2 = digits($event.target.value); $event.target.value = pin2" @keydown.enter="submit" />
+        </PasswordReveal>
         <p class="sj-hint">123456 や 000000 のような番号は使えません。次からは「店舗コード・名前・暗証番号」でログインします。</p>
         <p class="sj-hint">記録には名前が残り、アプリを開いていた時間は管理者から見えます（<a href="./privacy.html" target="_blank" rel="noopener">プライバシーポリシー</a>）。</p>
         <p v-if="error" class="sj-err">{{ error }}</p>

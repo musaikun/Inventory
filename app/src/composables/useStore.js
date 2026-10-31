@@ -75,6 +75,7 @@ export const rejectedSaves = ref([])
 // キューは非リアクティブな Map なので、件数をミラーして computed から読めるようにする。
 // 数えるのは**現在の店舗ぶんだけ**。別店舗の残りをバナーの件数に混ぜない。
 const _pendingSize = ref(0)
+const _queueVersion = ref(0)   // 同じ件数のまま中身が差し替わったときも一覧を作り直すため
 export const pendingCount = computed(() => _pendingSize.value)
 
 const _ENDPOINT = {
@@ -153,7 +154,49 @@ function _classify(err) {
   return 'retry'   // status を持たない = ネットワーク断
 }
 
-function _syncSize() { _pendingSize.value = _activeEntries().length }
+function _syncSize() { _pendingSize.value = _activeEntries().length; _queueVersion.value++ }
+
+// 棚卸データ（店舗に1つの丸ごと保存）を最後に送れた版の savedAt。
+// これより後に入れた品目が「未送信の品目」
+const _inventorySentAt = ref((() => {
+  try { return Number(localStorage.getItem(STORAGE_KEYS.inventorySentAt)) || 0 } catch (_) { return 0 }
+})())
+function _noteSent(kind, payload) {
+  if (kind !== 'inventory' || typeof payload?.savedAt !== 'number') return
+  if (payload.savedAt <= _inventorySentAt.value) return
+  _inventorySentAt.value = payload.savedAt
+  try { localStorage.setItem(STORAGE_KEYS.inventorySentAt, String(payload.savedAt)) } catch (_) {}
+}
+
+/**
+ * 未送信の中身（ヘッダーの帯をタップしたときに出す）。現在の店舗ぶん、新しい順。
+ *   [{ key, kind, label, items: [{ name, qty, unit, at }] | null, note }]
+ * 棚卸データは品目ごとに、最後に送れた版より後に入れたものを出す。
+ */
+export const pendingDetails = computed(() => {
+  void _queueVersion.value
+  return _activeEntries().sort((a, b) => b.rev - a.rev).map(e => {
+    const base = { key: e.key, kind: e.kind, label: _LABEL[e.kind] ?? e.kind, items: null, note: '' }
+    const p = e.payload ?? {}
+    if (e.kind === 'inventory') {
+      const sentAt = _inventorySentAt.value
+      base.items = Object.entries(p.inventory ?? {})
+        .filter(([, v]) => v && (v.updatedAt ?? 0) > sentAt)
+        .map(([name, v]) => ({ name, qty: v.qty, unit: v.unit ?? '', at: v.updatedAt ?? null }))
+        .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
+      const removed = Object.entries(p.removedAt ?? {}).filter(([, at]) => at > sentAt).length
+      if (removed) base.note = `未入力に戻した ${removed}品目`
+    } else if (e.kind === 'snapshot') {
+      base.note = p.date ? `${p.date} の棚卸` : ''
+    } else if (Array.isArray(p.lines)) {   // 発注・入出庫
+      base.items = p.lines.filter(l => l?.item).map(l => ({ name: l.item, qty: l.qty, unit: l.unit ?? '', at: null }))
+      base.note = [p.date, p.supplier].filter(Boolean).join(' ')
+    } else if (e.kind === 'task') {
+      base.note = p.text || ''
+    }
+    return base
+  })
+})
 
 // 失敗した保存をキューへ入れる（同じ対象は新しい rev だけを残す）
 function _enqueue(kind, code, resourceId, rev, payload) {
@@ -318,6 +361,7 @@ async function _sendQueued(key, code, generation) {
   try {
     await _api(ep.path(code), { method: ep.method, body: JSON.stringify(cur.payload) })
     if (generation !== _saveGeneration || code !== shopCode.value) return 'stale'
+    _noteSent(cur.kind, cur.payload)
     _ack(cur.kind, code, cur.resourceId, cur.rev)
     return 'ok'
   } catch (err) {
@@ -484,6 +528,7 @@ async function _sendOnce({ kind, code, resourceId, payload, rev, generation, ide
   try {
     const result = await _api(ep.path(code), { method: ep.method, body: JSON.stringify(payload) })
     if (generation !== _saveGeneration) return { ok: false, result: null }
+    _noteSent(kind, payload)
     // 自分より古い待ち項目を捨てる（古い版で上書きされるのを防ぐ）
     _ack(kind, code, resourceId, rev)
     _settle()

@@ -1,9 +1,9 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { isOnline } from '../composables/useConnectivity.js'
 import {
   saveState, retryPendingSaves, saveFailures, pendingCount,
-  pendingPersisted, unpersistedCount, rejectedSaves, dismissRejectedSaves,
+  pendingPersisted, unpersistedCount, rejectedSaves, dismissRejectedSaves, pendingDetails,
 } from '../composables/useStore.js'
 
 // オンラインなのに再送が続けて失敗している＝一時的な瞬断ではない。
@@ -34,6 +34,23 @@ const mode = computed(() => {
   return ''
 })
 
+// 帯をタップすると、まだ送れていない中身（品目）を出す
+const canOpen = computed(() => ['unpersisted', 'failed', 'pending'].includes(mode.value) && pendingDetails.value.length > 0)
+const open = ref(false)
+const bar = ref(null)
+const panelTop = ref(44)
+watch(canOpen, v => { if (!v) open.value = false })
+function toggle() {
+  if (!canOpen.value) return
+  panelTop.value = (bar.value?.offsetHeight ?? 38) + 6   // 帯は文面で2行になることがある
+  open.value = !open.value
+}
+function fmtTime(ms) {
+  if (!ms) return ''
+  const d = new Date(ms)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 const countLabel = computed(() => (pendingCount.value > 0 ? `未送信 ${pendingCount.value}件` : '未送信'))
 
 // 失われうる変更が出ている間だけ割り込みで読み上げる。再送中の通常状態は polite。
@@ -49,10 +66,10 @@ const rejectedLabel = computed(() => {
   <!-- role/aria-live は中身の入れ替えを支援技術へ伝えるため、v-if の外側に常設する -->
   <div class="cb-live" role="status" :aria-live="liveness" aria-atomic="true">
     <transition name="cb-slide">
-      <div v-if="mode" :class="['cb', mode]">
+      <div v-if="mode" ref="bar" :class="['cb', mode, { tappable: canOpen }]" @click.self="toggle">
         <template v-if="mode === 'unpersisted'">
           <span class="cb-dot">🛑</span>
-          <span class="cb-text">
+          <span class="cb-text" @click="toggle">
             保存できていない変更が {{ pendingCount }}件あり、うち {{ unpersistedCount }}件はこの端末にも保持できていません。<b>アプリを閉じると失われます。</b>接続を確認して再送してください。
           </span>
           <button class="cb-retry" @click="retryPendingSaves">今すぐ再送</button>
@@ -60,7 +77,7 @@ const rejectedLabel = computed(() => {
 
         <template v-else-if="mode === 'failed'">
           <span class="cb-dot">⚠️</span>
-          <span class="cb-text">
+          <span class="cb-text" @click="toggle">
             サーバーへ保存できていません（{{ countLabel }}）。端末には保存済みで、再送を続けます。
           </span>
           <button class="cb-retry" @click="retryPendingSaves">今すぐ再送</button>
@@ -68,7 +85,7 @@ const rejectedLabel = computed(() => {
 
         <template v-else-if="mode === 'pending'">
           <span class="cb-dot spin">🔄</span>
-          <span class="cb-text">
+          <span class="cb-text" @click="toggle">
             <template v-if="!isOnline">オフラインです。{{ countLabel }}の変更は端末に保存済みで、接続が戻ると自動で送信します。</template>
             <template v-else>未送信の変更があります（{{ countLabel }}）。再送しています…</template>
           </span>
@@ -87,8 +104,27 @@ const rejectedLabel = computed(() => {
           </span>
           <button class="cb-retry" @click="dismissRejectedSaves">閉じる</button>
         </template>
+        <button v-if="canOpen" class="cb-caret" :aria-expanded="open" aria-label="未送信の内容を見る" @click="toggle">{{ open ? '▲' : '▼' }}</button>
       </div>
     </transition>
+    <div v-if="mode && open" class="cb-panel" :style="{ top: panelTop + 'px' }" role="region" aria-label="未送信の内容">
+      <div v-for="d in pendingDetails" :key="d.key" class="cb-group">
+        <div class="cb-group-head">
+          <b>{{ d.label }}</b>
+          <span v-if="d.items">{{ d.items.length }}品目</span>
+          <span v-if="d.note" class="cb-note">{{ d.note }}</span>
+        </div>
+        <ul v-if="d.items && d.items.length" class="cb-items">
+          <li v-for="it in d.items" :key="it.name">
+            <span class="cb-item-name">{{ it.name }}</span>
+            <span class="cb-item-qty">{{ it.qty }}{{ it.unit }}</span>
+            <span v-if="it.at" class="cb-item-at">{{ fmtTime(it.at) }}</span>
+          </li>
+        </ul>
+        <div v-else-if="d.items" class="cb-empty">品目の追加・変更はありません（並びや印などの変更）</div>
+      </div>
+      <button class="cb-close" @click="open = false">閉じる</button>
+    </div>
   </div>
 </template>
 
@@ -109,6 +145,25 @@ const rejectedLabel = computed(() => {
 .cb.rejected    { background: #7f1d1d; color: #fecaca; }
 .cb-dot { flex-shrink: 0; }
 .cb-text { flex: 1; min-width: 0; line-height: 1.4; }
+.cb.tappable .cb-text { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.cb-caret { flex-shrink: 0; font-size: 10px; cursor: pointer; padding: 4px 6px; border: 0; background: transparent; color: inherit; }
+.cb-panel {
+  position: fixed; left: 8px; right: 8px; z-index: 1899;
+  max-height: 60vh; overflow-y: auto; overscroll-behavior: contain;
+  background: var(--surface); color: var(--text);
+  border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+  padding: 10px 12px; font-size: 13px;
+}
+.cb-group + .cb-group { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.cb-group-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; margin-bottom: 4px; }
+.cb-note { color: var(--text-muted); font-size: 12px; }
+.cb-items { list-style: none; margin: 0; padding: 0; }
+.cb-items li { display: flex; gap: 8px; padding: 5px 0; border-bottom: 1px dashed var(--border); }
+.cb-item-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.cb-item-qty { font-weight: 700; white-space: nowrap; }
+.cb-item-at { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
+.cb-empty { color: var(--text-muted); font-size: 12px; }
+.cb-close { display: block; width: 100%; margin-top: 10px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: inherit; font-weight: 700; cursor: pointer; }
 .cb-retry { flex-shrink: 0; border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 8px; padding: 3px 8px; font-size: 11px; font-weight: 700; cursor: pointer; }
 .spin { display: inline-block; animation: cb-spin 1.1s linear infinite; }
 @keyframes cb-spin { to { transform: rotate(360deg); } }

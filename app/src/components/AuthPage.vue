@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { register, login, staffLogin } from '../composables/useAuth.js'
 import { deviceId } from '../composables/useDeviceId.js'
+import PasswordReveal from './PasswordReveal.vue'
 
 const emit = defineEmits(['done'])
 
@@ -150,15 +151,17 @@ function onLoginPinInput(e) {
           />
 
           <label class="form-label">PIN（4桁）</label>
-          <input
-            type="password"
-            inputmode="numeric"
-            class="form-input"
-            placeholder="●●●●"
-            :value="loginPin"
-            @input="onLoginPinInput"
-            maxlength="4"
-          />
+          <PasswordReveal v-slot="{ type }">
+            <input
+              :type="type"
+              inputmode="numeric"
+              class="form-input"
+              placeholder="●●●●"
+              :value="loginPin"
+              @input="onLoginPinInput"
+              maxlength="4"
+            />
+          </PasswordReveal>
 
           <div v-if="loginError" class="form-error">{{ loginError }}</div>
 
@@ -181,8 +184,10 @@ function onLoginPinInput(e) {
           <label class="form-label" for="st-name">名前（参加したときの名前）</label>
           <input id="st-name" v-model="stName" type="text" class="form-input" placeholder="例：山田" maxlength="30" autocomplete="username" />
           <label class="form-label" for="st-pin">暗証番号（6桁）</label>
-          <input id="st-pin" v-model="stPin" type="password" inputmode="numeric" class="form-input" placeholder="●●●●●●" maxlength="6"
-            autocomplete="current-password" @input="stPin = stPin.replace(/\D/g, '').slice(0, 6)" @keydown.enter="onStaffLogin" />
+          <PasswordReveal v-slot="{ type }">
+            <input id="st-pin" v-model="stPin" :type="type" inputmode="numeric" class="form-input" placeholder="●●●●●●" maxlength="6"
+              autocomplete="current-password" @input="stPin = stPin.replace(/\D/g, '').slice(0, 6)" @keydown.enter="onStaffLogin" />
+          </PasswordReveal>
           <div v-if="stError" class="form-error">{{ stError }}</div>
           <button class="btn btn-primary auth-submit" :disabled="stLoading" @click="onStaffLogin">
             {{ stLoading ? 'ログイン中...' : 'スタッフとしてログイン' }}
@@ -222,26 +227,30 @@ function onLoginPinInput(e) {
             />
 
             <label class="form-label">PIN（4桁の数字）</label>
-            <input
-              type="password"
-              inputmode="numeric"
-              class="form-input"
-              placeholder="●●●●"
-              :value="regPin"
-              @input="onPinInput($event, 'pin')"
-              maxlength="4"
-            />
+            <PasswordReveal v-slot="{ type }">
+              <input
+                :type="type"
+                inputmode="numeric"
+                class="form-input"
+                placeholder="●●●●"
+                :value="regPin"
+                @input="onPinInput($event, 'pin')"
+                maxlength="4"
+              />
+            </PasswordReveal>
 
             <label class="form-label">PIN（確認）</label>
-            <input
-              type="password"
-              inputmode="numeric"
-              class="form-input"
-              placeholder="●●●●"
-              :value="regPinConfirm"
-              @input="onPinInput($event, 'confirm')"
-              maxlength="4"
-            />
+            <PasswordReveal v-slot="{ type }">
+              <input
+                :type="type"
+                inputmode="numeric"
+                class="form-input"
+                placeholder="●●●●"
+                :value="regPinConfirm"
+                @input="onPinInput($event, 'confirm')"
+                maxlength="4"
+              />
+            </PasswordReveal>
 
             <div v-if="regError" class="form-error">{{ regError }}</div>
 
