@@ -28,6 +28,7 @@ const props = defineProps({
   target:          { type: Object, default: null },      // 補充目標 { value, source }
   theoStock:       { type: Object, default: null },      // 理論在庫 { qty }
   existingStock:   { type: Number, default: null },      // この発注で入れた在庫
+  carriedStock:    { type: Object, default: null },      // 参考に持ち込んだ前回の棚卸 { qty, unit, date }
   initialOrderQty: { type: Number, default: null },      // この発注で入れた発注数
   decidedNone:     { type: Boolean, default: false },    // この発注で「発注なし」にした
   canPrev:         { type: Boolean, default: false },
@@ -48,8 +49,13 @@ const typedNum = computed(() => {
 const isInt = computed(() => typedNum.value !== null && Number.isInteger(typedNum.value))
 const refs = computed(() => orderRefs(props.orders, props.ingredient, props.today, {
   target: props.target, lot: props.orderLot,
-  stock: props.existingStock,
+  // この発注で数えていなければ、持ち込んだ前回の棚卸で推奨を出す
+  stock: props.existingStock ?? props.carriedStock?.qty ?? null,
 }))
+const carriedLabel = computed(() => {
+  const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(props.carriedStock?.date || '')
+  return m ? `${Number(m[1])}/${Number(m[2])}` : ''
+})
 
 // ── テンキー ──
 function digit(d) { confirmUnusual.value = null; typed.value = typed.value === '0' ? d : typed.value + d }
@@ -116,7 +122,8 @@ const COACH_STEPS = [
           <span v-if="initialOrderQty > 0" class="os-fact now">いまの発注 {{ initialOrderQty }}{{ lotLabel }}</span>
           <span v-else-if="decidedNone" class="os-fact now">いまは発注なし</span>
           <span v-if="existingStock != null" class="os-fact stock">在庫 {{ existingStock }}{{ unit }} ✓</span>
-          <span v-else-if="theoStock" class="os-fact" :title="'直近の棚卸と入出庫から'">理論在庫 約{{ theoStock.qty }}{{ unit }}</span>
+          <span v-else-if="carriedStock" class="os-fact stock" title="発注を始めるときに入れた前回の棚卸">前回の棚卸 {{ carriedStock.qty }}{{ unit }}<template v-if="carriedLabel">（{{ carriedLabel }}）</template></span>
+          <span v-if="existingStock == null && theoStock" class="os-fact" :title="'直近の棚卸と入出庫から'">理論在庫 約{{ theoStock.qty }}{{ unit }}</span>
           <span v-if="orderLot > 1" class="os-fact">1口 = {{ orderLot }}{{ unit }}</span>
         </div>
       </div>

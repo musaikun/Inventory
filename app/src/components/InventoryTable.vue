@@ -34,6 +34,7 @@ const props = defineProps({
   orderMap:         { type: Object,  default: null },  // 発注セッション: { 品目: { orderQty, by } } を行に表示
   orderNone:        { type: Array,   default: null },  // 発注セッション: 「発注なしで確定」した品目（0 と出す・入力済みに数える）
   orderMode:        { type: Boolean, default: false }, // 発注セッションか（発注チップ表示の切替）
+  carriedStock:     { type: Object,  default: null },  // 発注: 参考に持ち込んだ前回の棚卸 { [item]: { qty, unit } }（確認済みには数えない）
   // ── 入出庫（棚卸・発注と同じ一覧を使うための調整。既定はすべて従来動作 ──
   noteMap:          { type: Object,  default: null },  // { 品目: 補足文字列 } を行のヒント欄へ出す（理論在庫など）
   hideAmount:       { type: Boolean, default: false }, // 金額列を出さない（在庫金額ではない画面用）
@@ -1081,6 +1082,7 @@ function fmtYen(n) {
                   <span class="oq-label">在庫</span>
                   <span class="oq-val">
                     <template v-if="row.entry !== null">{{ row.entry.qty }}<span v-if="row.entry.unit" class="qty-unit">{{ row.entry.unit }}</span></template>
+                    <span v-else-if="carriedStock?.[row.item]" class="oq-carried" title="前回の棚卸の数（この発注ではまだ数えていない）">前回 {{ carriedStock[row.item].qty }}<span v-if="carriedStock[row.item].unit" class="qty-unit">{{ carriedStock[row.item].unit }}</span></span>
                     <template v-else>—</template>
                   </span>
                 </span>
@@ -1177,6 +1179,7 @@ function fmtYen(n) {
 </template>
 
 <style scoped>
+.oq-carried { color: var(--text-muted); font-weight: 500; font-size: 0.85em; white-space: nowrap; }
 /* 表は横いっぱいに（棚卸・発注・ホームで同じ・User 2026-10-01）。左右の余白は 6px だけ */
 .inventory-section { padding: 0 6px; overflow-x: clip; }
 .progress-tap { border: none; background: none; font: inherit; color: inherit; cursor: pointer; padding: 4px 2px; }

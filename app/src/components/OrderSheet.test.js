@@ -103,4 +103,14 @@ describe('発注：先に打って、何の数かは後で選ぶ', () => {
     await press('？')
     expect(host.querySelector('.cd')).not.toBeNull()
   })
+
+  it('前回の棚卸を持ち込んでいれば、日付つきで出す（この発注で数えた在庫があればそちら）', async () => {
+    await mount({ carriedStock: { qty: 4, unit: '玉', date: '2026-10-30' } })
+    expect(host.querySelector('.os-facts').textContent).toContain('前回の棚卸 4玉（10/30）')
+    app.unmount(); host.remove()
+    await mount({ carriedStock: { qty: 4, unit: '玉', date: '2026-10-30' }, existingStock: 2 })
+    expect(host.querySelector('.os-facts').textContent).not.toContain('前回の棚卸')
+    expect(host.querySelector('.os-facts').textContent).toContain('在庫 2玉')
+  })
 })
+

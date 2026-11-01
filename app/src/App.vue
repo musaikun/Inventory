@@ -4,6 +4,7 @@ import { useRegisterSW } from 'virtual:pwa-register/vue'
 import { useVoice, parseText } from './composables/useVoice.js'
 import { useInventory, applyRemoteUpdate, applyRemoteRemove, applyRemoteRecountFlag, applyPersistedInventory, getRemovedAt } from './composables/useInventory.js'
 import { localDateKey } from './utils/localDate.js'
+import { toEpochMs } from './services/participantStats.js'
 import { useConfig, applyRemoteConfig, setConfigChangedCallback, setItemAddSession } from './composables/useConfig.js'
 import { useHistory } from './composables/useHistory.js'
 import { useActiveTimer, computeActive } from './composables/useActiveTimer.js'
@@ -135,6 +136,49 @@ const orderDraft = ref({})
 // 発注の記録・完了の件数には入れない（発注数>0 だけが発注）
 const orderNone = ref([])
 const _ORDER_NONE_PREFIX = 'order_none_'
+
+/**
+ * 発注に参考として持ち込んだ前回の棚卸の在庫（User決定 2026-11-01）。
+ * { date, savedAt, items: { [item]: { qty, unit } } } | null
+ *
+ * 棚卸の数は日が経つほど当てにならないので、完了から2日以内の棚卸だけ、
+ * 発注を始めるときに入れるか訊く。入れた数は一覧に「前回」として薄く出し、推奨の計算に使う。
+ * この発注で数えた在庫（inventory）とは分けて持つ。混ぜると、始めた瞬間に全品目が
+ * 「確認済み」に数えられてしまう。
+ */
+const carriedStock = ref(null)
+const _ORDER_CARRY_PREFIX = 'order_carry_'
+const CARRY_MAX_MS = 2 * 24 * 60 * 60 * 1000
+function _persistCarry() {
+  try {
+    if (carriedStock.value) localStorage.setItem(_ORDER_CARRY_PREFIX + _orderId(), JSON.stringify(carriedStock.value))
+    else localStorage.removeItem(_ORDER_CARRY_PREFIX + _orderId())
+  } catch (_) {}
+}
+// 完了した棚卸のうち、いちばん新しいもの（破棄した棚卸は履歴に残らないので入らない）
+function _latestStockSnapshot() {
+  let best = null, bestMs = 0
+  for (const snap of getSnapshots()) {
+    const ms = toEpochMs(snap?.savedAt) ?? (snap?.date ? new Date(snap.date + 'T00:00:00').getTime() : null)
+    if (ms != null && ms > bestMs) { best = snap; bestMs = ms }
+  }
+  return best ? { snap: best, ms: bestMs } : null
+}
+function _offerCarryStock() {
+  const latest = _latestStockSnapshot()
+  if (!latest || Date.now() - latest.ms > CARRY_MAX_MS) return
+  const items = {}
+  for (const it of latest.snap.items ?? []) {
+    if (it?.qty == null) continue
+    items[it.item] = { qty: it.qty, unit: it.unit ?? '' }
+  }
+  if (!Object.keys(items).length) return
+  const d = new Date(latest.ms)
+  const when = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  if (!confirm(`${when} の棚卸の在庫（${Object.keys(items).length}品目）を、この発注の参考に入れますか？\n\n一覧に「前回」として出し、推奨の数の計算に使います。数え直した品目はその数を使います。`)) return
+  carriedStock.value = { date: localDateKey(d), savedAt: latest.ms, items }
+  _persistCarry()
+}
 /**
  * 発注: 発注数も「発注なし」も決めていない品目（完了時に「すべて発注なし（0）で保存しますか？」と訊く・User決定 2026-10-19）。
  * 在庫だけ入れた品目（＝あとで決める）も、まだ開いていない品目も入る。非表示の品目は入れない
@@ -476,7 +520,11 @@ async function onSessionStart(session, mode = 'stock', { room = false } = {}) {
   if (startedEmpty) _persistConfigToD1()
   track('session_started')
   await _startSessionView({ loadConfig: false })
-  if (isOrder) { await _loadOrderData(); _restoreOrderDraft(); showToast('発注確認を開始しました', 2600, 'default') }
+  if (isOrder) {
+    await _loadOrderData(); _restoreOrderDraft()
+    if (!carriedStock.value) _offerCarryStock()
+    showToast('発注確認を開始しました', 2600, 'default')
+  }
   // ホームの開始シートで「みんなで」を選んだ：開始したらそのままルームを作る（QRを出す）
   if (room) onCreateRoomFromMain()
 }
@@ -978,7 +1026,15 @@ function onToggleRecountFlag(item, on) {
 }
 
 // 受信ハンドラを登録（useInventory ↔ useSync を循環なしで接続）
-setInventoryCallbacks(applyRemoteUpdate, applyRemoteRemove)
+// ルームから届く在庫は、いま開いているセッションと同じ種類のルームのものだけ受ける。
+// 発注中に棚卸のルーム（破棄した棚卸の数を持ったまま残っている）から数が入らないように
+function _roomMatchesSession() {
+  return (syncState.roomType === 'order' ? 'order' : 'stock') === sessionMode.value
+}
+setInventoryCallbacks(
+  (...a) => { if (_roomMatchesSession()) applyRemoteUpdate(...a) },
+  (...a) => { if (_roomMatchesSession()) applyRemoteRemove(...a) },
+)
 setAuditEntryCallback(_recordAudit)
 setRecountFlagCallback(applyRemoteRecountFlag)
 setClearInventoryCallback(() => reset())
@@ -1647,6 +1703,10 @@ const _ORDER_DRAFT_PREFIX = 'order_draft_'
 // 発注下書きを localStorage から復元（発注セッション再開時）
 function _restoreOrderDraft() {
   try {
+    const raw = localStorage.getItem(_ORDER_CARRY_PREFIX + _orderId())
+    carriedStock.value = raw ? JSON.parse(raw) : null
+  } catch (_) { carriedStock.value = null }
+  try {
     const raw = localStorage.getItem(_ORDER_DRAFT_PREFIX + _orderId())
     orderDraft.value = raw ? dropHeldLines(JSON.parse(raw) || {}) : {}
   } catch (_) { orderDraft.value = {} }
@@ -1844,8 +1904,9 @@ async function _restoreInventoryFromD1() {
   if (!shopCode.value || isCompleted.value) return
   const remote = await loadInventoryFromD1()
   if (!remote?.inventory) return
-  // 別セッションのデータは無視（新規セッション開始後に旧データを読み込まない）
-  if (remote.sessionId && pendingSession.value?.id && remote.sessionId !== pendingSession.value.id) return
+  // このセッションのものだけを使う。どのセッションのものか分からない在庫も入れない
+  // （発注を始めたのに、破棄した棚卸の数が在庫に入っていた・User報告 2026-11-01）
+  if (!pendingSession.value?.id || remote.sessionId !== pendingSession.value.id) return
   // 手元が空のとき（端末紛失・キャッシュ消去）だけ丸ごと戻す。
   // 手元に入力があるときは品目ごとに新しい方を採り、手元の品目は消さない。
   // 以前は「D1 の保存時刻が手元の最終入力より新しければ丸ごと置換」で、同じ店にログインした
@@ -3813,6 +3874,7 @@ function dismissReview() {
         :order-map="sessionMode === 'order' ? orderDraft : null"
         :order-none="sessionMode === 'order' ? orderNone : null"
         :order-mode="sessionMode === 'order'"
+        :carried-stock="sessionMode === 'order' ? carriedStock?.items ?? null : null"
         :can-manage-list="(!syncActive || syncIsHost) && can('item.edit')"
         :can-request-hide="syncActive && !syncIsHost"
         @update="onTableUpdate"
@@ -3849,6 +3911,7 @@ function dismissReview() {
         :target="confirmState.replenish"
         :theo-stock="confirmState.theoStock"
         :existing-stock="inventory[confirmState.ingredient]?.qty ?? null"
+        :carried-stock="carriedStock?.items?.[confirmState.ingredient] ? { ...carriedStock.items[confirmState.ingredient], date: carriedStock.date } : null"
         :initial-order-qty="confirmState.initialOrderQty"
         :initial-typed="confirmState.qty"
         :decided-none="orderNone.includes(confirmState.ingredient)"
