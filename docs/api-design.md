@@ -28,7 +28,7 @@
 | `POST /auth/register` | `{ storeName?, pin }` → `{ shopCode, token, storeName, plan, isPro, inTrial:false, trialEndsAt:null }`。PINは4桁、PBKDF2で保存 | 不要。IPごとに1時間5回（成否を問わず計上・超過は429 `rate_limited`）。bot対策は未実装 |
 | `POST /auth/login` | `{ shopCode, pin }` → 同上entitlement付きtoken。成功時は同storeの既存tokenを全失効 | 不要。store/IP単位の失敗制限あり |
 | `POST /auth/logout` | 対象Bearerがあれば削除し`{ ok:true }`。tokenなしでも同じ応答 | 任意 |
-| `DELETE /auth/account` | `{ requestId, pin, confirmation }`。UUID、現在PIN、認証store codeのcase-sensitive完全一致を要求 | active Bearer + 再認証 |
+| `DELETE /auth/account` | `{ requestId, pin, confirmation }`。UUID、現在PIN、認証store codeのcase-sensitive完全一致を要求。スタッフのtokenは403 `owner_only`（D-031） | オーナーのBearer + 再認証 |
 | ~~`POST /store/create`~~ | **2026-10-08廃止**（404）。PINなしlegacy storeを認証なしで作れた旧経路。店舗は`/auth/register`でだけ作る | — |
 | `GET /store/:code` | `{ shopCode, activeRoom, createdAt, plan, isPro, inTrial:false, trialEndsAt:null }` | 不要 |
 | `POST /auth/staff-login` | スタッフが本人のPINでログインし、`auth_tokens.staff_id`付きのtokenを受け取る（migration 0022） | 不要。IP単位の失敗制限（`login`と共用）・スタッフ単位の失敗制限（`staff_login_attempts`） |

@@ -37,7 +37,7 @@ async function findActiveReceipt(db, requestId, nowIso) {
 
 async function loadDeletionIdentity(db, token) {
   return db.prepare(`
-    SELECT t.shop_code, s.pin_hash, s.deletion_pending_at,
+    SELECT t.shop_code, t.staff_id, s.pin_hash, s.deletion_pending_at,
            s.deletion_request_id, s.deleted_at
     FROM auth_tokens t
     JOIN stores s ON s.shop_code = t.shop_code
@@ -169,6 +169,10 @@ export async function handleAccountDelete(db, request, body = {}, purgeRooms) {
   }
   if (!identity || identity.deleted_at || !identity.pin_hash) {
     return { _status: 401, code: 'reauthentication_failed', error: '再認証に失敗しました' }
+  }
+  // 店ごと消せるのはオーナーだけ（User決定 2026-11-02）。スタッフのtokenは店舗PINが合っても断る
+  if (identity.staff_id) {
+    return { _status: 403, code: 'owner_only', error: 'アカウントの削除はオーナーだけができます' }
   }
 
   const shopCode = identity.shop_code

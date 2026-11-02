@@ -61,6 +61,7 @@ function createMockD1({ failBatchOnce = false } = {}) {
       if (!store) return null
       return {
         shop_code: store.shop_code,
+        staff_id: token.staff_id ?? null,
         pin_hash: store.pin_hash,
         deletion_pending_at: store.deletion_pending_at ?? null,
         deletion_request_id: store.deletion_request_id ?? null,
@@ -308,6 +309,22 @@ describe('PLAY-001: account deletion', () => {
 
     expect(response).toMatchObject({ _status: 409, code: 'deletion_in_progress', retryable: false })
     expect(db._state.stores[0].deletion_request_id).toBe('22222222-2222-4222-8222-222222222222')
+    expect(purgeRooms).not.toHaveBeenCalled()
+  })
+
+  it('スタッフのtokenは店舗PINが合っても403で断り、PIN失敗にも数えない', async () => {
+    const account = await seedAccount(db)
+    db._state.auth_tokens.push({ token: 'staff-token', shop_code: account.shopCode, staff_id: 'st_0123456789abcdef', expires_at: new Date(Date.now() + 86_400_000).toISOString() })
+    const purgeRooms = vi.fn()
+    const attemptsBefore = db._state.login_attempts.length
+
+    const response = await handleAccountDelete(
+      db, requestWithToken('staff-token'), validBody(), purgeRooms)
+
+    expect(response).toMatchObject({ _status: 403, code: 'owner_only' })
+    expect(db._state.login_attempts).toHaveLength(attemptsBefore)
+    expect(db._state.stores[0].deletion_pending_at).toBeNull()
+    expect(db._state.stores[0].deleted_at).toBeNull()
     expect(purgeRooms).not.toHaveBeenCalled()
   })
 

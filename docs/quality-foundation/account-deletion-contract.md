@@ -35,7 +35,8 @@ Body:
 
 - `requestId`: 削除画面を開いた時点で1回だけ生成し、再試行でも同じ値を使う。
 - `pin`: 現在の4桁PIN（店舗のPIN）。Bearer tokenだけでは削除しない。
-  現行実装はtokenの役割（オーナー／スタッフ）を見ていない。スタッフのtokenでも店舗PINが合えば削除できる（→ DOC-004 要確認）。
+- **削除できるのはオーナーだけ**（D-031）。スタッフのtoken（`auth_tokens.staff_id`あり。管理者を含む）は、
+  店舗PINが合っても`403 owner_only`で断り、PIN失敗にも数えない。Appもオーナー以外には削除ボタンを出さない。
 - `confirmation`: 認証tokenの店舗codeを大文字のままcase-sensitiveで完全一致させる。
 
 Success / replay:
@@ -58,6 +59,7 @@ Success / replay:
 |---:|---|---|
 | 400 | `invalid_request` / `confirmation_mismatch` | 入力を修正 |
 | 401 | `reauthentication_failed` | PINまたはsessionを再確認 |
+| 403 | `owner_only` | スタッフのtoken。オーナーだけができると伝え、再試行させない |
 | 429 | `too_many_attempts` | PIN失敗が15分に5回以上。15分ほど空ける |
 | 409 | `deletion_in_progress` | 別requestIdが進行中。新しいIDでは再試行せず、保存済みの元IDを復元する |
 | 503 | `deletion_temporarily_unavailable` | dataは完了扱いにせず、同じrequestIdで再試行 |
@@ -65,7 +67,7 @@ Success / replay:
 ## Backend処理順
 
 1. UUID形式を確認し、完了receiptがあれば同一requestIdの冪等成功を返す。
-2. 有効token、case-sensitiveな店舗code confirmation、現在PINを照合する。PIN失敗は
+2. 有効token、tokenがオーナーのものであること、case-sensitiveな店舗code confirmation、現在PINを照合する。PIN失敗は
    loginと共通の `login_attempts` に記録し、15分5回で429にする。
 3. `stores.deletion_pending_at` と `deletion_request_id` を設定する。通常token、store API、
    store参照、room gateを遮断し、0011のtriggerでaccount子dataの新規INSERTも拒否する。

@@ -40,6 +40,9 @@ export function mapDeletionError(err) {
   if (status === 401) {
     return { phase: 'form', message: 'PIN またはログイン状態を確認してください', resetPin: true }
   }
+  if (status === 403 && code === 'owner_only') {
+    return { phase: 'error', retryable: false, message: 'アカウントの削除はオーナーだけができます。' }
+  }
   if (status === 429) {
     return {
       phase: 'error', retryable: false, keepId: true,

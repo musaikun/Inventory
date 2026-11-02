@@ -449,3 +449,14 @@
 - 理由: PMセッションの記録は2026-07-21が最後で、未トリアージの提案が52件たまり、
   「実装済みでも合意ではない」規則により3か月分の実装が文書上は未合意のままだった。
 - 置き換え: `feature-checklist.md`の旧§運用、`project-status.md` §7の旧運用ルール、`working-agreement.md`の旧§競合時。
+
+## D-031 — アカウント（店ごと）の削除はオーナーだけ
+
+- 日付: 2026-11-02
+- 状態: 採用
+- 決定者: User
+- 判断: `DELETE /auth/account`はオーナーのtokenだけを受け付ける。スタッフ（管理者を含む）のtokenは店舗PINが合っても
+  `403 owner_only`で断り、PIN失敗にも数えない。Appはオーナー以外に削除ボタンを出さない。
+- 理由: スタッフ機能（migration 0022）の追加後も削除処理がtokenの役割を見ておらず、店舗PINを知るスタッフが店ごと消せた。
+- 適用: `worker/src/accountDeletion.js`、`app/src/components/SettingsModal.vue`、`app/src/utils/accountDeletionFlow.js`、
+  [account deletion contract](account-deletion-contract.md)

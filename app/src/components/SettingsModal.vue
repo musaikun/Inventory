@@ -19,7 +19,7 @@ import LoadingSpinner from './LoadingSpinner.vue'
 import { runBusy } from '../composables/useBusy.js'
 import { FREE_ITEM_LIMIT } from '../utils/planLimits.js'
 import { parseResultCSV } from '../utils/resultCsvParser.js'
-import { isAuthenticated } from '../composables/useAuth.js'
+import { isAuthenticated, currentRole } from '../composables/useAuth.js'
 import { showDeleteAccount, pendingImportFile } from '../composables/appMenuState.js'
 import {
   ANALYTICS_ENABLED,
@@ -676,7 +676,9 @@ function onDownloadTemplate() {
           店舗アカウントと、品目・棚卸・発注・入出庫・履歴・設定などのすべてのデータを削除します。
           <b>削除すると元に戻せません。</b>
         </p>
-        <button class="danger-btn" @click="openDeleteAccount">アカウントを削除する…</button>
+        <!-- 店ごと消せるのはオーナーだけ（User決定 2026-11-02・サーバーも 403 owner_only で断る） -->
+        <button v-if="currentRole === 'owner'" class="danger-btn" @click="openDeleteAccount">アカウントを削除する…</button>
+        <p v-else class="danger-note">アカウントの削除はオーナーだけができます。</p>
       </div>
 
       <button class="btn btn-primary close-btn" @click="$emit('close')">閉じる</button>

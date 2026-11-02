@@ -62,6 +62,11 @@ describe('mapDeletionError — HTTP → UI 状態', () => {
       .toMatchObject({ phase: 'form', resetPin: true })
   })
 
+  it('403 owner_only はオーナーだけと伝え、再試行させない', () => {
+    expect(mapDeletionError({ status: 403, code: 'owner_only' }))
+      .toMatchObject({ phase: 'error', retryable: false, message: expect.stringContaining('オーナーだけ') })
+  })
+
   it('429 は error・再試行不可・ID保持', () => {
     expect(mapDeletionError({ status: 429, code: 'too_many_attempts' }))
       .toMatchObject({ phase: 'error', retryable: false, keepId: true })

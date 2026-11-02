@@ -44,7 +44,7 @@
 | P1 | 固定Free上限はApp/Workerとも無効。公開規約・画面文言・release contractを同じ状態に保つ | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-06 |
 | P1 | DATA-001/002・IMPORT-001の原子性/履歴修正は完了したが、release candidateの実D1・別browser確認は未完 | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / WEB-07 |
 | P1 | Workers LogsはUserが有効化済みだが、repositoryにobservability設定、統一structured log、機密masking、閲覧owner、alert/通知先がない | [`OPS-001`](quality-foundation/tasks/OPS-001.md) / WEB-08 |
-| P1 | スタッフ機能（migration 0022〜0025）の認可が未レビュー。特に (1) account削除がtokenの役割を見ず、スタッフのtokenでも店舗PINが合えば削除できる (2) soft authの`/config`・`/inventory`・`/history`・`/orders`・`/movements`でスタッフの権限・金額の秘匿がどこまで効くか (3) 招待token・参加申請keyの推測耐性と失効 | [`DOC-004`](quality-foundation/tasks/DOC-004.md) |
+| P1 | スタッフの権限がsoft auth経路の一部で効いていない（2026-11-02照合）: `GET /history`に`report`の確認がない、`POST /history`（訂正・ロック）に権限の確認がない、`POST /orders`・`POST /movements`・`PUT /inventory`・`PUT /room`に`order.finish`・`move`・`count`の確認がない。金額の秘匿（config・history・lines）は効いている。account削除は2026-11-02にオーナーだけへ修正済み（D-031） | [`DOC-004`](quality-foundation/tasks/DOC-004.md) |
 | P1 | production migrationは0034までpreflightが必要（旧記述は0018）。critical登録→同期/再接続→別browser履歴→削除E2Eも未完 | [`WEB-001`](quality-foundation/tasks/WEB-001.md) / [`TEST-002`](quality-foundation/tasks/TEST-002.md) |
 | P2 | Appの`pdfjs-dist` 5.6.205は既知の脆弱性（GHSA-hq66-cqwq-w95j、修正は6.2.108）の範囲。前提（PDF内スクリプトを有効にした注釈レイヤー、スクリプトを許すCSP）にAppは当たらず、`pdfjsOptions.test.js`で固定。6系は対応ブラウザがSafari 18 / Chrome 125以上でPDF取込の対象端末が減るため、上げる時期はUser判断（2026-10-08 `proposals.md`） | `proposals.md` |
 | P1 | W1 release buildでPostHog用変数を無効のままbuildし、artifactから外部通信が無いことをnetwork確認していない | [`PRIV-001`](quality-foundation/tasks/PRIV-001.md) / WEB-09〜10 |

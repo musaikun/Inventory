@@ -5,6 +5,14 @@
 このfileには**当月分だけ**を置き、月が変わったら前月分を`archive/session-log-YYYY-MM.md`へ移して
 末尾の索引に足します（D-029）。agentは毎回、先頭から数件だけ読みます。
 
+## 2026-11-02 — version 0.188.0 / アカウント削除はオーナーだけ（D-031）・スタッフ権限の照合（DOC-004）
+
+User: 削除はオーナーのみ。soft auth経路のスタッフ権限も照合する。
+- `accountDeletion.js`: tokenに`staff_id`があれば`403 owner_only`（PIN照合の前・PIN失敗に数えない）。App: 設定の削除ボタンはオーナーだけ、403の文言。
+- 照合: 金額の秘匿は効いている。権限の確認が無いのは `GET /history`（report）、`POST /history`、`POST /orders`・`/movements`、`PUT /inventory`・`/room`。直すかはUser判断 → DOC-004。
+- 検証: worker 749 pass（新testは修正前に失敗を確認）、app 2194 pass・build OK。
+- version: 0.187.3 → **0.188.0**（仕様変更）。
+
 ## 2026-11-02 — version 0.187.3 / 採否をUser承認に一本化（D-030）・文書を0.187 / migration 0034へ再同期（DOC-004 第1段）
 
 User: このセッションの取り決めを正として運用する。採否は User の承認。現在の機能で文書にないものは書き起こす。
