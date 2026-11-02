@@ -51,6 +51,8 @@ worker/src/
 
 - **ブランチ**: 固定名を前提にせず、作業開始時に `git branch --show-current` で確認
 - **ビルド確認**: `cd app && npm run build` をコミット前に必ず実行
+- **E2E**: `cd e2e && npm ci && npx playwright test`（ローカルWorker=Miniflare＋ブラウザ。本番D1に触れない。詳細 `docs/quality-foundation/tasks/TEST-002.md`）。
+  develop/main以外へのpushとPRで `.github/workflows/test.yml` が unit＋E2E を回す
 - **バージョン**: `app/package.json` の `version` は **変更を push するたびに上げる**
   （User指示 2026-09-20 → **D-026**。D-025 の「セッションは触らない」を置き換え）。
   - 上げ幅: 修正・微調整 = patch ／ まとまった機能・仕様変更 = minor

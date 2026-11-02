@@ -132,8 +132,11 @@ command/step、環境、未検証範囲を残します。
 | App | `app`で`npm ci` → `npm test` → `npm run build` | `app/vitest.config.js`の`src/**/*.test.js`とproduction build |
 | Pages | 上記成功後に明示したpreview branchへdeploy | deploy commandの成功まで。公開routeの機能確認ではない |
 
-App/Workerのtestはpackage分離済みで、件数は文書へ固定しません。一方、package scripts、依存、workflowに
-Playwright/Cypress等のbrowser E2Eはなく、remote Worker/D1/DOと実browserを通すcritical E2Eもありません。
+App/Workerのtestはpackage分離済みで、件数は文書へ固定しません。
+
+**取り込み前の関門 `test.yml`**（2026-11-02〜）: develop/main以外へのpushとPRで、上記のWorker/App test・buildと
+`e2e/` のPlaywright E2E（ローカルWorker=Miniflareで DO/D1 を模擬・毎回まっさらなD1）を回します。secretは使わず、deployもしません。
+E2Eは実browser＋ローカルWorkerであり、remote（本番・preview）のWorker/D1/DOは通しません。
 production URLへの自動smoke、失敗時の自動rollbackもありません。`npm test`とPages deploy成功だけで
 `WEB-09` / `WEB-10`を完了にしません。
 

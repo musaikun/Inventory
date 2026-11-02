@@ -1,0 +1,11 @@
+{
+  "name": "inventory-e2e",
+  "private": true,
+  "description": "ブラウザ + ローカル Worker（Miniflare: DO/D1）を通した E2E。本番・preview には触れない",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

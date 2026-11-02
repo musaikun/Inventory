@@ -2,6 +2,17 @@
 
 新しい記録を上に追加します。会話の全文ではなく、再開に必要な事実だけを残します。
 
+## 2026-11-02 — version 0.187.2 / E2E基盤（Playwright + ローカルWorker）とPR/branch CI
+
+User: テストの整理・品質保証（TDD・E2E・Self/Adversarial Review・Evals）を固めたい。まず現状と方法 → ここでできることから。
+- 現状: App 229 files / 2191 tests（約112秒）、Worker 53 files / 748 tests（約9秒）。E2E・coverage・lint・PR時点のCIは無し。
+- `e2e/` を追加（詳細 [TEST-002](tasks/TEST-002.md)）。1本目は R-001型「端末Aで完了→端末Bで明細」。pass。
+- mutation確認: `/history` を壊すと落ちる。`/audit` GET を壊しても落ちない（その経路は守っていない）ことが分かった。
+- `.github/workflows/test.yml`: develop/main以外のpushとPRで unit + e2e。
+- 検証: e2e 1 passed（ローカル）、worker 748 / app 2191 pass、build OK。CI上の初回結果はpush後に確認。
+- version: 0.187.1 → **0.187.2**（アプリ本体の変更なし）。
+- 次: host/guest同期・F-001・再接続のE2E、同期・マージ系に絞ったmutation testing（Stryker）。
+
 ## 2026-11-02 — version 0.187.1 / 日誌の棚卸に「進み方」を必ず出す（短い棚卸・中断なし・人ごとの入力）
 
 User: 短く終わった棚卸（6人で24分）は、日誌のタイムラインにたたみの欄が出ず、どう進めたかが見られない。短い時間でも見られるように。
