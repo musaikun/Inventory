@@ -35,3 +35,14 @@ describe('mergeInventoryPayload', () => {
     expect(mergeInventoryPayload(prev, next)).toBe(next)
   })
 })
+
+describe('mergeInventoryPayload の備考', () => {
+  it('品目ごとに新しい方。消した備考（空文字）も新しければ勝つ', () => {
+    const prev = { sessionId: 's1', inventory: {}, notes: { a: { text: '古い', at: 100 }, b: { text: '残る', at: 100 } } }
+    const next = { sessionId: 's1', inventory: {}, notes: { a: { text: '', at: 200 }, c: { text: '新しい', at: 300 } } }
+    const m = mergeInventoryPayload(prev, next)
+    expect(m.notes.a.text).toBe('')
+    expect(m.notes.b.text).toBe('残る')
+    expect(m.notes.c.text).toBe('新しい')
+  })
+})

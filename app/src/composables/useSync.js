@@ -191,6 +191,9 @@ let _onItemHideResponse = null
 let _onRecountFlag    = null
 let _getInventory     = null
 let _getRecountFlags  = null
+let _getNotes         = null   // 品目の備考 { [item]: { text, by, at } }
+let _onNote           = null   // (item, text, by, at) ほかの端末で書いた備考
+let _onNotesSnapshot  = null   // (notes) 参加・再接続時のまとめ
 let _getConfig        = null
 let _onConfigReceived = null
 let _onResetConfig    = null
@@ -223,6 +226,8 @@ export function setItemHideResponseCallback(fn) { _onItemHideResponse = fn }
 export function setRecountFlagCallback(fn)   { _onRecountFlag = fn }
 export function registerInventoryGetter(fn)  { _getInventory = fn }
 export function registerRecountFlagsGetter(fn) { _getRecountFlags = fn }
+export function registerNotesGetter(fn)       { _getNotes = fn }
+export function setNoteCallbacks(onNote, onSnapshot) { _onNote = onNote; _onNotesSnapshot = onSnapshot }
 export function registerConfigGetter(fn)     { _getConfig = fn }
 export function setConfigCallback(fn)        { _onConfigReceived = fn }
 export function setResetConfigCallback(fn)   { _onResetConfig = fn }
@@ -359,6 +364,11 @@ export function broadcastRecountFlag(ingredient, on) {
   _ws.send(JSON.stringify({ type: 'recount_flag', ingredient, on: !!on }))
 }
 
+export function broadcastNote(ingredient, text) {
+  if (_ws?.readyState !== WebSocket.OPEN) return
+  _ws.send(JSON.stringify({ type: 'note', ingredient, text: text ?? '' }))
+}
+
 export function broadcastDone(isFinal = false) {
   if (_ws?.readyState !== WebSocket.OPEN) return
   _ws.send(JSON.stringify({ type: 'done', isFinal }))
@@ -379,7 +389,8 @@ export function broadcastSessionStart(sessionId) {
   const cfg    = _getConfig?.() ?? null
   const flags  = _getRecountFlags?.() ?? {}
   const orders = _getOrders?.() ?? {}
-  _ws.send(JSON.stringify({ type: 'session_start', sessionId, inventory: inv, config: cfg, recountFlags: flags, orders }))
+  const notes  = _getNotes?.() ?? {}
+  _ws.send(JSON.stringify({ type: 'session_start', sessionId, inventory: inv, config: cfg, recountFlags: flags, orders, notes }))
 }
 
 export function broadcastSessionEnd(status = 'completed') {
@@ -660,6 +671,17 @@ function _handleMessage(msg) {
         _onOrdersSnapshot?.(msg.orders)
       }
 
+      // 備考。ルームの分を取り込み、手元にしか無い（オフライン中に書いた等）ものは送り直す
+      if (!skipInventory) {
+        const serverNotes = (msg.notes && typeof msg.notes === 'object') ? msg.notes : {}
+        _onNotesSnapshot?.(serverNotes)
+        if (reconnecting) {
+          for (const [item, n] of Object.entries(_getNotes?.() ?? {})) {
+            if ((n?.at ?? 0) > (serverNotes[item]?.at ?? 0) && (n.text || serverNotes[item]?.text)) broadcastNote(item, n.text)
+          }
+        }
+      }
+
       _disconnectedAt = 0
 
       state.actorId = msg.actorId || null
@@ -793,6 +815,10 @@ function _handleMessage(msg) {
 
     case 'config_update':
       _onConfigReceived?.(msg)
+      break
+
+    case 'note':
+      if (msg.fromDeviceId !== deviceId) _onNote?.(msg.ingredient, msg.text ?? '', msg.by ?? '', msg.at)
       break
 
     case 'recount_flag':

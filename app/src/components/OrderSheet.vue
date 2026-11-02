@@ -16,6 +16,7 @@
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import NumPad from './NumPad.vue'
+import NoteField from './NoteField.vue'
 import CoachDemo from './CoachDemo.vue'
 import { orderRefs, unusualOrder } from '../services/orderRefs.js'
 
@@ -26,7 +27,7 @@ const props = defineProps({
   orders:          { type: Array,  default: () => [] },   // 発注の記録（参考の数を出す）
   today:           { type: String, required: true },     // 'YYYY-MM-DD'
   target:          { type: Object, default: null },      // 補充目標 { value, source }
-  theoStock:       { type: Object, default: null },      // 理論在庫 { qty }
+  note:            { type: String, default: '' },        // 品目の備考（この発注の中だけ）
   existingStock:   { type: Number, default: null },      // この発注で入れた在庫
   carriedStock:    { type: Object, default: null },      // 参考に持ち込んだ前回の棚卸 { qty, unit, date }
   initialOrderQty: { type: Number, default: null },      // この発注で入れた発注数
@@ -36,7 +37,7 @@ const props = defineProps({
   typingUser:      { type: String, default: null },
   initialTyped:    { type: Number, default: null },      // 音声・文字検索で言った数（何の数かは人が選ぶ）
 })
-const emit = defineEmits(['confirm', 'cancel', 'navigate'])
+const emit = defineEmits(['confirm', 'cancel', 'navigate', 'note'])
 
 const lotLabel = computed(() => (props.orderLot > 1 ? '口' : (props.unit || '')))
 const typed = ref(props.initialTyped != null ? String(props.initialTyped) : '')   // いま打っている数
@@ -129,15 +130,16 @@ const COACH_STEPS = [
           <span v-else-if="decidedNone" class="os-fact now">いまは発注なし</span>
           <span v-if="existingStock != null" class="os-fact stock">在庫 {{ existingStock }}{{ unit }} ✓</span>
           <span v-else-if="carriedStock" class="os-fact stock" title="発注を始めるときに入れた前回の棚卸">前回の棚卸 {{ carriedStock.qty }}{{ unit }}<template v-if="carriedLabel">（{{ carriedLabel }}）</template></span>
-          <span v-if="existingStock == null && theoStock" class="os-fact" :title="'直近の棚卸と入出庫から'">理論在庫 約{{ theoStock.qty }}{{ unit }}</span>
           <span v-if="orderLot > 1" class="os-fact">1口 = {{ orderLot }}{{ unit }}</span>
         </div>
       </div>
 
+      <NoteField :note="note" @save="t => emit('note', t)" />
+
       <!-- 打つまでは、いまの数（発注数、無ければこの発注で入れた在庫）を薄く出す。打つと置き換わる（User 2026-11-02） -->
       <div :class="['os-disp', { empty: typed === '' && !current, current: typed === '' && current }]">
         <template v-if="typed !== ''">{{ typed }}</template>
-        <span v-else-if="current" class="os-current">{{ current.qty }}<small>{{ current.unit }}</small><em>{{ current.label }}</em></span>
+        <span v-else-if="current" class="os-current"><span>{{ current.qty }}<small>{{ current.unit }}</small></span><em>{{ current.label }}</em></span>
         <template v-else>数を打つ</template>
       </div>
 

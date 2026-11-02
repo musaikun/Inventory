@@ -12,6 +12,10 @@ const completedAt = ref(null)      // null=進行中, ISO文字列=完了済み
 // 「未入力に戻した」品目と時刻 { [item]: ms }。D1 で別のブラウザの在庫と品目ごとに合わせるとき、
 // 消した品目が他方の記録から生き返らないように一緒に送る
 const removedAt   = reactive({})
+// 品目ごとの備考 { [item]: { text, by, at } }（User決定 2026-11-02）。棚卸・発注とも、そのセッションの中だけ。
+// 「期限が近いので多めに」「奥にもう1箱あるかも」のような、数字にならないその回の事情を書く
+const itemNotes   = reactive({})
+export const NOTE_MAX = 200
 
 // ── 在庫ロード / セーブ ──────────────────────────────────────────────────────
 function _save() {
@@ -23,6 +27,7 @@ function _save() {
       entryLog:     [...entryLog],
       completedAt:  completedAt.value,
       removedAt:    { ...removedAt },
+      notes:        { ...itemNotes },
     }))
   } catch (_) {}
 }
@@ -45,6 +50,7 @@ function _load() {
     }
     completedAt.value = saved.completedAt ?? null
     Object.assign(removedAt, saved.removedAt ?? {})
+    Object.assign(itemNotes, saved.notes ?? {})
   } catch (_) {}
 }
 
@@ -52,6 +58,40 @@ _load()
 
 /** 未入力に戻した品目と時刻（D1 へ送る用） */
 export function getRemovedAt() { return { ...removedAt } }
+
+/** 品目の備考の一覧（読み取り用のリアクティブ。text が空のものは消した備考） */
+export const itemNotesState = itemNotes
+
+/**
+ * 備考を入れる。空なら消す。at は書いた時刻（別の端末・D1 と合わせるとき新しい方を採る）。
+ * 戻り値 = 変わったか
+ */
+export function applyNote(item, text, by = '', at = Date.now()) {
+  if (completedAt.value || !item) return false
+  const t = String(text ?? '').trim().slice(0, NOTE_MAX)
+  const cur = itemNotes[item]
+  if (cur && (cur.at ?? 0) > at) return false
+  if (!t && !cur?.text) return false
+  if (cur?.text === t) return false
+  // 消した備考は空文字で残す。D1 で別のブラウザの古い備考と合わせたとき生き返らないように
+  itemNotes[item] = { text: t, by, at }
+  _save()
+  return true
+}
+
+/** 備考をまとめて合わせる（D1・ルーム・下書きから）。品目ごとに新しい方 */
+export function mergeNotes(notes) {
+  if (completedAt.value || !notes || typeof notes !== 'object') return
+  let changed = false
+  for (const [item, n] of Object.entries(notes)) {
+    if (!n || typeof n.text !== 'string') continue
+    const cur = itemNotes[item]
+    if (cur && (cur.at ?? 0) >= (n.at ?? 0)) continue
+    itemNotes[item] = { text: n.text.slice(0, NOTE_MAX), by: n.by ?? '', at: n.at ?? Date.now() }
+    changed = true
+  }
+  if (changed) _save()
+}
 
 // ── リモート同期用（useSync から呼ばれる）────────────────────────────────────
 /**
@@ -107,6 +147,7 @@ export function resetLocalData() {
   entryLog.splice(0, entryLog.length)
   completedAt.value = null
   for (const k of Object.keys(removedAt)) delete removedAt[k]
+  for (const k of Object.keys(itemNotes)) delete itemNotes[k]
   try { localStorage.removeItem(STORAGE_KEYS.inventory) } catch (_) {}
 }
 
@@ -187,6 +228,7 @@ export function useInventory() {
     entryLog.splice(0, entryLog.length)
     completedAt.value = null
     Object.keys(removedAt).forEach(k => delete removedAt[k])
+    Object.keys(itemNotes).forEach(k => delete itemNotes[k])
     _save()
   }
 
@@ -234,7 +276,7 @@ export function useInventory() {
   }
 
   return {
-    inventory, recountFlags, filledCount, totalValue,
+    inventory, recountFlags, filledCount, totalValue, itemNotes,
     isCompleted, completedAt,
     entryLog,
     setItem, updateQty, removeItem, setRecountFlag, reset, exportCSV,

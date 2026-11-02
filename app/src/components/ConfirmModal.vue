@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import NumPad from './NumPad.vue'
+import NoteField from './NoteField.vue'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { useConfig } from '../composables/useConfig.js'
 
@@ -28,13 +29,14 @@ const props = defineProps({
   existingTagsB:   { type: Array,  default: () => [] }, // 軸2の既存値（候補）
   canPrev:         { type: Boolean, default: false }, // 前の品目へ移動可能
   canNext:         { type: Boolean, default: false }, // 次の品目へ移動可能
+  note:            { type: String,  default: '' },    // 品目の備考（このセッションの中だけ）
 })
 
 // 検索で開いた品目が非表示中なら、名前に印を付ける（表には居ない品目を数えている、と分かるように）
 const { config: _config } = useConfig()
 const isHiddenItem = computed(() => (_config.hiddenItems ?? []).includes(props.ingredient))
 
-const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag', 'edit-save', 'navigate'])
+const emit = defineEmits(['confirm', 'cancel', 'revert', 'toggle-flag', 'edit-save', 'navigate', 'note'])
 
 // 編集モードでは単位のロックを解除して編集できる（編集が唯一の変更手段）。
 // ジャンルは取込元由来のみ＝常に読み取り専用（ユーザー分類はユーザー軸で行う）。
@@ -386,6 +388,8 @@ function saveEdit() {
           </div>
         </div>
       </div>
+
+      <NoteField v-if="!isEdit && !isNew" :note="note" @save="t => emit('note', t)" />
 
       <!-- 数量表示 + 単位 -->
       <div class="qty-row">

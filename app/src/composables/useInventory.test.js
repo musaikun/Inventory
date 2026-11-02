@@ -105,3 +105,20 @@ describe('未入力に戻した時刻', () => {
     expect(getRemovedAt()).toEqual({})
   })
 })
+
+describe('品目の備考', () => {
+  it('書く・消すと空文字で残る（別のブラウザの古い備考で生き返らない）・reset で消える', async () => {
+    const { applyNote, mergeNotes, itemNotesState } = await import('./useInventory.js')
+    inv.reset()
+    expect(applyNote('玉ねぎ', ' 期限が近い ', 'A', 100)).toBe(true)
+    expect(itemNotesState.玉ねぎ).toMatchObject({ text: '期限が近い', by: 'A', at: 100 })
+    expect(applyNote('玉ねぎ', '', 'A', 200)).toBe(true)
+    expect(itemNotesState.玉ねぎ.text).toBe('')
+    mergeNotes({ 玉ねぎ: { text: '古い備考', by: 'B', at: 150 } })
+    expect(itemNotesState.玉ねぎ.text, '消した方が新しい').toBe('')
+    mergeNotes({ にら: { text: '奥に1箱', by: 'B', at: 300 } })
+    expect(itemNotesState.にら.text).toBe('奥に1箱')
+    inv.reset()
+    expect(Object.keys(itemNotesState)).toHaveLength(0)
+  })
+})

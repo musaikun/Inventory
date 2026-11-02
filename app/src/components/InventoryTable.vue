@@ -34,6 +34,7 @@ const props = defineProps({
   orderMap:         { type: Object,  default: null },  // 発注セッション: { 品目: { orderQty, by } } を行に表示
   orderNone:        { type: Array,   default: null },  // 発注セッション: 「発注なしで確定」した品目（0 と出す・入力済みに数える）
   orderMode:        { type: Boolean, default: false }, // 発注セッションか（発注チップ表示の切替）
+  itemNotes:        { type: Object,  default: null },  // 品目の備考 { [item]: { text } }。品目名の下に1行出す
   carriedStock:     { type: Object,  default: null },  // 発注: 参考に持ち込んだ前回の棚卸 { [item]: { qty, unit } }（確認済みには数えない）
   // ── 入出庫（棚卸・発注と同じ一覧を使うための調整。既定はすべて従来動作 ──
   noteMap:          { type: Object,  default: null },  // { 品目: 補足文字列 } を行のヒント欄へ出す（理論在庫など）
@@ -1039,6 +1040,7 @@ function fmtYen(n) {
                   <button class="manual-btn-delete" @click="requestDelete(row.item)">削除</button>
                 </span>
               </div>
+              <div v-if="itemNotes?.[row.item]?.text" class="item-note" :title="itemNotes[row.item].text">📝 {{ itemNotes[row.item].text }}</div>
               <div v-if="pendingDelete === row.item" class="delete-confirm" @click.stop>
                 <span class="delete-confirm-msg">「{{ row.item }}」を削除しますか？</span>
                 <button class="delete-confirm-yes" @click="confirmDelete(row.item)">削除</button>
@@ -1179,6 +1181,7 @@ function fmtYen(n) {
 </template>
 
 <style scoped>
+.item-note { font-size: 11.5px; font-weight: 600; color: #92400e; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .oq-carried { color: var(--text-muted); font-weight: 500; font-size: 0.85em; white-space: nowrap; }
 /* 表は横いっぱいに（棚卸・発注・ホームで同じ・User 2026-10-01）。左右の余白は 6px だけ */
 .inventory-section { padding: 0 6px; overflow-x: clip; }

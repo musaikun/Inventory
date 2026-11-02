@@ -2,7 +2,7 @@
 import { ref, computed, watch, watchEffect, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRegisterSW } from 'virtual:pwa-register/vue'
 import { useVoice, parseText } from './composables/useVoice.js'
-import { useInventory, applyRemoteUpdate, applyRemoteRemove, applyRemoteRecountFlag, applyPersistedInventory, getRemovedAt } from './composables/useInventory.js'
+import { useInventory, applyRemoteUpdate, applyRemoteRemove, applyRemoteRecountFlag, applyPersistedInventory, getRemovedAt, applyNote, mergeNotes } from './composables/useInventory.js'
 import { localDateKey } from './utils/localDate.js'
 import { toEpochMs } from './services/participantStats.js'
 import { useConfig, applyRemoteConfig, setConfigChangedCallback, setItemAddSession } from './composables/useConfig.js'
@@ -18,7 +18,7 @@ import {
   setNameTakenCallback, setParticipantJoinCallback, setParticipantLeaveCallback,
   setGuestLeaveCallback, setRemoteUpdateCallback, setClearInventoryCallback,
   setSessionEndedCallback, setNewSessionStartedCallback, setResetConfigCallback,
-  setExpectedSessionId, myRecordId,
+  setExpectedSessionId, myRecordId, broadcastNote, registerNotesGetter, setNoteCallbacks,
   setOrderCallbacks, setOrdersSnapshotCallback, registerOrdersGetter,
   broadcastOrderUpdate, broadcastOrderRemove,
   broadcastUpdate, broadcastRemove, broadcastDone, broadcastUndone, broadcastConfig,
@@ -59,7 +59,6 @@ import { saveLastPage, readLastPage } from './services/lastPage.js'
 import {
   queueAuditEntries, flushAuditQueue, restoreAuditQueue, clearAuditQueue, loadAuditFromD1,
 } from './composables/useAuditSync.js'
-import { theoreticalStock } from './services/theoreticalStock.js'
 import { effectiveLot } from './services/lot.js'
 import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload, dropHeldLines } from './services/orderSync.js'
 import { isAuthenticated, clearAuthLocal, setAccountResetHandler, getSessionLines, pendingJoin, can, denyMessage, refreshMe } from './composables/useAuth.js'
@@ -118,7 +117,7 @@ const { config, dictionary, masterDict, registerAlias, clearConfig, loadSampleDa
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 const {
-  inventory, recountFlags, filledCount, totalValue,
+  inventory, recountFlags, filledCount, totalValue, itemNotes,
   isCompleted, completedAt,
   entryLog,
   setItem, updateQty, removeItem, setRecountFlag, reset, exportCSV,
@@ -205,11 +204,8 @@ function _parLevelFor(item) {
   const events = getLearningEvents().filter(e => !_isDateExcluded(e.date))
   return calcParLevel(events, item, weekdayOf(_todayStr()))
 }
-// 理論在庫（直近棚卸＋入出庫の導出値）。発注時の在庫入力の参考・ズレ検出用。
+// 理論在庫は発注の入力画面に出さない（消費が入らず、日をまたぐと当てにならない・User決定 2026-11-02）
 const { getMovements, applyRemoteMovements } = useMovements()
-function _theoStockFor(item) {
-  return theoreticalStock(item, getSnapshots(), getMovements())
-}
 // 補充目標（発注してここまで戻す水準）と、その根拠。
 // 発注点はトリガーであって目標ではないので、目標は別に決める（services/orderBase）。
 // 学習（適正在庫）が貯まらない部分利用でも、発注点さえ入っていれば推奨が出る。
@@ -1035,6 +1031,15 @@ setInventoryCallbacks(
   (...a) => { if (_roomMatchesSession()) applyRemoteUpdate(...a) },
   (...a) => { if (_roomMatchesSession()) applyRemoteRemove(...a) },
 )
+registerNotesGetter(() => ({ ...itemNotes }))
+setNoteCallbacks(
+  (item, text, by, at) => { if (_roomMatchesSession()) applyNote(item, text, by, at) },
+  (notes) => { if (_roomMatchesSession()) mergeNotes(notes) },
+)
+// 品目の備考を書いた（入力画面から）。ルームに入っていれば配る
+function onItemNote(item, text) {
+  if (applyNote(item, text, deviceName.value || '名前未設定') && syncActive.value) broadcastNote(item, text)
+}
 setAuditEntryCallback(_recordAudit)
 setRecountFlagCallback(applyRemoteRecountFlag)
 setClearInventoryCallback(() => reset())
@@ -1722,6 +1727,7 @@ function _saveDraft(sessionId) {
   try {
     localStorage.setItem(_DRAFT_PREFIX + sessionId, JSON.stringify({
       inv:      { ...inventory },
+      notes:    { ...itemNotes },
       activeMs: activeTimer.activeMs.value,
       // 変更履歴はメモリにしか無い。下書きに入れておかないと、退室・再読込のたびに
       // そこまでの履歴が消え、完了時のスナップショットにも入らない。
@@ -1750,6 +1756,7 @@ function _restoreFromSnapshot(sessionId) {
   for (const p of snap.participants ?? []) {
     for (const it of p.items ?? []) by.set(it.item, { name: p.name, at: it.at })
   }
+  mergeNotes(Object.fromEntries((snap.items ?? []).filter(it => it?.note).map(it => [it.item, { text: it.note, by: '', at: 0 }])))
   for (const it of snap.items ?? []) {
     if (it?.qty === null || it?.qty === undefined) continue
     const a = by.get(it.item)
@@ -1770,6 +1777,7 @@ function _restoreDraft(sessionId) {
     if (typeof saved.activeMs === 'number') activeTimer.resume(saved.activeMs)
     // 変更履歴を先に戻す。applyRemoteUpdate は auditLog を触らないので二重にはならない。
     mergeAuditLog(saved.audit)
+    mergeNotes(saved.notes)
     for (const [ingredient, entry] of Object.entries(inv)) {
       if (!entry || typeof entry.qty === 'undefined') continue
       applyRemoteUpdate(ingredient, entry.qty, entry.unit ?? '', entry.enteredBy ?? '', entry.updatedAt)
@@ -1842,6 +1850,7 @@ function _inventoryPayload() {
     inventory:    { ...inventory },
     recountFlags: { ...recountFlags },
     removedAt:    getRemovedAt(),   // サーバーが品目ごとに合わせるとき、消した品目を生き返らせない
+    notes:        { ...itemNotes },
     sessionId:    pendingSession.value?.id ?? null,
     savedAt:      Date.now(),
   }
@@ -1911,6 +1920,7 @@ async function _restoreInventoryFromD1() {
   // 手元に入力があるときは品目ごとに新しい方を採り、手元の品目は消さない。
   // 以前は「D1 の保存時刻が手元の最終入力より新しければ丸ごと置換」で、同じ店にログインした
   // 別の端末（在庫が空のまま棚卸画面を開いた等）が保存した空の在庫で、ホストの入力が全部消えた（2026-10-30 実機）
+  mergeNotes(remote.notes)
   if (Object.keys(inventory).length === 0) {
     applyPersistedInventory(remote.inventory, remote.recountFlags)
     return
@@ -2035,6 +2045,8 @@ function _buildCompletionRequest() {
   const snapshot = type === 'order' ? null
     : buildSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, sessionId, activeTimer.elapsedMs(), config.lotSizes, config.prevMonths, config.tagsA, config.tagsB, config.axisNames,
         { categoryOrder: categoryOrderOf(config), axisGroupsA: config.axisGroupsA, axisGroupsB: config.axisGroupsB })
+  // 品目の備考は明細の行に添えて残す（履歴で見返せるように）
+  if (snapshot?.items) snapshot.items = snapshot.items.map(it => itemNotes[it.item]?.text ? { ...it, note: itemNotes[it.item].text } : it)
 
   const request = buildCompletionRequest({
     sessionType: type,
@@ -2776,7 +2788,6 @@ function openConfirm(ingredient, qty, unit, source = 'search', opts = {}) {
     orderMode:      isOrder,
     orderLot:       isOrder ? effectiveLot(config.lotSizes?.[ingredient]) : 1,
     initialOrderQty: isOrder ? (draft?.orderQty ?? null) : null,
-    theoStock:      isOrder ? _theoStockFor(ingredient) : null,
     replenish:      isOrder ? _replenishFor(ingredient) : null,
   }
   if (syncActive.value) {
@@ -3875,6 +3886,7 @@ function dismissReview() {
         :order-none="sessionMode === 'order' ? orderNone : null"
         :order-mode="sessionMode === 'order'"
         :carried-stock="sessionMode === 'order' ? carriedStock?.items ?? null : null"
+        :item-notes="itemNotes"
         :can-manage-list="(!syncActive || syncIsHost) && can('item.edit')"
         :can-request-hide="syncActive && !syncIsHost"
         @update="onTableUpdate"
@@ -3909,7 +3921,8 @@ function dismissReview() {
         :orders="getOrders()"
         :today="_todayStr()"
         :target="confirmState.replenish"
-        :theo-stock="confirmState.theoStock"
+        :note="itemNotes[confirmState.ingredient]?.text ?? ''"
+        @note="t => onItemNote(confirmState.ingredient, t)"
         :existing-stock="inventory[confirmState.ingredient]?.qty ?? null"
         :carried-stock="carriedStock?.items?.[confirmState.ingredient] ? { ...carriedStock.items[confirmState.ingredient], date: carriedStock.date } : null"
         :initial-order-qty="confirmState.initialOrderQty"
@@ -3941,6 +3954,8 @@ function dismissReview() {
         :existing-tags-a="existingTagsA"
         :existing-tags-b="existingTagsB"
         :existing="confirmExisting"
+        :note="itemNotes[confirmState.ingredient]?.text ?? ''"
+        @note="t => onItemNote(confirmState.ingredient, t)"
         :prev-month="config.prevMonths?.[confirmState.ingredient] ?? ''"
         :lot-size="confirmState.lotSize"
         :audit-log="auditLog"

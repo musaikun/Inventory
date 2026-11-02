@@ -76,3 +76,19 @@ describe('履歴の ID', () => {
     expect(b._sent[0].actorId).toBe('dev-b')
   })
 })
+
+describe('品目の備考（ルーム）', () => {
+  it('書いた備考をほかの端末へ配り、あとから入った人にも joined で渡す', async () => {
+    const { join, room } = setup()
+    const a = await join('dev-a', '田中')
+    const b = await join('dev-b', '鈴木')
+    await room._handleMessage(a, { type: 'note', ingredient: 'トマト', text: ' 期限近い ' })
+    const got = b._sent.find(m => m.type === 'note')
+    expect(got).toMatchObject({ ingredient: 'トマト', text: '期限近い', by: '田中' })
+    const c = await join('dev-c', '佐藤')
+    expect(c._sent[0].notes.トマト.text).toBe('期限近い')
+    await room._handleMessage(a, { type: 'note', ingredient: 'トマト', text: '' })
+    const d = await join('dev-d', '高橋')
+    expect(d._sent[0].notes.トマト).toBeUndefined()
+  })
+})

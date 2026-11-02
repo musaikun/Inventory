@@ -13,6 +13,20 @@ import { securityEvent } from './securityLog.js'
 const AUDIT_PREFIX = 'audit:'
 // ログインしていないゲストの「名前 → 履歴の ID」（セッションごと。新規セッションで消す）
 const GUEST_ACTORS_KEY = 'guestActors'
+// 品目の備考（棚卸・発注とも、そのセッションの中だけ）の上限
+const MAX_NOTE_LEN = 200
+// 備考の正規化 { [item]: { text, by, at } }。壊れた値・長すぎる値は落とす
+function _normNotes(src, now = Date.now()) {
+  const out = {}
+  if (!src || typeof src !== 'object') return out
+  for (const [k, v] of Object.entries(src)) {
+    if (String(k).length > MAX_INGREDIENT_LEN || typeof v?.text !== 'string') continue
+    const text = v.text.trim().slice(0, MAX_NOTE_LEN)
+    if (!text) continue
+    out[k] = { text, by: String(v.by ?? '').slice(0, MAX_DEVICE_NAME_LEN), at: typeof v.at === 'number' ? v.at : now }
+  }
+  return out
+}
 // 履歴の「誰が」。古い接続（actorId を持たない）は端末 ID
 const actorOf = (att) => att?.actorId || att?.deviceId || ''
 const _auditKey = (i) => `${AUDIT_PREFIX}${String(i).padStart(6, '0')}`
@@ -425,7 +439,7 @@ export class RoomDO {
         const recordId = await this._recordIdFor({ deviceId, deviceName, actorId })
         ws.serializeAttachment({ joined: true, deviceId, deviceName, actorId: recordId, isHost: isVerifiedHost, ...(noMoney ? { noMoney: true } : {}) })
 
-        const [inventory, orders, recountFlags, config, messages, auditLog, isActive, sessionId] = await Promise.all([
+        const [inventory, orders, recountFlags, config, messages, auditLog, isActive, sessionId, notes] = await Promise.all([
           this.state.storage.get('inventory').then(v => v ?? {}),
           this.state.storage.get('orders').then(v => v ?? {}),
           this.state.storage.get('recountFlags').then(v => v ?? {}),
@@ -434,11 +448,12 @@ export class RoomDO {
           this._readAudit(),
           this.state.storage.get('isActive').then(v => v ?? false),
           this.state.storage.get('sessionId').then(v => v ?? ''),
+          this.state.storage.get('notes').then(v => v ?? {}),
         ])
         const participants = this._getParticipants()
 
         const joinedMsg = {
-          type: 'joined', inventory, orders, recountFlags, config, participants, messages, auditLog,
+          type: 'joined', inventory, orders, recountFlags, notes, config, participants, messages, auditLog,
           isSessionActive: isActive, sessionId, actorId: recordId,
           ...(newHostToken ? { hostToken: newHostToken } : {}),
         }
@@ -610,6 +625,22 @@ export class RoomDO {
         break
       }
 
+      // 品目の備考。空文字は消す。ほかの端末へ同じ形で配る
+      case 'note': {
+        const ingredient = String(msg.ingredient ?? '')
+        if (!ingredient || ingredient.length > MAX_INGREDIENT_LEN) return
+        const att  = ws.deserializeAttachment() ?? {}
+        const text = String(msg.text ?? '').trim().slice(0, MAX_NOTE_LEN)
+        const at   = Date.now()
+        const by   = String(att.deviceName ?? '').slice(0, MAX_DEVICE_NAME_LEN)
+        const notes = (await this.state.storage.get('notes')) ?? {}
+        if (text) notes[ingredient] = { text, by, at }
+        else      delete notes[ingredient]
+        await this.state.storage.put('notes', notes)
+        this._broadcast({ type: 'note', ingredient, text, by, at, fromDeviceId: att.deviceId ?? '' }, ws)
+        break
+      }
+
       case 'recount_flag': {
         const ingredient = String(msg.ingredient ?? '')
         if (!ingredient || ingredient.length > MAX_INGREDIENT_LEN) return
@@ -775,6 +806,7 @@ export class RoomDO {
         let broadcastOrders = {}
         let broadcastFlags  = {}
         let broadcastCfg    = null
+        let broadcastNotes  = {}
 
         if (!isResume) {
           // 新規セッション: 全員の完了フラグをリセット
@@ -799,6 +831,8 @@ export class RoomDO {
           puts.push(this.state.storage.put('inventory', broadcastInv))
           puts.push(this._clearAudit())
           puts.push(this.state.storage.delete(GUEST_ACTORS_KEY))
+          broadcastNotes = _normNotes(msg.notes)
+          puts.push(this.state.storage.put('notes', broadcastNotes))
 
           // 発注数（発注ルームのみ送られてくる。棚卸は undefined → 空のまま）
           if (msg.orders && typeof msg.orders === 'object') {
@@ -838,11 +872,12 @@ export class RoomDO {
           }
         } else {
           // 再開セッション: 既存の在庫・発注数・フラグ・品目リストをブロードキャスト用に読み込む
-          ;[broadcastInv, broadcastOrders, broadcastFlags, broadcastCfg] = await Promise.all([
+          ;[broadcastInv, broadcastOrders, broadcastFlags, broadcastCfg, broadcastNotes] = await Promise.all([
             this.state.storage.get('inventory').then(v => v ?? {}),
             this.state.storage.get('orders').then(v => v ?? {}),
             this.state.storage.get('recountFlags').then(v => v ?? {}),
             this.state.storage.get('config').then(v => v ?? null),
+            this.state.storage.get('notes').then(v => v ?? {}),
           ])
         }
 
@@ -855,6 +890,7 @@ export class RoomDO {
           inventory:    broadcastInv,
           orders:       broadcastOrders,
           recountFlags: broadcastFlags,
+          notes:        broadcastNotes,
           ...(broadcastCfg ? { config: broadcastCfg } : {}),
         })
         break

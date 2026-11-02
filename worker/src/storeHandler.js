@@ -166,10 +166,18 @@ export function mergeInventoryPayload(prev, next) {
   for (const [k, at] of Object.entries(removedAt)) {
     if (inventory[k] && (inventory[k].updatedAt ?? 0) < at) delete inventory[k]
   }
+  // 品目の備考も品目ごとに新しい方（空にした備考は at つきの空文字で届く）
+  const notes = { ...(prev.notes ?? {}) }
+  for (const [k, v] of Object.entries(next.notes ?? {})) {
+    if (!v || typeof v.text !== 'string') continue
+    if (notes[k] && (notes[k].at ?? 0) > (v.at ?? 0)) continue
+    notes[k] = v
+  }
   return {
     ...next,
     inventory,
     removedAt,
+    notes,
     savedAt: Math.max(prev.savedAt ?? 0, next.savedAt ?? 0),
   }
 }
