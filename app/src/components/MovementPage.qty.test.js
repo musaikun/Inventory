@@ -110,7 +110,7 @@ describe('MovementPage — 棚卸・発注と同じ一覧', () => {
     expect(host.querySelector('.seg-add')).toBeNull()
   })
 
-  it('理論在庫と記録後の値を行のヒントに出す（出庫で在庫を割り込むのに気づける）', async () => {
+  it('理論在庫（記録後の値）は行のヒントに出さない（User決定 2026-11-02）', async () => {
     const { STORAGE_KEYS } = await import('../utils/storageKeys.js')
     localStorage.setItem(STORAGE_KEYS.history, JSON.stringify({
       s1: {
@@ -120,13 +120,9 @@ describe('MovementPage — 棚卸・発注と同じ一覧', () => {
     }))
     await mountPage()
     await openTab('📤 出庫')
-
-    expect(rowOf('トマト').querySelector('.note-hint').textContent).toContain('理論: 10個')
-
     await click(rowOf('トマト'))
     await click(button('3'))
     await click(button('この数量にする'))
-    // 出庫は減算で見せる
-    expect(rowOf('トマト').querySelector('.note-hint').textContent).toContain('→ 7個')
+    expect(rowOf('トマト').textContent).not.toContain('理論')
   })
 })

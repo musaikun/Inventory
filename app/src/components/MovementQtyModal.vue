@@ -20,7 +20,6 @@ const props = defineProps({
   qty:  { type: Number, default: 0 },           // 現在の入力値（バラ）
   unit: { type: String, default: '' },
   lot:  { type: Number, default: null },        // 入数（1超のときだけ「＋箱」を出す）
-  theo: { type: Number, default: null },        // 記録前の理論在庫
 })
 const emit = defineEmits(['confirm', 'cancel'])
 useEscapeKey(() => emit('cancel'))
@@ -45,11 +44,6 @@ function add(n) {
   buf.value = next > 0 ? String(next) : ''
 }
 
-// 記録後の理論在庫。入庫は増え、出庫は減る（画面の意味を打ちながら確認できる）。
-const after = computed(() => {
-  if (props.theo == null || value.value === 0) return null
-  return Math.round((props.theo + (isOut.value ? -value.value : value.value)) * 1000) / 1000
-})
 
 // 入数がある品目は「◯ケース＋端数」を添える（＋箱の押し過ぎに気づける）。
 const cases = computed(() => {
@@ -71,10 +65,9 @@ const cases = computed(() => {
         <span class="mq-item">{{ item }}</span>
       </div>
 
-      <div class="mq-theo">
-        理論 {{ theo != null ? theo : '—' }}{{ unit }}
-        <template v-if="after != null"> → <b :class="isOut ? 'down' : 'up'">{{ after }}{{ unit }}</b></template>
-        <span v-if="hasLot" class="mq-lot">入数{{ lot }}</span>
+      <!-- 理論在庫（記録前 → 記録後）は出さない。使った分が入らず当てにならない（User決定 2026-11-02） -->
+      <div v-if="hasLot" class="mq-theo">
+        <span class="mq-lot">入数{{ lot }}</span>
       </div>
 
       <div class="mq-value" :class="{ on: value > 0 }">

@@ -70,15 +70,10 @@ describe('MovementQtyModal', () => {
     expect([...host.querySelectorAll('button')].some(b => b.textContent.includes('＋箱'))).toBe(false)
   })
 
-  it('記録後の理論在庫を、入庫は加算・出庫は減算で見せる', async () => {
-    await mount({ theo: 10 })
+  it('理論在庫（記録前 → 記録後）は出さない（User決定 2026-11-02）', async () => {
+    await mount()
     await press('3')
-    expect(host.querySelector('.mq-theo').textContent).toContain('13')
-
-    app.unmount(); host.remove()
-    await mount({ theo: 10, mode: 'out' })
-    await press('3')
-    expect(host.querySelector('.mq-theo').textContent).toContain('7')
+    expect(host.textContent).not.toContain('理論')
   })
 
   it('0のまま確定すると入力の取り消しになる', async () => {

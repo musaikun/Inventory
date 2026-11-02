@@ -530,7 +530,7 @@ function onDownloadTemplate() {
             <div class="col-row"><span>8</span><span>前月実績</span><span>入力画面にヒント表示（省略可）</span></div>
             <div class="col-row"><span>9</span><span>入数</span><span>仕入れ単位をヒント表示・入力ミス防止（省略可）</span></div>
             <div class="col-row"><span>10・11</span><span>並び替え①②</span><span>分類先。複数は | 区切り（省略可）</span></div>
-            <div class="col-row"><span>12</span><span>発注点</span><span>この理論在庫以下で「要補充」（省略可）</span></div>
+            <div class="col-row"><span>12</span><span>発注点</span><span>直近の棚卸の数がこれ以下で「要補充」（省略可）</span></div>
           </div>
 
           <p class="format-note">

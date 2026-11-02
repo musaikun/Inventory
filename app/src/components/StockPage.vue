@@ -6,7 +6,7 @@
  * データ管理の奥（設定済み品目一覧・確認専用）と、棚卸の画面の中にしか無く、1品目を
  * 足すにも棚卸を始める必要があった（User相談 2026-09-29・参考画面で合意）。
  *
- * - 一覧は棚卸・発注と同じ InventoryTable。数字は「今の見込み」＝直近の棚卸＋入庫−出庫
+ * - 一覧は棚卸・発注と同じ InventoryTable。数字は直近の棚卸で数えた数（入出庫は足し引きしない・2026-11-02）
  *   （仕入れの在庫タブと同じ計算＝composables/useStockView）。何を元にした数かを添える
  * - ここでは在庫数を書き換えない。数を変えるのは棚卸（実測）か入出庫の記録だけ
  *   （一覧で書き換えられると、見込みの根拠も発注の推奨も崩れる）
@@ -41,7 +41,7 @@ const emit = defineEmits(['back', 'openMaster', 'startSession'])
 const { config, hideItem } = useConfig()
 const { getSnapshots } = useHistory()
 const {
-  allItems, needsReorder, reorderCount, reorderSetCount, theoOf, unitOf, basisLabel, baseShort, _snaps, _moves,
+  allItems, needsReorder, reorderCount, reorderSetCount, countedOf, remainForDatesOf, unitOf, basisLabel, baseShort, _snaps, _moves,
 } = useStockView()
 const { saveMovement, getAllMovements, voidMovement, restoreMovement, markMovementSynced } = useMovements()
 // 品目シートの明細は、取り消した記録も「取り消し済み」として見せる
@@ -55,7 +55,7 @@ function onVoid(id) { if (!locked.value && !props.stocktakeOpen) _send(voidMovem
 function onRestore(id) { if (!locked.value && !props.stocktakeOpen) _send(restoreMovement(id)) }
 
 // 品目シートの入庫・出庫。両方に入れたら差し引かず、入庫1件・出庫1件として記録する（User決定 2026-10-03）。
-// 記録は入出庫ページと同じ形なので、理論在庫・履歴カレンダーにもそのまま反映される。
+// 記録は入出庫ページと同じ形なので、履歴カレンダーにもそのまま反映される。
 // 入庫には日付（期限・買った日）を行に持たせる（User決定 2026-10-27）
 function onRegister(item, { in: inQ = 0, out: outQ = 0, lotDate = '', lotKind = '' } = {}) {
   if (locked.value || props.stocktakeOpen) return
@@ -79,7 +79,7 @@ const filter = ref('')   // '' | 'low' | 'exp' | 'check' | 'hidden'
 const expiryMap = computed(() => {
   const out = new Map()
   for (const item of allItems.value) {
-    const e = expiryOf(stockDatesOf(item, _moves.value, theoOf(item)))
+    const e = expiryOf(stockDatesOf(item, _moves.value, remainForDatesOf(item)))
     if (e && e.level !== 'ok') out.set(item, e)
   }
   return out
@@ -190,7 +190,7 @@ onUnmounted(registerInnerLayerCloser(() => {
 
     <div v-else class="sp-body">
       <input v-model="search" type="text" class="sp-search" placeholder="品目名で絞り込み" />
-      <DismissibleHint id="stock-basis" tag="p" class="sp-hint">数字は<b>今の見込み</b>（直近の棚卸＋入庫−出庫）。正確な数は棚卸で確定します。</DismissibleHint>
+      <DismissibleHint id="stock-basis" tag="p" class="sp-hint">数字は<b>直近の棚卸で数えた数</b>です。入庫・出庫や使った分は足し引きしていません。</DismissibleHint>
 
       <div class="sp-chips" role="group" aria-label="絞り込み">
         <button
@@ -205,7 +205,7 @@ onUnmounted(registerInnerLayerCloser(() => {
       </template>
       <template v-else>
       <DismissibleHint v-if="activeFilter === 'low'" id="stock-low" tag="p" class="sp-hint">
-        発注点を設定した {{ reorderSetCount }}品目のうち、見込みが発注点以下の品目です。
+        発注点を設定した {{ reorderSetCount }}品目のうち、直近の棚卸の数が発注点以下の品目です。
       </DismissibleHint>
       <DismissibleHint v-if="activeFilter === 'exp'" id="stock-exp" tag="p" class="sp-hint">
         入庫のときに入れた期限が3日以内・切れた品目です。残りは古い入庫から使ったとみなして出しています。
@@ -229,10 +229,10 @@ onUnmounted(registerInnerLayerCloser(() => {
           <div v-if="activeFilter === 'check'" class="sp-cell chk">
             <span class="sp-cell-why">{{ checkLabel(row.item) }}</span>
           </div>
-          <div v-else :class="['sp-cell', { low: needsReorder(row.item), none: theoOf(row.item) == null, [`exp-${expiryMap.get(row.item)?.level}`]: expiryMap.has(row.item) }]">
+          <div v-else :class="['sp-cell', { low: needsReorder(row.item), none: countedOf(row.item) == null, [`exp-${expiryMap.get(row.item)?.level}`]: expiryMap.has(row.item) }]">
             <span class="sp-cell-basis">{{ expiryMap.has(row.item) ? expiryText(row.item) : needsReorder(row.item) ? `要補充 ・ 発注点 ${config.reorderPoints?.[row.item]}` : (baseShort(row.item) || '棚卸なし') }}</span>
             <span class="sp-cell-val">
-              <template v-if="theoOf(row.item) != null">{{ theoOf(row.item) }}<span class="qty-unit">{{ unitOf(row.item) }}</span></template>
+              <template v-if="countedOf(row.item) != null">{{ countedOf(row.item) }}<span class="qty-unit">{{ unitOf(row.item) }}</span></template>
               <template v-else>—</template>
             </span>
           </div>
@@ -248,7 +248,7 @@ onUnmounted(registerInnerLayerCloser(() => {
       v-if="detailTarget && !form"
       :item="detailTarget"
       :unit="unitOf(detailTarget)"
-      :theo="theoOf(detailTarget)"
+      :counted="countedOf(detailTarget)"
       :basis="basisLabel(detailTarget)"
       :lot="config.lotSizes?.[detailTarget] ?? null"
       :price="config.prices?.[detailTarget] ?? null"
@@ -260,7 +260,7 @@ onUnmounted(registerInnerLayerCloser(() => {
       :editable="!locked"
       :stocktake-open="stocktakeOpen"
       :origin="originOf(detailTarget)"
-      :dates="stockDatesOf(detailTarget, _moves, theoOf(detailTarget))"
+      :dates="stockDatesOf(detailTarget, _moves, remainForDatesOf(detailTarget))"
       :date-kind="lastDateKind(detailTarget, _moves)"
       @register="p => onRegister(detailTarget, p)"
       @void="onVoid"

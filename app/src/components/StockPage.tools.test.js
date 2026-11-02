@@ -53,9 +53,10 @@ describe('要補充', () => {
     expect(chip('要確認')).toBeTruthy()
   })
 
-  it('発注点を入れた品目だけを数え、件数を出す（発注点の無い品目は見込み0でも数えない）', async () => {
-    const { useMovements } = await import('../composables/useMovements.js')
-    useMovements().saveMovement({ type: 'in', lines: [{ item: 'トマト', qty: 2, unit: '個' }] })
+  it('発注点を入れた品目だけを数え、件数を出す（直近の棚卸の数で判定・発注点の無い品目は数えない）', async () => {
+    const { useHistory } = await import('../composables/useHistory.js')
+    useHistory().commitSnapshot({ date: '2026-11-01', savedAt: '2026-11-01T10:00:00.000Z', sessionId: 's-low',
+      items: [{ item: 'トマト', qty: 2, unit: '個' }, { item: '塩', qty: 0, unit: '袋' }] })
     cfg.setReorderPoint('トマト', 3)
     await mountPage()
     expect(chip('要補充').textContent).toContain('1')
@@ -146,11 +147,11 @@ describe('操作の説明', () => {
   it('✕ で消すと、その端末では出さない。各種設定から戻せる', async () => {
     const hints = await import('../composables/useHints.js')
     await mountPage()
-    expect(host.textContent).toContain('今の見込み')
+    expect(host.textContent).toContain('直近の棚卸で数えた数')
     await click(host.querySelector('.sp-hint .dh-x'))
-    expect(host.textContent).not.toContain('今の見込み')
+    expect(host.textContent).not.toContain('直近の棚卸で数えた数')
     hints.restoreHints()
     await tick()
-    expect(host.textContent).toContain('今の見込み')
+    expect(host.textContent).toContain('直近の棚卸で数えた数')
   })
 })

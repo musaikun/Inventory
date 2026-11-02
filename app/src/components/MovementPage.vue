@@ -45,8 +45,8 @@ const search = ref('')
 // 日付・メモ・発注紐付け・入力量は draft（localStorage 保持）に持つ。
 // 未記録のままホームへ戻っても入力が残り、ホームカードに「未記録の入力あり」を出せる。
 
-// 理論在庫・発注基準・要補充の判定は「品目・在庫」ページと共通（composables/useStockView）
-const { allItems, _moves, theoOf, unitOf, lotOf } = useStockView()
+// 品目・単位・入数は「品目・在庫」ページと共通（composables/useStockView）
+const { allItems, _moves, unitOf, lotOf } = useStockView()
 function _md(d) {
   const [, mo, dd] = String(d || '').split('-').map(Number)
   return mo && dd ? `${mo}/${dd}` : ''
@@ -73,18 +73,6 @@ const draftInventory = computed(() => {
   return inv
 })
 
-// 行のヒント欄に出す理論在庫（記録後の値も添える）。出庫で在庫を割り込む入力に気づけるようにする。
-const theoNoteMap = computed(() => {
-  const map = {}
-  for (const item of allItems.value) {
-    const t = theoOf(item)
-    if (t == null) continue
-    const q = _q(item)
-    map[item] = q > 0 ? `理論: ${t}${unitOf(item)} → ${afterQty(item)}${unitOf(item)}` : `理論: ${t}${unitOf(item)}`
-  }
-  return map
-})
-
 // 数量入力は棚卸・発注と同じ NumPad シートで行う（打鍵感をそろえ、OSキーボードを出さない）。
 // 行内の −/＋/＋箱 は連打用に残す。数量チップをタップするとここが開く。
 const qtyTarget = ref(null)   // null | 品目名
@@ -95,13 +83,6 @@ function onQtyConfirm(v) {
   if (qtyTarget.value) _set(qtyTarget.value, Number(v) || 0)
   closeQty()
 }
-// 記録後の理論在庫プレビュー
-function afterQty(item) {
-  const t = theoOf(item)
-  if (t == null) return null
-  return Math.round((t + (mode.value === 'out' ? -_q(item) : _q(item))) * 1000) / 1000
-}
-
 // ── 記録対象の行 ─────────────────────────────
 const changed = computed(() => allItems.value.filter(n => _q(n) > 0))
 const recordLines = computed(() => changed.value.map(n => ({ item: n, qty: _q(n), unit: unitOf(n) })))
@@ -224,7 +205,6 @@ function onSave() {
       <InventoryTable
         :inventory="draftInventory"
         :filled-count="changed.length"
-        :note-map="theoNoteMap"
         :search-term="search"
         :can-manage-list="false"
         hide-amount
@@ -253,7 +233,6 @@ function onSave() {
       :qty="_q(qtyTarget)"
       :unit="unitOf(qtyTarget)"
       :lot="lotOf(qtyTarget)"
-      :theo="theoOf(qtyTarget)"
       @confirm="onQtyConfirm"
       @cancel="closeQty"
     />

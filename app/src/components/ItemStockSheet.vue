@@ -3,9 +3,9 @@
  * ホームの品目シート（User決定 2026-10-03・モックで確認）。
  *
  * 一覧の行をタップして開く。ここで入庫・出庫をその場で登録できる。
- * - 今の見込み（論理在庫）＝直近の棚卸＋入庫−出庫
+ * - 直近の棚卸で数えた数（入出庫は足し引きしない・2026-11-02）
  * - 入庫欄と出庫欄は別々。両方に入れたら差し引かず、入庫1件・出庫1件として記録する
- * - 登録ボタンは数を入れたときだけ出し、登録後の見込みも添える
+ * - 登録ボタンは数を入れたときだけ出す
  * - 品目の情報（写真・単位・入数・ジャンル・単価・商品コード）と「直す」
  * - この品目だけの月カレンダー（入庫 +n／出庫 −n の2段・棚卸した日は「棚n」）と、日の明細
  * - 棚卸の最中は入出庫を止める（数え直しの最中に見込みを動かさない）
@@ -25,7 +25,7 @@ import { expiryOf, expiryLabel } from '../services/stockDates.js'
 const props = defineProps({
   item:      { type: String, required: true },
   unit:      { type: String, default: '' },
-  theo:      { type: Number, default: null },
+  counted:   { type: Number, default: null },   // 直近の棚卸で数えた数
   basis:     { type: String, default: '' },
   lot:       { type: [Number, String], default: null },
   price:     { type: [Number, String], default: null },
@@ -54,16 +54,9 @@ const inN = computed(() => _num(inQty.value))
 const outN = computed(() => _num(outQty.value))
 const canInput = computed(() => props.editable && !props.stocktakeOpen)
 const showRegister = computed(() => canInput.value && (inN.value > 0 || outN.value > 0))
-const after = computed(() => (props.theo ?? 0) + inN.value - outN.value)
 // 数は棚卸と同じテンキー（NumPad）のシートで入れる（User 2026-10-03）。OS キーボードは出さない
 const pad = ref(null)   // null | 'in' | 'out'
 const lotNum = computed(() => { const n = parseFloat(props.lot); return Number.isFinite(n) && n > 1 ? n : null })
-// テンキーの「理論 → 記録後」は、もう片方の欄に入れた数も含めた見込みから出す
-const padTheo = computed(() => {
-  if (props.theo == null && !inN.value && !outN.value) return null
-  const base = props.theo ?? 0
-  return Math.round((pad.value === 'in' ? base - outN.value : base + inN.value) * 1000) / 1000
-})
 function onPad(v) {
   if (pad.value === 'in') inQty.value = v > 0 ? String(v) : ''
   else if (pad.value === 'out') outQty.value = v > 0 ? String(v) : ''
@@ -159,9 +152,9 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
 
       <div class="is-stock">
         <div>
-          <div class="is-lbl">今の見込み（論理在庫）</div>
+          <div class="is-lbl">直近の棚卸</div>
           <div class="is-val">
-            <template v-if="theo != null">{{ fmt(theo) }}<small>{{ unit }}</small></template>
+            <template v-if="counted != null">{{ fmt(counted) }}<small>{{ unit }}</small></template>
             <template v-else>—</template>
           </div>
         </div>
@@ -197,7 +190,7 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
         </div>
         <button v-if="showRegister" class="is-reg" type="button" :disabled="!canRegister" @click="register">
           登録する
-          <small>{{ [inN ? `入庫 +${fmt(inN)}` : '', outN ? `出庫 −${fmt(outN)}` : ''].filter(Boolean).join(' ・ ') }}　→　{{ theo != null ? fmt(theo) : 0 }} → {{ fmt(after) }}{{ unit }}</small>
+          <small>{{ [inN ? `入庫 +${fmt(inN)}${unit}` : '', outN ? `出庫 −${fmt(outN)}${unit}` : ''].filter(Boolean).join(' ・ ') }}</small>
         </button>
       </template>
       <div v-if="done" class="is-done" role="status">登録しました（{{ done }}）。履歴カレンダーにも残ります</div>
@@ -268,7 +261,6 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
       :qty="pad === 'in' ? inN : outN"
       :unit="unit"
       :lot="lotNum"
-      :theo="padTheo"
       @confirm="onPad"
       @cancel="pad = null"
     />
