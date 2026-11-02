@@ -94,10 +94,12 @@ describe('品目リスト（config）の単価', () => {
 })
 
 describe('履歴の金額', () => {
-  it('金額を見られない人には単価・小計・在庫金額を落として渡す', async () => {
+  // 履歴を読めるのは「レポート」か「在庫管理（数える）」の人（2026-11-02）。金額は在庫管理に入るので、
+  // 金額を見られずに履歴を読むのは「レポートだけ」の人
+  it('レポートだけの人には単価・小計・在庫金額を落として渡す', async () => {
     expect((await call(`/store/${code}/history`, 'POST', snap(), owner)).status).toBe(200)
-    const arbeit = await staffToken('山田', 'arbeit')
-    const [h] = await json(await call(`/store/${code}/history`, 'GET', null, arbeit))
+    const reporter = await staffToken('山田', 'arbeit', ['report'])
+    const [h] = await json(await call(`/store/${code}/history`, 'GET', null, reporter))
     expect(h.totalValue).toBeNull()
     expect(h.items.map(i => [i.item, i.qty, i.unitPrice, i.subtotal])).toEqual([['トマト', 3, null, null], ['なす', 2, null, null]])
     expect(h.participants[0].totalValue).toBeNull()
@@ -106,25 +108,33 @@ describe('履歴の金額', () => {
     expect(full.totalValue).toBe(460)
   })
 
-  it('金額を落とした版を送り直されても（ロック）、金額はそのまま残る', async () => {
+  it('タスク管理だけの人は履歴を読めない（403）', async () => {
     await call(`/store/${code}/history`, 'POST', snap(), owner)
     const arbeit = await staffToken('山田', 'arbeit')
-    const [h] = await json(await call(`/store/${code}/history`, 'GET', null, arbeit))
-    expect((await call(`/store/${code}/history`, 'POST', { ...h, locked: true }, arbeit)).status).toBe(200)
-    const s = storedHistory()
-    expect(s.locked).toBe(true)
-    expect(s.totalValue).toBe(460)
-    expect(s.items.map(i => [i.unitPrice, i.subtotal])).toEqual([[100, 300], [80, 160]])
-    expect(s.participants[0].totalValue).toBe(460)
-    expect(s.participants[0].items[0].subtotal).toBe(300)
+    expect((await call(`/store/${code}/history`, 'GET', null, arbeit)).status).toBe(403)
   })
 
-  it('数量の訂正は、サーバーの単価で小計と在庫金額を計算し直す', async () => {
+  it('棚卸を完了できない人の訂正・ロックは403で、保存された履歴は変わらない', async () => {
     await call(`/store/${code}/history`, 'POST', snap(), owner)
-    const arbeit = await staffToken('山田', 'arbeit')
-    const [h] = await json(await call(`/store/${code}/history`, 'GET', null, arbeit))
+    const reporter = await staffToken('山田', 'arbeit', ['report'])
+    const [h] = await json(await call(`/store/${code}/history`, 'GET', null, reporter))
+    expect((await call(`/store/${code}/history`, 'POST', { ...h, locked: true }, reporter)).status).toBe(403)
     const fixed = { ...h, items: h.items.map(i => (i.item === 'トマト' ? { ...i, qty: 5 } : i)) }
-    expect((await call(`/store/${code}/history`, 'POST', fixed, arbeit)).status).toBe(200)
+    expect((await call(`/store/${code}/history`, 'POST', fixed, reporter)).status).toBe(403)
+    const s = storedHistory()
+    expect(s.locked).toBeFalsy()
+    expect(s.items.map(i => [i.item, i.qty, i.unitPrice, i.subtotal])).toEqual([['トマト', 3, 100, 300], ['なす', 2, 80, 160]])
+    expect(s.totalValue).toBe(460)
+  })
+
+  // 金額は在庫管理に入るので、訂正できる人は金額も見えている（小計・在庫金額は端末が計算して送る）
+  it('在庫管理の人は訂正でき、金額つきの版がそのまま保存される', async () => {
+    await call(`/store/${code}/history`, 'POST', snap(), owner)
+    const counter = await staffToken('山田', 'arbeit', ['inventory'])
+    const [h] = await json(await call(`/store/${code}/history`, 'GET', null, counter))
+    expect(h.totalValue).toBe(460)
+    const fixed = { ...h, items: h.items.map(i => (i.item === 'トマト' ? { ...i, qty: 5, subtotal: 500 } : i)), totalValue: 660 }
+    expect((await call(`/store/${code}/history`, 'POST', fixed, counter)).status).toBe(200)
     const s = storedHistory()
     expect(s.items.map(i => [i.item, i.qty, i.unitPrice, i.subtotal])).toEqual([['トマト', 5, 100, 500], ['なす', 2, 80, 160]])
     expect(s.totalValue).toBe(660)

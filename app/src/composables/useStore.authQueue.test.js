@@ -262,3 +262,36 @@ describe('拒否された保存はリロードしても残る', () => {
     expect(reopened.rejectedSaves.value).toHaveLength(0)
   })
 })
+
+describe('403 — 権限が無い保存は、その1件だけを拒否にする', () => {
+  beforeEach(() => { localStorage.clear(); vi.unstubAllGlobals(); vi.useFakeTimers() })
+  afterEach(() => { vi.clearAllTimers(); vi.useRealTimers() })
+
+  it('code=forbidden の403はキューに残さず拒否に入れ、続く保存は送れる', async () => {
+    localStorage.setItem(STORAGE_KEYS.shopCode, 'AAAAAA')
+    localStorage.setItem(STORAGE_KEYS.authToken, 'tok')
+    const store = await freshStore()
+
+    vi.stubGlobal('fetch', async () => ({ ok: false, status: 403, json: async () => ({ code: 'forbidden', error: 'できません' }) }))
+    const r = await store.saveInventoryToD1({ トマト: { qty: 42 } })
+    expect(r).toBe(false)
+    expect(store.pendingCount.value).toBe(0)
+    expect(store.rejectedSaves.value).toHaveLength(1)
+    expect(store.rejectedSaves.value[0].status).toBe(403)
+
+    vi.stubGlobal('fetch', async () => ok())
+    expect(await store.saveConfigToD1({ order: [] })).toBe(true)
+  })
+
+  it('code の無い403（CORSなど）は従来どおりキューに残す', async () => {
+    localStorage.setItem(STORAGE_KEYS.shopCode, 'AAAAAA')
+    localStorage.setItem(STORAGE_KEYS.authToken, 'tok')
+    const store = await freshStore()
+
+    vi.stubGlobal('fetch', httpError(403))
+    await store.saveInventoryToD1({ トマト: { qty: 42 } })
+    expect(store.pendingCount.value).toBe(1)
+    expect(store.rejectedSaves.value).toHaveLength(0)
+  })
+})
+

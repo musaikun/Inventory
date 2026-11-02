@@ -123,6 +123,13 @@ async function _requirePerm(db, request, code, perms, origin, allowedOrigin) {
  * 記録に刻む「誰が」（段 2-2）。スタッフはトークンの本人（画面から偽れない）、
  * オーナーと暗証番号なしの古い店は、画面が送る端末名・端末 ID のまま。
  */
+/** perms のどれか1つがあれば通す（_requirePerm は全部を要求する） */
+async function _requireAnyPerm(db, request, code, perms, origin, allowedOrigin) {
+  const ctx = await authContext(db, request)
+  if (ctx && ctx.shopCode === code && perms.some(p => ctxCan(ctx, p))) return null
+  return _requirePerm(db, request, code, perms[0], origin, allowedOrigin)
+}
+
 async function _actor(db, request, code, body) {
   const ctx = await authContext(db, request)
   if (ctx?.staffId && ctx.shopCode === code) return { name: ctx.name, id: ctx.staffId, staff: true, admin: ctx.isAdmin, ctx }
@@ -395,15 +402,24 @@ export default {
           return jsonResponse(await handleInventoryGet(env.DB, code) ?? {}, 200, origin, allowedOrigin)
         }
         if (subpath === '/inventory' && request.method === 'PUT') {
+          // 進行中の数を書くのは数えられる人だけ（User決定 2026-11-02）
+          const deny = await _requirePerm(env.DB, request, code, 'count', origin, allowedOrigin)
+          if (deny) return deny
           return resultResponse(await handleInventoryPut(env.DB, code, await request.json()), origin, allowedOrigin)
         }
         // GET/POST /store/:code/history
         if (subpath === '/history' && request.method === 'GET') {
+          // 過去の棚卸は「レポート」の人と、在庫ページ・日誌で直近の数を使う「数える」人だけ（User決定 2026-11-02）
+          const deny = await _requireAnyPerm(env.DB, request, code, ['report', 'count'], origin, allowedOrigin)
+          if (deny) return deny
           const list = await handleHistoryGet(env.DB, code)
           const money = await _canSeeMoney(env.DB, request, code)
           return jsonResponse(money ? list : list.map(stripSnapshotMoney), 200, origin, allowedOrigin)
         }
         if (subpath === '/history' && request.method === 'POST') {
+          // 完了済みの棚卸を訂正・ロックするのは、棚卸を完了できる人だけ（User決定 2026-11-02）
+          const deny = await _requirePerm(env.DB, request, code, 'stock.finish', origin, allowedOrigin)
+          if (deny) return deny
           let body = await request.json()
           // 金額を見られない人の端末は金額を落とした版を持っている（訂正・ロックで丸ごと送り直してくる）。
           // そのまま書くと在庫金額が消えるので、サーバーにある版から金額を戻す
@@ -431,6 +447,9 @@ export default {
           return jsonResponse(await handleOrdersGet(env.DB, code, url.searchParams.get('sinceDays')), 200, origin, allowedOrigin)
         }
         if (subpath === '/orders' && request.method === 'POST') {
+          // 発注数の入力中から保存するので「発注数を入れる」（User決定 2026-11-02）
+          const deny = await _requirePerm(env.DB, request, code, 'order.draft', origin, allowedOrigin)
+          if (deny) return deny
           return resultResponse(await handleOrderCreate(env.DB, code, await request.json()), origin, allowedOrigin)
         }
         // DELETE /store/:code/orders/:id
@@ -446,6 +465,9 @@ export default {
           return jsonResponse(await handleMovementsGet(env.DB, code, url.searchParams.get('sinceDays')), 200, origin, allowedOrigin)
         }
         if (subpath === '/movements' && request.method === 'POST') {
+          // 入出庫を入れられる人。納品の取り込み（品目の取り込みの権限）からも入る（User決定 2026-11-02）
+          const deny = await _requireAnyPerm(env.DB, request, code, ['move', 'item.admin'], origin, allowedOrigin)
+          if (deny) return deny
           const body = await request.json()
           const who = await _actor(env.DB, request, code, body)
           if (who.staff) { body.by = who.name; body.byId = who.id }

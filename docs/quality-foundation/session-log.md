@@ -5,6 +5,15 @@
 このfileには**当月分だけ**を置き、月が変わったら前月分を`archive/session-log-YYYY-MM.md`へ移して
 末尾の索引に足します（D-029）。agentは毎回、先頭から数件だけ読みます。
 
+## 2026-11-02 — version 0.189.0 / 店舗データの経路にスタッフ権限（D-032）
+
+User: DOC-004の照合結果の修正案でOK。
+- worker: `GET /history`=report|count、`POST /history`=stock.finish、`PUT /inventory`=count、`POST /orders`=order.draft、`POST /movements`=move|item.admin。
+  提案から変えた点: history GETにcountも許す（在庫ページ・日誌が直近の棚卸を使うため）、ordersはorder.draft（入力中から保存）、movementsにitem.admin（納品の取り込み）。
+- app: 保存キューが403を認証切れ扱いでキュー全体を止めていた → `forbidden`系の403はその1件だけ拒否に。
+- 検証: worker 754 pass（`staffRoutePerms.test.js`新規・修正前に2件失敗を確認、`staffMoney.test.js`の3件を新仕様へ）、app 2196 pass・build OK。実機・本番Workerは未反映。
+- version: 0.188.0 → **0.189.0**。
+
 ## 2026-11-02 — version 0.188.0 / アカウント削除はオーナーだけ（D-031）・スタッフ権限の照合（DOC-004）
 
 User: 削除はオーナーのみ。soft auth経路のスタッフ権限も照合する。

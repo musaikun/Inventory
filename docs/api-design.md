@@ -88,7 +88,10 @@ PINのない古い店舗（tokenなし）はオーナーと同じに扱う。
 | `PUT /store/:code/store-name` | 店名 | オーナー・管理者 |
 
 既存の経路にも権限がかかる: `POST /sessions`は`stock.start` / `order.start`、`POST/DELETE /images`は`item.edit`、
-`POST /sessions/purge-unfinished`は`item.purge`（全品目の削除と一緒に呼ぶ）。
+`POST /sessions/purge-unfinished`は`item.purge`（全品目の削除と一緒に呼ぶ）、`DELETE /history|orders|movements/:id`は`stock.discard`。
+2026-11-02（D-032）から、`GET /history`は`report`か`count`、`POST /history`は`stock.finish`、`PUT /inventory`は`count`、
+`POST /orders`は`order.draft`、`POST /movements`は`move`か`item.admin`。権限が無ければ403 `forbidden`（`missing`に不足の権限）。
+金額（単価・小計・在庫金額）は`money`の無い人への`GET /config`・`GET /history`・`GET /sessions/:id/lines`で落とす。
 
 ### 日誌・申し送り・通知（migration 0020・0021・0026〜0033）
 
@@ -144,7 +147,7 @@ production D1の適用状態は固定値として断定せず、release前のrea
 | [SEC-005](quality-foundation/tasks/SEC-005.md) | `/auth/register`のbot対策方針（IPレート制限とlegacy `/store/create`廃止は2026-10-08実装済み） |
 | [DATA-001 / DATA-002 / IMPORT-001](quality-foundation/task-list.md#完了) | 原子性、sessionId履歴、取込契約の実装レビューは完了。release candidateの実D1・別browser・主経路確認は`WEB-07`に残る |
 | [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番migrationのpreflightと0034までの適用、E2E/smoke |
-| [DOC-004](quality-foundation/tasks/DOC-004.md) | 既存の表（Store data）が0018時点の記述のまま。`/config`・`/inventory`・`/history`・`/orders`・`/movements`はsoft auth（店舗の認証）だけで、スタッフの権限・金額の秘匿がどこで効くか（`configGuard.js`・`moneyGuard.js`）を照合していない |
+| [DOC-004](quality-foundation/tasks/DOC-004.md) | 既存の表（Store data）が0018時点の記述のまま（スタッフ権限はD-032で上の節に記載） |
 
 ### 将来A1（現行APIではない）
 

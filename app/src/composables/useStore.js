@@ -145,8 +145,12 @@ function _lane(key, task) {
  *  'permanent' … サーバーが内容を拒否した。何度送っても直らないので捨てて提示する
  *  'retry'     … 通信断・5xx・429。時間を置いて再送する
  */
+const _FORBIDDEN_CODES = new Set(['forbidden', 'task_forbidden', 'checklist_forbidden'])
 function _classify(err) {
   const s = err?.status
+  // 権限が無い（スタッフの役割で断られた）403 は、送り直しても通らない。その1件だけを拒否にする。
+  // 'auth' にするとキュー全体が止まり、やることなど権限のある保存まで届かなくなる（2026-11-02）
+  if (s === 403 && _FORBIDDEN_CODES.has(err?.code)) return 'permanent'
   if (s === 401 || s === 403) return 'auth'
   if (s === 429) return 'retry'
   if (typeof s === 'number' && s >= 500) return 'retry'

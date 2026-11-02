@@ -460,3 +460,16 @@
 - 理由: スタッフ機能（migration 0022）の追加後も削除処理がtokenの役割を見ておらず、店舗PINを知るスタッフが店ごと消せた。
 - 適用: `worker/src/accountDeletion.js`、`app/src/components/SettingsModal.vue`、`app/src/utils/accountDeletionFlow.js`、
   [account deletion contract](account-deletion-contract.md)
+
+## D-032 — 店舗データの経路にもスタッフの権限をかける
+
+- 日付: 2026-11-02
+- 状態: 採用
+- 決定者: User（Claude Code の照合結果と修正案を承認）
+- 判断: `GET /history`=`report`か`count`、`POST /history`（訂正・ロック）=`stock.finish`、`PUT /inventory`=`count`、
+  `POST /orders`=`order.draft`、`POST /movements`=`move`か`item.admin`。`PUT /room`は変えない。
+  Appの保存キューは、権限による403（`code: forbidden`系）をその1件の拒否として扱い、キュー全体を止めない。
+- 理由: 入口の店舗認証だけで、権限をオフにしたスタッフでもAPIを直接呼べば過去の棚卸の読み書き、発注・入出庫・進行中の数の書き込みができた。
+- 提案からの変更: `GET /history`を`report`だけにすると既定のスタッフの在庫ページ・日誌が空になるため`count`も許す。
+  `POST /orders`は入力中から保存するため`order.finish`でなく`order.draft`。`POST /movements`は納品の取り込みのため`item.admin`も許す。
+- 適用: `worker/src/index.js`、`app/src/composables/useStore.js`、[`tasks/DOC-004.md`](tasks/DOC-004.md)
