@@ -179,16 +179,18 @@ function handleRevert() {
 const hasDuplicate = computed(() => props.existing !== null)
 
 // 入力済みの数と、いま打った数は分けて扱う（User報告 2026-10-17: 開いただけで「10 を追加」に見えた）。
-// 打つ欄は空から始め、打った数で「上書き」か「足す」かを選ぶ。打つまでは足すを出さない
+// 欄にはいまの数を薄く出し（User 2026-11-02）、打ち始めると打った数に置き換わる。
+// 打ったら、上書き・足すそれぞれの「結果の数」を並べて選ばせる
 const typedQty = computed(() => {
   const q = parseFloat(qty.value)
   return qty.value === '' || isNaN(q) ? null : q
 })
-const addLabel = computed(() => {
-  if (!hasDuplicate.value || typedQty.value === null) return ''
-  const sum = Math.round((props.existing.qty + typedQty.value) * 10000) / 10000
-  return `＋${typedQty.value} 足す（${props.existing.qty} → ${sum}${unit.value}）`
+const addedQty = computed(() => {
+  if (!hasDuplicate.value || typedQty.value === null) return null
+  return Math.round((props.existing.qty + typedQty.value) * 10000) / 10000
 })
+// 入力済みの品目で数を打った＝上書きか足すかを選ぶ段
+const choosing = computed(() => hasDuplicate.value && !props.isEdit && typedQty.value !== null)
 
 // ── 送信 ───────────────────────────────────────────────────────────────────────
 function submit(isAdd) {
@@ -223,7 +225,7 @@ function onPrimary() {
 // 確定の文言。
 const primaryLabel = computed(() => {
   if (props.isNew)       return '新規登録'
-  if (hasDuplicate.value) return typedQty.value === null ? '上書き' : `${typedQty.value}${unit.value} に上書き`
+  if (hasDuplicate.value) return 'このまま'
   return '確定'
 })
 
@@ -363,9 +365,9 @@ function saveEdit() {
 
       <!-- 重複警告 -->
       <div v-if="hasDuplicate && !isEdit" class="dup-warn">
-        入力済み：<b>{{ existing.qty }}{{ existing.unit }}</b>
+        いまの数：<b>{{ existing.qty }}{{ existing.unit }}</b>
         <span v-if="existing.enteredBy" class="dup-entered-by">（{{ existing.enteredBy }}）</span>
-        <small class="dup-hint">打った数で上書きするか、足すかを選べます</small>
+        <small class="dup-hint">数を打つと「上書き」と「足す」の結果が出ます</small>
       </div>
 
       <!-- 変更履歴。開く操作はヒント行のチップが持つ -->
@@ -387,8 +389,10 @@ function saveEdit() {
 
       <!-- 数量表示 + 単位 -->
       <div class="qty-row">
-        <div :class="['qty-display', { error: hasError, filled: qty !== '' }]">
-          {{ qty !== '' ? qty : '—' }}
+        <div :class="['qty-display', { error: hasError, filled: qty !== '', current: qty === '' && hasDuplicate && !isEdit }]">
+          <template v-if="qty !== ''">{{ qty }}</template>
+          <template v-else-if="hasDuplicate && !isEdit">{{ existing.qty }}<small class="qty-current-tag">いまの数</small></template>
+          <template v-else>—</template>
         </div>
         <!-- 単位：インポートでロック済みはバッジ、編集モードや未ロックはドロップダウン -->
         <div v-if="!unitEditable" class="unit-locked-badge">
@@ -478,10 +482,23 @@ function saveEdit() {
       <template v-else>
         <!-- 既に誰かが入れている時の「足す」。確定の仲間なので確定の側へ寄せ、
              キャンセル・後で・確定の3つ並びは崩さない。 -->
-        <button v-if="addLabel" class="btn btn-primary btn-add" @click="submit(true)" type="button">
-          {{ addLabel }}
-        </button>
-        <div class="actions three-col">
+        <div v-if="choosing" class="choose-row">
+          <button class="choose-btn choose-over" @click="submit(false)" type="button">
+            <span class="choose-kind">上書き</span>
+            <span class="choose-result">{{ typedQty }}<small>{{ unit }}</small></span>
+            <span class="choose-sub">{{ existing.qty }} → {{ typedQty }}</span>
+          </button>
+          <button class="choose-btn choose-add" @click="submit(true)" type="button">
+            <span class="choose-kind">足す</span>
+            <span class="choose-result">{{ addedQty }}<small>{{ unit }}</small></span>
+            <span class="choose-sub">{{ existing.qty }} ＋ {{ typedQty }}</span>
+          </button>
+        </div>
+        <div v-if="choosing" class="actions">
+          <button class="btn btn-secondary" @click="$emit('cancel')" type="button">キャンセル</button>
+          <button class="btn btn-later" @click="deferItem" type="button" title="いま数えられない。あとで数える一覧に入れる">後で</button>
+        </div>
+        <div v-else class="actions three-col">
           <button class="btn btn-secondary" @click="$emit('cancel')" type="button">キャンセル</button>
           <button
             class="btn btn-later"
@@ -489,7 +506,7 @@ function saveEdit() {
             type="button"
             title="いま数えられない。あとで数える一覧に入れる"
           >後で</button>
-          <button class="btn btn-success" :disabled="hasDuplicate && typedQty === null" @click="onPrimary" type="button">{{ primaryLabel }}</button>
+          <button class="btn btn-success" @click="onPrimary" type="button">{{ primaryLabel }}</button>
         </div>
       </template>
 
@@ -859,10 +876,24 @@ function saveEdit() {
   border: 1.5px solid #fdba74;
 }
 .btn-later:active { background: #ffedd5; }
-/* 既に入っている時の「足す」。3つ並びの上に置く */
-.btn-add { width: 100%; margin-top: 10px; }
-/* 入力済みで、まだ打っていないときの上書き（押せない）*/
-.actions .btn-success:disabled { opacity: 0.4; cursor: not-allowed; }
+/* 入力済みの品目で数を打ったとき: 上書き・足すの結果を並べて選ぶ */
+.choose-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.choose-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 10px 8px; border-radius: 12px; border: 2px solid; cursor: pointer;
+  font-family: inherit; line-height: 1.2;
+}
+.choose-over { background: #ecfdf5; border-color: #10b981; color: #065f46; }
+.choose-add  { background: #eff6ff; border-color: #3b82f6; color: #1e3a8a; }
+.choose-over:active { background: #d1fae5; }
+.choose-add:active  { background: #dbeafe; }
+.choose-kind   { font-size: 13px; font-weight: 700; }
+.choose-result { font-size: 28px; font-weight: 800; }
+.choose-result small { font-size: 14px; margin-left: 2px; }
+.choose-sub    { font-size: 12px; opacity: 0.8; }
+/* 入力済みの品目を開いた直後: いまの数を薄く出す（打ち始めると置き換わる） */
+.qty-display.current { color: var(--text-muted); flex-direction: column; gap: 0; }
+.qty-current-tag { font-size: 11px; font-weight: 600; letter-spacing: 0; }
 
 .btn-undo-entry {
   display: block;

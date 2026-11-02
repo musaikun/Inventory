@@ -52,7 +52,7 @@ describe('発注：先に打って、何の数かは後で選ぶ', () => {
   it('あとで開き直すと、在庫と参考の数が出る（押すと入る・自動では入れない）→ 発注', async () => {
     await mount({ target: { value: 8, source: 'manual' }, existingStock: 5 })
     expect(host.querySelector('.os-facts').textContent).toContain('在庫 5玉')
-    expect(host.querySelector('.os-disp').textContent.trim()).toBe('数を打つ')
+    expect(host.querySelector('.os-disp').textContent, '打つまではいまの在庫を薄く出す').toContain('いまの在庫')
     expect([...host.querySelectorAll('.os-ref')].map(b => b.textContent)).toEqual(['推奨 3玉目標 8 − 在庫 5', '前回 2玉10/13'])
     await press('推奨 3')
     await press('発注 3玉')

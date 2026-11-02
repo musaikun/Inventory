@@ -52,6 +52,12 @@ const refs = computed(() => orderRefs(props.orders, props.ingredient, props.toda
   // この発注で数えていなければ、持ち込んだ前回の棚卸で推奨を出す
   stock: props.existingStock ?? props.carriedStock?.qty ?? null,
 }))
+// 打つ前に欄へ薄く出す「いまの数」
+const current = computed(() => {
+  if (props.initialOrderQty > 0) return { qty: props.initialOrderQty, unit: lotLabel.value, label: 'いまの発注' }
+  if (props.existingStock != null) return { qty: props.existingStock, unit: props.unit, label: 'いまの在庫' }
+  return null
+})
 const carriedLabel = computed(() => {
   const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(props.carriedStock?.date || '')
   return m ? `${Number(m[1])}/${Number(m[2])}` : ''
@@ -128,7 +134,12 @@ const COACH_STEPS = [
         </div>
       </div>
 
-      <div :class="['os-disp', { empty: typed === '' }]">{{ typed === '' ? '数を打つ' : typed }}</div>
+      <!-- 打つまでは、いまの数（発注数、無ければこの発注で入れた在庫）を薄く出す。打つと置き換わる（User 2026-11-02） -->
+      <div :class="['os-disp', { empty: typed === '' && !current, current: typed === '' && current }]">
+        <template v-if="typed !== ''">{{ typed }}</template>
+        <span v-else-if="current" class="os-current">{{ current.qty }}<small>{{ current.unit }}</small><em>{{ current.label }}</em></span>
+        <template v-else>数を打つ</template>
+      </div>
 
       <!-- 参考の数（押すと入る。自動では入れない）。推奨は在庫が入っていて、補充目標が分かるときだけ -->
       <div v-if="refs.refs.length" class="os-refs">
@@ -202,6 +213,10 @@ const COACH_STEPS = [
 .os-fact.stock { color: #0369a1; border-color: #7dd3fc; }
 .os-disp { border: 2px solid var(--primary, #0e7490); border-radius: 12px; min-height: 60px; display: grid; place-items: center; font-size: 32px; font-weight: 900; color: var(--text, #12303a); font-variant-numeric: tabular-nums; }
 .os-disp.empty { border-color: var(--border, #d6e6ea); color: #94a3b8; font-size: 20px; }
+.os-disp.current { border-color: var(--border, #d6e6ea); color: #94a3b8; }
+.os-current { display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
+.os-current small { font-size: 14px; margin-left: 2px; }
+.os-current em { font-style: normal; font-size: 11px; font-weight: 700; }
 .os-refs { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
 .os-ref { display: grid; justify-items: center; border: 1px solid #a5f3fc; background: #ecfeff; color: var(--primary, #0e7490); border-radius: 12px; padding: 6px 10px; font-size: 13px; font-weight: 800; cursor: pointer; }
 .os-ref small { font-size: 10px; font-weight: 600; color: var(--text-muted, #4c6a72); }
