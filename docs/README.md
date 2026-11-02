@@ -24,6 +24,7 @@ Stripe契約は後続マイルストーンであり、現在のWeb公開判定�
 | 現在の公開可否 | [Web公開準備](quality-foundation/web-release-readiness.md) | Web Free版のrelease gate |
 | タスクの状態・優先度・担当 | [タスクボード](quality-foundation/task-list.md) | **状態の唯一の正本** |
 | 採用・変更・廃止した判断 | [判断記録](quality-foundation/decisions.md) | 過去判断を消さず置換関係を記録 |
+| agentへの指示・読む順番 | [AGENTS.md](../AGENTS.md) | 全agent共通の指示の正本。`CLAUDE.md`は差分だけ（D-029） |
 | 共同作業の入口 | [品質基盤README](quality-foundation/README.md) | 読む順番と再開地点 |
 | 作業規則 | [共同作業ルール](quality-foundation/working-agreement.md) | 競合回避、検証、引き継ぎ |
 | 製品全体の現在地 | [プロジェクト現況](project-status.md) | 現行の短いproduct overview |
@@ -93,7 +94,7 @@ Play専用資料は削除せず、A1着手時に公式要件を再確認して�
 - `docs/quality-foundation/tasks/completed-*.md`
 - `docs/export/**`
 
-`session-log.md`と`proposals.md`は2026-09以降を現行fileに残し、2026-08以前を
+`session-log.md`は当月分だけ（D-029）、`proposals.md`は2026-09以降を現行fileに残し、それ以前を
 `quality-foundation/archive/`の月別snapshotに保存します。`intake-reviews.md`を含め、
 過去entryは改変せず、新しい記録を現行fileの上に追記します。
 

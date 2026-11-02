@@ -12,21 +12,22 @@
 
 ## 作業開始時に読む順番
 
-1. [`../README.md`](../README.md) — docs全体の役割と正本
-2. [`web-release-readiness.md`](web-release-readiness.md) — **現在のWeb release gate**
-3. [`task-list.md`](task-list.md) — **状態の正本**。優先度・状態・担当の進捗ボード
-   （各タスクの根拠・実装・検証証拠・完了条件は [`tasks/`](tasks/) 配下。完了分は
-   [`tasks/completed-2026-07.md`](tasks/completed-2026-07.md)、P2/P3は [`tasks/backlog.md`](tasks/backlog.md)。
-   実使用バグの報告台帳は [`bug-reports.md`](bug-reports.md)）
-4. [`decisions.md`](decisions.md) — 採用・変更・廃止と未決事項
-5. [`working-agreement.md`](working-agreement.md) — 並行作業と引き継ぎのルール
-6. [`session-log.md`](session-log.md) — 2026-09以降の作業と次の再開地点。以前の記録は冒頭の月別archive索引を参照
+読む順番は [`AGENTS.md`](../../AGENTS.md) の「読む順番（段階的に読む）」を正とします（→ D-029）。
+毎回読むのは docs索引・[`task-list.md`](task-list.md)・[`session-log.md`](session-log.md)の先頭数件だけで、
+次は作業に応じて読みます。
+
+- [`web-release-readiness.md`](web-release-readiness.md) — 現在のWeb release gate
+- [`tasks/`](tasks/) — 各タスクの根拠・実装・検証証拠・完了条件。完了分は
+  [`tasks/completed-2026-07.md`](tasks/completed-2026-07.md)、P2/P3は [`tasks/backlog.md`](tasks/backlog.md)。
+  実使用バグの報告台帳は [`bug-reports.md`](bug-reports.md)
+- [`decisions.md`](decisions.md) — 採用・変更・廃止と未決事項（該当D番号だけ）
+- [`working-agreement.md`](working-agreement.md) — 並行作業と引き継ぎのルール
 
 2026-08の3セッション用[`cc-session-plan.md`](cc-session-plan.md)は完了済み作業の履歴です。
-現在の実装指示には使用せず、対象タスクと[`session-log.md`](session-log.md)の証拠を参照します。
+現在の実装指示には使用しません。
 
-`session-log.md`と[`../proposals.md`](../proposals.md)は現行fileの肥大化を避けるため、2026-08以前を
-[`archive/`](archive/)へ月別保存しています。archiveは履歴証拠であり、現在仕様へ書き換えません。
+`session-log.md`は当月分だけ、[`../proposals.md`](../proposals.md)は2026-09以降を現行fileに置き、
+それ以前を[`archive/`](archive/)へ月別保存しています。archiveは履歴証拠であり、現在仕様へ書き換えません。
 
 Google Playへ着手する場合だけ[`google-play-readiness.md`](google-play-readiness.md)、
 [`play-reviewer-guide.md`](play-reviewer-guide.md)、

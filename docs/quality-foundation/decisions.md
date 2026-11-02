@@ -1,6 +1,6 @@
 # 判断記録
 
-最終更新: 2026-09-20
+最終更新: 2026-11-02
 
 状態は `提案 / 採用 / 却下 / 保留 / 廃止` を使用します。採用済み判断を変える場合は
 既存項目を消さず、新しい項目から置き換え先を参照します。
@@ -415,3 +415,21 @@
   - 進め方や優先順位に不明点があり、選択によって結果が変わる場合は、その時点でUserへ確認する。
 - 適用: [`tasks/DOC-002.md`](tasks/DOC-002.md)で、release-critical文書、現行仕様、
   手動回帰、履歴整理の順に再同期する。
+
+## D-029 — agentへの指示はAGENTS.mdを正本にし、読む量を段階に分ける
+
+- 日付: 2026-11-02
+- 状態: 採用
+- 決定者: User（Claude Code の調査・提案を承認）
+- 判断:
+  - 全agent共通の指示は`AGENTS.md`に一本化する。`CLAUDE.md`は`@AGENTS.md`で読み込み、Claude Code固有の差分だけを持つ。
+    共通ルールを各agentのユーザー設定（`~/.claude/CLAUDE.md`など）に置かない。
+  - 読む順番を「毎回読む／作業に応じて読む／必要なときだけ探す」の3段階に分ける（`AGENTS.md`）。
+  - `session-log.md`は当月分だけを置き、前月以前を`archive/session-log-YYYY-MM.md`へ移す。
+    DOC-002時点のUser判断「2026-09以降を現行fileへ残す」を、session logについてだけ置き換える。`proposals.md`は従来どおり。
+- 理由:
+  - 毎回読ませていた8 filesが約517KBで、うち`session-log.md`が423KBを占め、作業前に文脈の大半を使っていた。
+  - `CLAUDE.md`と`AGENTS.md`が読む順番を別々に持ち、更新のたびにずれていた。
+  - `CLAUDE.md`が参照していた`~/.claude/CLAUDE.md`はクラウドのセッションに存在せず、そこにしかないルールが届いていなかった。
+- 検査: `node scripts/check-docs-links.mjs`（相対リンク切れと`AGENTS.md`主要ファイル一覧の実在）。
+- 適用: [`tasks/DOC-003.md`](tasks/DOC-003.md)

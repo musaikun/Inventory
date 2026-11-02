@@ -1,115 +1,13 @@
-# CLAUDE.md — 飲食店棚卸管理システム
+# CLAUDE.md
 
-飲食店の棚卸作業を高速化するスマホWebアプリ。音声入力→辞書変換→在庫記録、複数端末リアルタイム同期。
+共通の指示は `AGENTS.md` が正本です（→ D-029）。下の import で読み込まれます。
+ここには **Claude Code 固有の差分だけ**を書きます。共通ルールはここに足さず `AGENTS.md` へ。
 
-作業開始時は **`docs/README.md` → `docs/quality-foundation/README.md` の順に読む**。
-現在の公開目標、正本、優先タスク、担当、未決事項をCodex / Claude Codeと共有している。
+@AGENTS.md
 
-## 技術スタック（現在）
+## Claude Code 固有
 
-| レイヤー | 技術 |
-|---|---|
-| フロントエンド | Vue 3 + Vite（PWA） |
-| 同期 | Cloudflare Durable Objects + WebSocket |
-| DB | Cloudflare D1（SQLite）— セッション・認証・店舗データ永続化 |
-| 認証 | Bearer トークン（D1 管理） |
-| ストレージ | localStorage（高速cache）＋ D1（認証・店舗・在庫を永続化。履歴詳細read pathはDATA-002で未解消） |
-
-## 主要ファイル
-
-```
-app/src/
-  App.vue                   # ルートコンポーネント・コールバック登録
-  composables/
-    useSync.js              # WebSocket同期・全クライアント状態
-    useInventory.js         # 在庫CRUD・localStorage永続化
-    useConfig.js            # 品目リスト・辞書・CSV取込
-    useAuth.js              # 認証・セッションAPI
-    useStore.js             # 店舗コード・D1連携
-    importRecipes.js        # 取込レシピ（読み方の保存・自動適用／CSV・Excel・PDF共通）
-  components/
-    SyncModal.vue           # ルーム管理・変更履歴タブ
-    ConfirmModal.vue        # 数量入力確認
-    ChatModal.vue           # チャット
-    ImportMapper.vue        # 列指定（問いを1つずつ→元データの上に色で対応を書く。PDF由来なら元の紙も出せる）
-    ImportBuildPreview.vue  # 組み上がる棚卸カードの全画面プレビュー
-    PdfGridSetup.vue        # PDFを表に均す画面（枚数を訊き、組んだ表を人がその場で直す）
-    PdfPageViewer.vue       # PDFの描画・ページ送り・拡大（元の紙を見せる共通部品）
-    PdfColumnMapper.vue     # 紙の上で直接列を指定する（表に組み立てられない紙の逃げ道）
-  utils/
-    storageKeys.js          # localStorageキー一元管理
-    importText.js           # 取込の文字の読み方（見出しの正規化・品目でない行の判定）
-    pdfGrid.js              # PDFのトークンを行×列の表へ（段組み・行の高さ・列の境界。以降はCSVと同じ経路）
-worker/src/
-  index.js                  # Cloudflare Worker ルーター
-  RoomDO.js                 # Durable Object（WS・在庫・auditLog）
-  storeHandler.js           # 店舗データ・D1 クエリ
-  authHandler.js            # 店舗認証
-```
-
-## 開発ルール
-
-- **ブランチ**: 固定名を前提にせず、作業開始時に `git branch --show-current` で確認
-- **ビルド確認**: `cd app && npm run build` をコミット前に必ず実行
-- **バージョン**: `app/package.json` の `version` は **変更を push するたびに上げる**
-  （User指示 2026-09-20 → **D-026**。D-025 の「セッションは触らない」を置き換え）。
-  - 上げ幅: 修正・微調整 = patch ／ まとまった機能・仕様変更 = minor
-  - **上げる前に必ず `git fetch origin develop` して、origin の値を見てから +1 する。**
-    複数セッションが同時に上げると採番が衝突し、**値が同じだと merge で競合すら
-    しない**（過去に4回起きている。→ D-025 の背景）。手元の値を起点にしない
-  - lockfile の自アプリ情報2箇所（先頭と `packages.""` ）も同じ値へ合わせる
-  - どのビルドかは引き続き commit SHA が示す（画面に `v0.97.1 (ff708a6)` の形で出る）
-- **現在の優先（2026-09-30 User → D-027）**: 機能の不足と実使用の不具合の修正を、品質集中（公開gate）より優先する。
-  以前の「公開gateと品質基盤以外の新機能を停止」は当面外す（廃止ではなく後回し）。Stripe、trial、TWA、Google Play提出は後続
-- **共有タスク**: 着手前に `docs/quality-foundation/task-list.md` の状態・担当を更新し、
-  完了時に検証結果と `docs/quality-foundation/session-log.md` を更新
-- **新機能・仕様変更は `docs/feature-checklist.md`（共通DoD）でセルフチェック**してから完了とする。
-  N/A 項目は理由を一言残す。取り込み時に PM セッションが再照合する
-- **設計判断・仕様提案は `docs/proposals.md`（提案箱）へ投稿**する。テンプレに従い日付見出しで
-  先頭に追記（1提案=概要/背景・根拠/影響範囲・実装状況/PM判断⬜）。恒久docsへの反映可否は
-  PM セッションがトリアージする。**実装済みでも「合意済み」ではない**。
-  ただし `docs/quality-foundation/` の共有作業記録と、採用済み仕様に対する鮮度修正は直接更新してよい
-- **構成**: フロント = Cloudflare Pages ／ バックエンド = Cloudflare Worker + D1（すべて Cloudflare に統一）
-- **develop preview（自動）**: GitHub Actions（`.github/workflows/develop-preview.yml`）
-  - `develop` へ push → Worker/App test → App build → Pages preview
-  - 固定URL: `https://develop.inventory-app-c40.pages.dev`
-  - D1、Worker、本番Pagesは変更しない。preview frontendは本番Workerを参照する
-- **本番 Worker の deploy（手動ボタン）**: GitHub Actions の `Production Backend (D1 + Worker)`（`.github/workflows/production-backend.yml`）。
-  Run workflow で branch=develop → まず step=preflight（読むだけ）→ step=apply・confirm=`APPLY-PRODUCTION`。押すのは User（セッションからは起動不可）
-- **本番デプロイ（フロント）**: 自動workflowなし。公開判定と未解消事項は
-  `docs/quality-foundation/web-release-readiness.md`を正とする
-- **デプロイ（手動・要事前確認）**: `./scripts/deploy.sh`（テスト → 未適用マイグレーションのみ適用 → Worker → Pages）
-  - `./scripts/deploy.sh backend` … D1 マイグレーション + Worker のみ
-  - `./scripts/deploy.sh frontend` … テスト + ビルド + Pages のみ
-  - マイグレーション適用ロジックは `scripts/migrate.sh`（CI と共用）
-  - 現状のPages branch、Wrangler版、rollbackはWEB-001で未確定。production手順としてそのまま実行しない
-- フロントは `VITE_SYNC_WORKER_URL` をビルド時に埋め込むため、ローカルビルド→`wrangler pages deploy` 方式（Pages 側のビルド設定・環境変数は不要）
-- 型なし（TypeScriptは不使用）
-- Vue 3 `<script setup>` 記法で統一
-
-（コメント方針・コミット前の検証など全プロジェクト共通のルールは `~/.claude/CLAUDE.md`）
-
-## 同期の基本設計（バグ調査時の参照用）
-
-- `shopCode` = 店舗コード = DO ルームID（統一）
-- `sessionId` で新旧セッションを区別（新規 = ID変化、再開 = ID同一）
-- ゲスト参加時は**必ずホストの品目リスト・在庫に揃える**（ローカルを上書き）
-- `hostToken` = DO が発行・localStorage に保存・再接続時に検証
-- `updatedAt` タイムスタンプでオフラインマージ（ローカルが新しければ再送信）
-
-## 詳細ドキュメント
-
-- **docs全体の索引 → `docs/README.md`**
-- **共同品質基盤の入口 → `docs/quality-foundation/README.md`**
-- **現在のWeb release gate → `docs/quality-foundation/web-release-readiness.md`**
-- **現況と方向性（全体の索引）→ `docs/project-status.md`**
-- **長期戦略・設計原則（羅針盤）→ `docs/strategy-10yr.md`**
-- 全体レビュー（PM/QA/セキュリティ横断・優先度の根拠）→ `docs/holistic-review-2026-07.md`
-- セッション提案箱（実装/戦略→PM・上り）→ `docs/proposals.md` ／ 取り込みレビュー（PM→実装・下り）→ `docs/intake-reviews.md`
-- 企業導入（多店舗）設計 → `docs/enterprise-design.md`
-- CI/CD パイプライン → `docs/ci-cd.md`
-- 実行計画（トラック別・ウェーブ）→ `docs/roadmap.md`
-- 同期アーキテクチャ詳細 → `docs/sync-spec.md`
-- 料金・提供順（W1 Web Free → A1 Android trial / Web Stripe。未決事項あり）→ `docs/pricing-strategy.md`
-- DB設計v2（スケール・10年運用）→ `docs/db-design-v2.md`
-- 新機能テスト項目一覧 → `docs/test-checklist-new-features.md`
+- **`develop` への push はUserの都度確認なしで行ってよい**（D-022）。
+  本番デプロイ、本番マイグレーション、`main` への統合は引き続き明示依頼が必要
+- クラウドのセッションには `~/.claude/CLAUDE.md`（ユーザー設定）が無い。
+  このリポジトリの作業に必要なルールは `AGENTS.md` に書く
