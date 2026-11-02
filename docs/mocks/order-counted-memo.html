@@ -1,0 +1,108 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>発注 数えた・メモ モック</title><style>
+  :root { --primary:#0e7490; --deep:#155e75; --bg:#edf5f7; --text:#12303a; --muted:#4c6a72; --border:#d6e6ea; --green:#16a34a; --amber:#d97706; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:#c9d8dd; color:var(--text); padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .lead { font-size:13px; color:var(--muted); margin-bottom:18px; max-width:1100px; line-height:1.7; }
+  .row { display:flex; gap:20px; flex-wrap:wrap; align-items:flex-start; }
+  .col { display:grid; gap:8px; }
+  .cap { font-size:14px; font-weight:800; } .cap small { display:block; font-weight:400; color:var(--muted); font-size:12px; max-width:320px; line-height:1.5; }
+  .cap.bad { color:#b91c1c; } .cap.good { color:#047857; }
+  .phone { width:320px; height:640px; background:#fff; border-radius:28px; overflow:hidden; border:6px solid #0b1f26; box-shadow:0 12px 34px rgba(0,0,0,.2); display:flex; flex-direction:column; }
+  .phone.dim { background:rgba(11,31,38,.45); justify-content:flex-end; }
+  .bar { background:#fff7ed; border-bottom:1px solid #fed7aa; padding:10px 12px; font-size:13px; font-weight:800; color:#9a3412; }
+  .bar small { display:block; font-weight:600; color:#c2410c; font-size:11px; }
+  .list { flex:1; overflow:hidden; }
+  .item { display:flex; align-items:center; gap:8px; padding:9px 10px; border-bottom:1px solid #eef3f5; }
+  .name { flex:1; min-width:0; font-size:14px; font-weight:700; }
+  .memo { display:block; font-size:11px; font-weight:600; color:#92400e; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .memo::before { content:'📝 '; }
+  .box { display:flex; border:1.5px solid var(--border); border-radius:10px; overflow:hidden; min-width:128px; }
+  .cell { flex:1; padding:3px 6px; text-align:center; }
+  .cell + .cell { border-left:1px solid var(--border); }
+  .lbl { display:block; font-size:9.5px; font-weight:800; color:var(--muted); }
+  .val { font-size:16px; font-weight:900; }
+  .val small { font-size:10px; margin-left:1px; }
+  .on.order { background:#f0fdf4; } .on.order .val { color:var(--green); }
+  .on.count { background:#fffbeb; } .on.count .val { color:var(--amber); }
+  .carried .val { color:#94a3b8; font-weight:700; font-size:14px; }
+  .empty .val { color:#cbd5e1; }
+  .box.solo { min-width:72px; }
+  .sheet { background:#fff; border-radius:20px 20px 0 0; padding:10px 14px 16px; display:grid; gap:9px; }
+  .grab { width:40px; height:4px; border-radius:9px; background:#cbd5e1; margin:0 auto; }
+  .head { background:#ecfeff; border-radius:14px; padding:9px; text-align:center; }
+  .head b { font-size:17px; color:var(--deep); }
+  .facts { display:flex; justify-content:center; gap:6px; margin-top:6px; flex-wrap:wrap; }
+  .facts span { font-size:11px; font-weight:800; padding:3px 8px; border-radius:999px; background:#fff; border:1px solid var(--border); color:var(--muted); }
+  .facts span.cnt { color:var(--amber); border-color:#fde68a; }
+  .memo-in { border:1.5px dashed #f59e0b; background:#fffbeb; border-radius:10px; padding:8px 10px; font-size:13px; color:#92400e; }
+  .memo-in b { display:block; font-size:10.5px; color:#b45309; margin-bottom:2px; }
+  .disp { border:2px solid var(--border); border-radius:14px; height:56px; display:flex; align-items:center; justify-content:center; font-size:26px; font-weight:900; color:#94a3b8; }
+  .pad { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .pad span { height:36px; border-radius:10px; background:#f6fafb; border:1px solid var(--border); display:grid; place-items:center; font-weight:800; font-size:16px; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .btn { border-radius:12px; padding:10px 6px; text-align:center; font-weight:900; font-size:14px; }
+  .btn.order { background:var(--green); color:#fff; opacity:.4; }
+  .btn.stock { background:#fff; color:var(--amber); border:2px solid #fdba74; opacity:.4; }
+  .note { font-size:11px; background:#fff; border:1px solid var(--border); border-radius:8px; padding:7px 9px; line-height:1.6; max-width:320px; }
+  .note b { color:var(--deep); }
+  .tag { display:inline-block; font-size:10px; font-weight:800; padding:1px 6px; border-radius:6px; margin-right:4px; }
+  .tag.r { background:#fee2e2; color:#b91c1c; } .tag.g { background:#dcfce7; color:#166534; }
+</style></head><body>
+<h1>発注：「在庫」を「数えた」に・品目ごとのメモ</h1>
+<p class="lead">
+声：「発注の一覧の『在庫』は、今ある在庫（理論在庫）だと思った」。実際は<b>この発注で誰かが数えた数</b>。<br>
+案：数字は残す（推奨の計算・分析に使うため）。名前を<b>「数えた」</b>にし、<b>数えていない品目には欄を出さない</b>。
+数字にならないこと（業者に確認中、来週まとめて 等）は<b>品目ごとのメモ</b>に書く。一覧ではメモの1行目を品目名の下に出す。
+</p>
+<div class="row">
+
+<div class="col"><div class="cap bad">いま<small>数えていない品目にも「在庫 —」が出て、在庫が無いように見える。数えた品目の「在庫 5」も、今ある在庫に見える</small></div>
+<div class="phone">
+  <div class="bar">発注 3 / 40 件確認済み</div>
+  <div class="list">
+    <div class="item"><span class="name">キャベツ</span><span class="box"><span class="cell on order"><span class="lbl">発注</span><span class="val">3<small>口</small></span></span><span class="cell"><span class="lbl">在庫</span><span class="val" style="color:#cbd5e1">—</span></span></span></div>
+    <div class="item"><span class="name">玉葱 L</span><span class="box"><span class="cell empty"><span class="lbl">発注</span><span class="val">—</span></span><span class="cell on count"><span class="lbl">在庫</span><span class="val">5<small>ケ</small></span></span></span></div>
+    <div class="item"><span class="name">にら</span><span class="box"><span class="cell empty"><span class="lbl">発注</span><span class="val">—</span></span><span class="cell empty"><span class="lbl">在庫</span><span class="val">—</span></span></span></div>
+    <div class="item"><span class="name">トマト３個入り</span><span class="box"><span class="cell on order"><span class="lbl">発注</span><span class="val">2<small>口</small></span></span><span class="cell on count"><span class="lbl">在庫</span><span class="val">4<small>ケ</small></span></span></span></div>
+    <div class="item"><span class="name">万能ねぎ</span><span class="box"><span class="cell empty"><span class="lbl">発注</span><span class="val">—</span></span><span class="cell empty"><span class="lbl">在庫</span><span class="val">—</span></span></span></div>
+    <div class="item"><span class="name">ピーマン</span><span class="box"><span class="cell empty"><span class="lbl">発注</span><span class="val">—</span></span><span class="cell empty"><span class="lbl">在庫</span><span class="val">—</span></span></span></div>
+  </div>
+</div></div>
+
+<div class="col"><div class="cap good">案：一覧<small>数えた品目だけ「数えた」が出る。前回の棚卸を持ち込んだ品目は「前回」を薄く。メモは品目名の下に1行</small></div>
+<div class="phone">
+  <div class="bar">発注 3 / 40 件確認済み<small>前回の棚卸（10/30）を参考に入れています</small></div>
+  <div class="list">
+    <div class="item"><span class="name">キャベツ<span class="memo">業者に入荷を確認中</span></span><span class="box solo"><span class="cell on order"><span class="lbl">発注</span><span class="val">3<small>口</small></span></span></span></div>
+    <div class="item"><span class="name">玉葱 L</span><span class="box"><span class="cell empty"><span class="lbl">発注</span><span class="val">—</span></span><span class="cell on count"><span class="lbl">数えた</span><span class="val">5<small>ケ</small></span></span></span></div>
+    <div class="item"><span class="name">にら</span><span class="box"><span class="cell empty"><span class="lbl">発注</span><span class="val">—</span></span><span class="cell carried"><span class="lbl">前回</span><span class="val">2<small>p</small></span></span></span></div>
+    <div class="item"><span class="name">トマト３個入り</span><span class="box"><span class="cell on order"><span class="lbl">発注</span><span class="val">2<small>口</small></span></span><span class="cell on count"><span class="lbl">数えた</span><span class="val">4<small>ケ</small></span></span></span></div>
+    <div class="item"><span class="name">万能ねぎ<span class="memo">来週まとめて頼む</span></span><span class="box solo"><span class="cell empty"><span class="lbl">発注</span><span class="val">—</span></span></span></div>
+    <div class="item"><span class="name">ピーマン</span><span class="box solo"><span class="cell empty"><span class="lbl">発注</span><span class="val">—</span></span></span></div>
+  </div>
+</div></div>
+
+<div class="col"><div class="cap good">案：入力画面<small>上の札も「在庫 5 ✓」→「数えた 5」。メモ欄を数字の上に置き、押すと文字を打てる</small></div>
+<div class="phone dim"><div class="sheet">
+  <div class="grab"></div>
+  <div class="head"><b>キャベツ</b>
+    <div class="facts"><span class="cnt">数えた 5玉</span><span>前回の棚卸 6玉（10/30）</span><span>推奨 2口</span></div>
+  </div>
+  <div class="memo-in"><b>📝 メモ（この品目）</b>業者に入荷を確認中</div>
+  <div class="disp">数を打つ</div>
+  <div class="pad"><span>7</span><span>8</span><span>9</span><span>4</span><span>5</span><span>6</span><span>1</span><span>2</span><span>3</span><span>C</span><span>0</span><span>⌫</span></div>
+  <div class="two"><div class="btn order">発注</div><div class="btn stock">数えた</div></div>
+</div></div></div>
+
+<div class="col"><div class="cap">決めること</div>
+  <div class="note"><b>① 名前</b><br>「数えた」／「今回の在庫」／「実数」など。<br>案は「数えた」（誰かがこの発注で数えたと分かる）。入力画面のボタンも同じ名前にそろえる。</div>
+  <div class="note"><b>② メモの持ち方</b><br>
+    <span class="tag r">A</span>この発注の中だけ（完了すると発注の記録と一緒に残る）<br>
+    <span class="tag g">B</span>品目に付けて、次の発注にも出る（消すまで残る）<br>
+    A は「今回の事情」、B は「いつも気をつけること」向き。</div>
+  <div class="note"><b>③ ほかの人に見えるか</b><br>みんなで発注しているときは、メモもほかの端末に出す（発注数と同じ扱い）。</div>
+</div>
+
+</div>
+</body></html>
