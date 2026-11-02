@@ -34,6 +34,7 @@ ownerと回避策を付けてWeb公開後へ送れる候補です。正式なrel
 | ID | P | 状態 | 担当 | 対象 | 詳細 |
 |---|---:|---|---|---|---|
 | EVAL-001 | P2 | 進行中 | Codex | User依頼による現行アプリの機能・商業評価。実装変更なし | [EVAL-001.md](tasks/EVAL-001.md) |
+| DOC-004 | P1 | 進行中 | Claude Code | 現行実装（0.187 / migration 0034）へ文書を再同期。第1段で削除契約・spec・API・securityに未記載の機能を追加。account削除の権限など2点はUser確認待ち | [DOC-004.md](tasks/DOC-004.md) |
 | DOC-003 | P2 | レビュー待ち | Claude Code | agent向けdocsの整理（AGENTS.md一本化・段階読み・session log当月化・docsリンク検査）。CI組み込みと鮮度台帳の再監査は残件 | [DOC-003.md](tasks/DOC-003.md) |
 | REPO-002 | P2 | レビュー待ち | User | 615a671・0dc97d3をcommit、追加リモート41bc55dも統合。振り分け74 tests・build成功。User依頼により通常pushする | [REPO-002.md](tasks/REPO-002.md) |
 

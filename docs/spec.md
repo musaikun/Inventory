@@ -5,7 +5,7 @@
 | **Status** | 現行W1 baseline（既知の未解消事項を含む） |
 | **Role** | Web Free版の機能・architecture・data境界を説明するdeveloper向けoverview |
 | **Source of truth** | [App code](../app/src/)、[Worker code](../worker/src/)、[D1 migrations](../worker/migrations/)、採用済み[decisions](quality-foundation/decisions.md) |
-| **Last verified** | 2026-10-02 / `develop@49227ff`（App 0.129.1・migration 0018まで） |
+| **Last verified** | 2026-11-02 / `develop@be58194`（App 0.187.x・migration 0034まで。§2.1機能要件・§4.1スキーマ・画面構成だけ再照合。他の節は2026-10-02 / App 0.129.1のまま → DOC-004） |
 
 この文書はrelease可否の正本ではありません。Web公開判定は
 [Web公開準備](quality-foundation/web-release-readiness.md)、endpoint契約は
@@ -28,7 +28,7 @@
 |---|---|---|
 | 認証 | `/auth/register`で4桁PINをPBKDF2保存し30日Bearerを発行。`/auth/login`成功時は同店舗の旧tokenを全失効。config/inventory/history/orders/movementsはPIN設定店舗で同店舗Bearer必須、sessions/pushはstrict Bearer。登録はIPごと1時間5回 | [SEC-005](quality-foundation/tasks/SEC-005.md): bot対策なし（IPレート制限と無認証legacy `/store/create`廃止は2026-10-08） |
 | account削除 | `DELETE /auth/account`がBearer、現在PIN、店舗code完全一致、UUID requestIdを要求。棚卸/発注DOとR2品目写真をpurge後、0018までのD1業務dataとtokenを削除し、匿名receipt/tombstoneを7日保持。200後だけAppが業務data、端末ID/名、天気位置/cache、Push、authをlocalから消す | production migration、公開URL/canonical、実機確認はrelease前に再確認。[PLAY-002](quality-foundation/tasks/PLAY-002.md) / [WEB-001](quality-foundation/tasks/WEB-001.md) |
-| ホーム/画面 | 共通下部ナビは在庫・レポート・管理の3タブ。履歴はレポート先頭から開く独立画面。レポートは履歴入口と在庫分析、管理は品目管理・発注基準・取込/書出し等を内包する。棚卸/発注/取込の作業中はナビを隠す | 375px、keyboard、実機でrelease candidateを再確認 |
+| ホーム/画面 | 共通下部ナビはホーム・在庫・日誌・レポート・設定の5タブ（`HomeFooterNav.vue`。レポートは金額・レポート権限のある人だけ）。取り込み・スタッフはホームから開く。履歴はレポート先頭から開く独立画面。棚卸/発注/取込の作業中はナビを隠す | 375px、keyboard、実機でrelease candidateを再確認 |
 | 品目写真 | Appで一覧用128px正方形と拡大用長辺800pxへ圧縮し、`config.images`に参照を持つ。Workerの認証付きupload/deleteと非公開R2へ保存し、推測困難なIDを含む`/img`から表示する | production Worker/R2 binding、写真削除、URL共有範囲を実環境で確認。品目削除時の孤児R2 cleanupと共有結果への表示は未対応 |
 | session | 棚卸/発注を開始・中断・再開・完了。完了済みは削除不可。進行中の破棄は24時間`discarded_sessions`へ保持し、同種の別sessionが無ければ復元できる | productionでは0018適用後にWorker、Appの順で更新する |
 | 入出庫 | localStorage cacheに即時保存し、`GET/POST/DELETE /store/:code/movements*`でD1へ保存。auth後と画面表示時にremoteをid mergeする。real-time WS同期は行わない | 実D1・別端末のrelease確認はWEB-07 |
@@ -89,8 +89,14 @@ Android app内登録を起点とする14日Pro trial、終了後Free、Webで明
 | F-09 | 履歴閲覧・CSV出力 | 完了スナップショットをカテゴリアコーディオンで表示し CSV ダウンロード |
 | F-10 | チャット | セッション中のスタッフ間テキストチャット（WebSocket 経由） |
 | F-11 | 発注 | 発注セッション、発注履歴、入庫への反映を管理 |
-| F-12 | 入出庫 | 入庫・出庫をlocal cacheとD1へ保存し、棚卸と合わせて理論在庫を算出 |
+| F-12 | 入出庫 | 入庫・出庫をlocal cacheとD1へ保存。取り消しは印を付けて残す（0019）。入庫ごとに期限・買った日を持てる（0034）。**理論在庫は出さない**（0.187.0で廃止。在庫ページは直近の棚卸の数を表示し、期限の割り当てにだけ内部で使う） |
 | F-13 | account削除 | App内または公開Web画面から再認証し、account関連dataを削除 |
+| F-14 | スタッフ・権限 | オーナー（店を登録した人）・管理者・社員/アルバイト（肩書き）。招待URLで参加申請→承認。スタッフは本人のPINでログインし、記録の「誰が」は本人になる。権限は人ごとに在庫管理・タスク管理・データの更新・レポートの4まとまり（`worker/src/permissions.js` と `app/src/services/permissions.js` が同じ中身）（0022〜0024・0027） |
+| F-15 | 日誌 | 店のカレンダー。月→日のタイムラインで、やること（担当・時刻・期限・進行中・備考）、ルーティン（毎日のチェック表）、棚卸・発注・入出庫の記録を見る（0020・0024・0026〜0031・0033） |
+| F-16 | 申し送り | 📣伝える（読むだけ）／🙏頼む（その人のやることになる）。ホームの「連絡」に出し、日誌には出さない（0032） |
+| F-17 | 通知 | Web Push。端末ごとの通知設定、やることの追加・担当になったとき・スタッフの参加申請を知らせる（0021・0026・0028） |
+| F-18 | ログイン中・作業の記録 | いま誰がアプリを開いているか、いつ・どれくらい開いていたか、その人がやったことを、使用履歴の権限がある人だけが見る（0025） |
+| F-19 | 品目の備考 | 棚卸・発注で品目ごとに備考を付ける。そのsessionの中だけで、棚卸は完了snapshotに残る。発注の備考は完了後に残らない |
 
 ### 2.2 非機能要件
 
@@ -154,7 +160,7 @@ Android app内登録を起点とする14日Pro trial、終了後Free、Webで明
 
 ### 4.1 D1 スキーマ
 
-スキーマの正は `worker/migrations/`（0001〜0018）。主要テーブルの概要:
+スキーマの正は `worker/migrations/`（0001〜0034）。主要テーブルの概要:
 
 | テーブル | 役割 | 補足 |
 |---|---|---|
@@ -172,6 +178,13 @@ Android app内登録を起点とする14日Pro trial、終了後Free、Webで明
 | `session_completions` | 棚卸完了のclaim（確定は最初の1要求だけ） | 0016 |
 | `session_audit` | session単位の操作履歴。entry idで冪等 | 0017 |
 | `discarded_sessions` | 破棄時刻と復元用下書きを24時間保持 | 0018。期限後は関連dataごとpurge |
+| `tasks` / `task_notes` | 日誌のやること（担当・時刻・期限・進行中・公開範囲・備考）と経過 | 0020・0024・0026〜0029・0031・0033 |
+| `checklists` / `checklist_runs` | ルーティン（チェック表）と日ごとの✓ | 0030 |
+| `handoffs` | 申し送り（伝える／頼む） | 0032 |
+| `staff` / `staff_invites` / `staff_login_attempts` | スタッフ・招待・スタッフloginの失敗制限。`auth_tokens.staff_id`で本人のtoken | 0022 |
+| `work_sessions` | アプリを開いていた記録 | 0025 |
+| `push_sent` | 送った通知の印（二重送信を防ぐ）。`push_subscriptions.prefs_json` / `actor_id`で端末ごとの設定と本人 | 0021・0026 |
+| （列の追加） | `movements.deleted_at` / `created_by(_id)`（0019・0023）、`sessions.started_by(_id)`等（0023）、`stores.owner_name` / `owner_unified_at`（0027）、`movement_lines.lot_date` / `lot_kind`（0034） | |
 
 ### 4.2 localStorage キー（`utils/storageKeys.js` で一元管理）
 

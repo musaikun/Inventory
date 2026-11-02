@@ -1,10 +1,10 @@
 # Account deletion contract
 
-最終更新: 2026-10-02
+最終更新: 2026-11-02
 Backend owner: Codex / UI・公開Web owner: Claude Code
 役割: W1 Webと将来A1で共用する削除境界の正本
-最新照合: 2026-10-02 / `develop@49227ff`
-状態: code/testはmigration 0018まで実装済み。production migration、canonical URL、実機確認はrelease前に再確認
+最新照合: 2026-11-02 / `develop@be58194`（Data mapと削除対象table。それ以外の節は2026-10-02のまま）
+状態: code/testはmigration 0034まで実装済み。production migration、canonical URL、実機確認はrelease前に再確認
 
 ## 目的
 
@@ -34,7 +34,8 @@ Body:
 ```
 
 - `requestId`: 削除画面を開いた時点で1回だけ生成し、再試行でも同じ値を使う。
-- `pin`: 現在の4桁PIN。Bearer tokenだけでは削除しない。
+- `pin`: 現在の4桁PIN（店舗のPIN）。Bearer tokenだけでは削除しない。
+  現行実装はtokenの役割（オーナー／スタッフ）を見ていない。スタッフのtokenでも店舗PINが合えば削除できる（→ DOC-004 要確認）。
 - `confirmation`: 認証tokenの店舗codeを大文字のままcase-sensitiveで完全一致させる。
 
 Success / replay:
@@ -87,9 +88,14 @@ DO/R2削除またはD1 batchが失敗した場合は `503 retryable` とし、�
 | `session_completions`（棚卸完了のclaim・migration 0016） | 物理削除。確定済み完了の指紋・件数・合計・棚卸日を持つため業務dataとして扱う |
 | `session_audit`（操作履歴・migration 0017） | 物理削除。誰がいつ何を変更したかを持つ業務dataとして扱う |
 | `discarded_sessions`（24時間復元用下書き・migration 0018） | 物理削除。破棄した棚卸・発注の数量、変更履歴、稼働時間等を復元できるため業務dataとして扱う |
+| `tasks`, `task_notes`（やること・経過・migration 0020/0024/0026〜0029/0031/0033） | 物理削除。担当者名・作った人・完了した人・備考を持つ |
+| `checklists`, `checklist_runs`（ルーティン・migration 0030） | 物理削除。✓を付けた人を持つ |
+| `handoffs`（申し送り・migration 0032） | 物理削除。書いた人・宛先・既読を持つ |
+| `staff`, `staff_invites`, `staff_login_attempts`（スタッフ・migration 0022） | 物理削除。スタッフの名前・役割・PIN hash・招待tokenを持つ |
+| `work_sessions`（アプリを開いていた記録・migration 0025） | 物理削除。誰がいつどれくらい開いていたかを持つ |
 | `orders`, `order_lines` | 物理削除 |
 | `movements`, `movement_lines` | 物理削除 |
-| `push_subscriptions` | 物理削除し、以後のPush送信を停止 |
+| `push_subscriptions`, `push_sent`（通知設定・送った通知の印・migration 0021/0026） | 物理削除し、以後のPush送信を停止 |
 | `auth_tokens`, `login_attempts` | 物理削除、全token失効 |
 | `stores` | 店名・PIN hash・plan・active roomを消去したtombstoneを7日保持後に物理削除 |
 | account deletion receipt | account識別子を持たないrequestIdと完了時刻だけを7日保持 |
@@ -116,7 +122,8 @@ DO/R2削除またはD1 batchが失敗した場合は `503 retryable` とし、�
 
 - 正常、誤PIN、429、confirmation不一致、別店舗、別requestId競合、同一requestId再送、
   DO失敗、D1失敗、cleanupを自動testする。
-- 削除testは`import_batch_requests` / `session_completions` / `session_audit` / `discarded_sessions`を含む全業務tableへ
+- 削除testは`import_batch_requests` / `session_completions` / `session_audit` / `discarded_sessions` /
+  `tasks` / `task_notes` / `checklists` / `checklist_runs` / `handoffs` / `staff`系 / `work_sessions` / `push_sent`を含む全業務tableへ
   **対象店舗と別店舗の行を実際にseed**し、対象店舗だけが消えること・別店舗が残ることを固定する
   （`worker/src/accountDeletion.test.js`）。batch途中失敗ではこれらを含めて全体がrollbackする。
 - migration適用、Worker test、App integration、公開Web URLをrelease前に記録する。

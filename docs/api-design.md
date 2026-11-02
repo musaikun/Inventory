@@ -5,7 +5,7 @@
 | **Status** | 現行W1 API baseline（known gapを併記） |
 | **Role** | Web Free版で実装済みのHTTP/WebSocket境界を一覧化する派生仕様 |
 | **Source of truth** | [`worker/src/index.js`](../worker/src/index.js)、[`authHandler.js`](../worker/src/authHandler.js)、[`storeHandler.js`](../worker/src/storeHandler.js)、[`imageHandler.js`](../worker/src/imageHandler.js)、[`accountDeletion.js`](../worker/src/accountDeletion.js)、[migrations](../worker/migrations/) |
-| **Last verified** | 2026-10-02 / `develop@49227ff`（App 0.129.1・migration 0018まで。production適用状態はrelease前preflightが正） |
+| **Last verified** | 2026-11-02 / `develop@be58194`（migration 0034まで。「スタッフ・権限」「日誌・申し送り・通知」の節を追加。既存の表は2026-10-02 / migration 0018時点の記述のまま → DOC-004。production適用状態はrelease前preflightが正） |
 
 実装と矛盾する場合は上記code/migrationを優先します。account削除の詳細は
 [account deletion contract](quality-foundation/account-deletion-contract.md)、公開可否は
@@ -31,6 +31,10 @@
 | `DELETE /auth/account` | `{ requestId, pin, confirmation }`。UUID、現在PIN、認証store codeのcase-sensitive完全一致を要求 | active Bearer + 再認証 |
 | ~~`POST /store/create`~~ | **2026-10-08廃止**（404）。PINなしlegacy storeを認証なしで作れた旧経路。店舗は`/auth/register`でだけ作る | — |
 | `GET /store/:code` | `{ shopCode, activeRoom, createdAt, plan, isPro, inTrial:false, trialEndsAt:null }` | 不要 |
+| `POST /auth/staff-login` | スタッフが本人のPINでログインし、`auth_tokens.staff_id`付きのtokenを受け取る（migration 0022） | 不要。IP単位の失敗制限（`login`と共用）・スタッフ単位の失敗制限（`staff_login_attempts`） |
+| `GET /auth/me` | tokenの本人（オーナー／スタッフ、役割、権限） | Bearer |
+| `GET /staff/invite?token=` ／ `GET /staff/pending?key=` | 招待の中身／参加申請の状態。不在は404で、IPの失敗として数える | 不要。IP単位の失敗制限 |
+| `POST /staff/join` | 招待URLから参加申請。申請は管理者の承認待ちになり、管理者へPush（やること`kind`も自動で作る・0028） | 不要。IP単位の失敗制限 |
 
 `DELETE /auth/account`は棚卸/発注の2 Durable Objectsと店舗prefixのR2品目写真をpurgeし、D1の
 inventory/session/history/order/movement/config/Push/token等を削除します。store rowは匿名tombstone、
@@ -64,6 +68,41 @@ requestIdだけのreceiptは7日保持します。DOまたはD1失敗は成功�
 | `POST /store/:code/imports/:batchId/sessions` | 過去棚卸を1日ぶん取り込む。`{ date, items[], replaceSessionIds?[] }` → `{ok,sessionId,date,itemCount,totalValue,importBatchId,replaced,snapshotSaved,serverRevision,serverSavedAt}`。session / `inventory_lines` / `store_history` / 要求台帳を1つの`db.batch`で書く。sessionIdは`(shop_code,batchId,date)`から決まる決定的UUIDで、再送・並行要求でも1件へ収束する（migration 0014の一意index）。**まったく同じ要求の再送は、置換対象が削除済みでも同じ成功を返す**（`replay:true`）。同じ`batchId`+日付で内容が違えば409 `import_intent_conflict`（migration 0015の台帳）。上書きは文中の原子guardに全delete/insertを従属させ、1件でも条件を外れたら書込み0件（409 `replace_not_allowed`）。`replaceSessionIds`の上限は50件で、超過は書込み前に400 `invalid_replace`。**台帳を持たない既存取込（0015適用前・台帳削除後）は409 `legacy_import_unverified`**で、取消してからでないと上書きできない。snapshotはserverが検証済み行から生成する（clientの`snapshot`は保存しない） | strict同store Bearer |
 | `DELETE /store/:code/imports/:batchId` | 取込バッチ単位の取消。`{ok,removed,sessionIds[],importBatchId}`。`import_batch_id`が一致するsessionと明細・履歴・完了claim・**要求台帳の行**だけを消し、通常の棚卸（NULL）と別バッチには触れない。**対象取得のSELECTは削除と同じ`db.batch`の先頭**にあり、応答の`removed`/`sessionIds`は実際に消した対象と必ず一致する（旧実装はbatch外SELECTのため、直前に確定した取込を消しても`removed:0`を返しえた）。batchのどこで失敗しても503 `cancel_failed`（`retryable:true`）で全体rollback。2回目は`removed:0`で成功（冪等） | strict同store Bearer |
 | `POST/DELETE /store/:code/push/subscribe` | 8 KiB以下のPushSubscription、または`{endpoint}` | strict同store Bearer |
+
+### スタッフ・権限（migration 0022〜0025・0027）
+
+権限の名前とまとまりは `worker/src/permissions.js`（Appの`services/permissions.js`と同じ中身）。
+オーナー・管理者は全権限。スタッフは在庫管理・タスク管理・データの更新・レポートの4まとまりのオン・オフ。
+PINのない古い店舗（tokenなし）はオーナーと同じに扱う。
+
+| Method / path | 現行contract | Auth |
+|---|---|---|
+| `GET /store/:code/staff` | スタッフ一覧 | 管理者（`staffHandler._requireAdmin`） |
+| `POST /store/:code/staff/invites` ／ `DELETE …/staff/invites/:inv_id` | 招待の作成（4 KiB以下）／取り消し | 管理者 |
+| `POST /store/:code/staff/:st_id/(approve\|reject\|stop\|resume\|delete\|role\|grants\|unlock)` | 承認・却下・停止・再開・削除・役割・権限・ロック解除 | 管理者 |
+| `GET /store/:code/staff/names` | 担当に選べる人（オーナーを先頭に、承認済みのスタッフ） | 同store Bearer |
+| `GET /store/:code/staff/:id/activity?days=30` | その人の作業時間とやったこと | 同store Bearer + `monitor` |
+| `POST /store/:code/presence` | アプリを開いている知らせ（90秒ごと、閉じるときは`state:'off'`）。1 KiB以下 | 同store Bearer |
+| `GET /store/:code/presence?days=7` | いま開いている人・開いていた記録 | 同store Bearer + `monitor` |
+| `PUT /store/:code/owner-name` | オーナーの名前。過去の記録の名前もそろえる | オーナーだけ |
+| `PUT /store/:code/store-name` | 店名 | オーナー・管理者 |
+
+既存の経路にも権限がかかる: `POST /sessions`は`stock.start` / `order.start`、`POST/DELETE /images`は`item.edit`、
+`POST /sessions/purge-unfinished`は`item.purge`（全品目の削除と一緒に呼ぶ）。
+
+### 日誌・申し送り・通知（migration 0020・0021・0026〜0033）
+
+| Method / path | 現行contract | Auth |
+|---|---|---|
+| `GET /store/:code/tasks?sinceDays=` | やること一覧。「管理者だけ」（`visibility='admins'`）は管理者にだけ返す | 同store Bearer |
+| `POST /store/:code/tasks` | やることの作成・更新（idで判定）。作った人・完了した人はserverが刻む。新規は`task.create`、「管理者だけ」は管理者だけ。更新は`taskWrite.js`の規則で、古い更新は`stale:true`で捨てる。追加・担当の変更で該当端末へPush | 同store Bearer（+ 新規は`task.create`） |
+| `GET/POST /store/:code/tasks/:id/notes` | 進行中のやることの経過（足していくだけ） | 同store Bearer。見える人なら誰でも |
+| `POST /store/:code/tasks/:id/mark` | 「全員」のやることに自分の済み印 | 同store Bearer |
+| `GET/POST /store/:code/checklists` | ルーティン（チェック表）。作る・直すのは管理者だけ（403 `checklist_forbidden`） | 同store Bearer |
+| `POST /store/:code/checklists/:id/runs/:YYYY-MM-DD/mark` | その日の✓。担当の人がいれば担当と管理者 | 同store Bearer |
+| `GET/POST /store/:code/handoffs` | 申し送り（📣伝える／🙏頼む） | 同store Bearer。店の誰でも |
+| `POST /store/:code/handoffs/:id/(read\|task\|delete)` | 既読、やることへの紐づけ、削除（削除は書いた人と管理者） | 同store Bearer |
+| `PUT /store/:code/push/prefs` ／ `POST …/push/test` | 端末ごとの通知設定／試しの通知 | 同store Bearer |
 
 movementのpersist正本はD1 migration 0010で、Appはlocal cacheへ即時保存後にPOSTし、auth後/画面表示時に
 GET結果をid mergeします。WebSocketによるreal-time movement同期はありません。入出庫（movement）のclient recordの
@@ -104,7 +143,8 @@ production D1の適用状態は固定値として断定せず、release前のrea
 |---|---|
 | [SEC-005](quality-foundation/tasks/SEC-005.md) | `/auth/register`のbot対策方針（IPレート制限とlegacy `/store/create`廃止は2026-10-08実装済み） |
 | [DATA-001 / DATA-002 / IMPORT-001](quality-foundation/task-list.md#完了) | 原子性、sessionId履歴、取込契約の実装レビューは完了。release candidateの実D1・別browser・主経路確認は`WEB-07`に残る |
-| [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番migrationのpreflightと0018までの適用、E2E/smoke |
+| [WEB-001](quality-foundation/tasks/WEB-001.md) | canonical/CORS/Pages、本番migrationのpreflightと0034までの適用、E2E/smoke |
+| [DOC-004](quality-foundation/tasks/DOC-004.md) | 既存の表（Store data）が0018時点の記述のまま。`/config`・`/inventory`・`/history`・`/orders`・`/movements`はsoft auth（店舗の認証）だけで、スタッフの権限・金額の秘匿がどこで効くか（`configGuard.js`・`moneyGuard.js`）を照合していない |
 
 ### 将来A1（現行APIではない）
 

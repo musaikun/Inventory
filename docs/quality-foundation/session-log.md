@@ -5,6 +5,15 @@
 このfileには**当月分だけ**を置き、月が変わったら前月分を`archive/session-log-YYYY-MM.md`へ移して
 末尾の索引に足します（D-029）。agentは毎回、先頭から数件だけ読みます。
 
+## 2026-11-02 — version 0.187.3 / 採否をUser承認に一本化（D-030）・文書を0.187 / migration 0034へ再同期（DOC-004 第1段）
+
+User: このセッションの取り決めを正として運用する。採否は User の承認。現在の機能で文書にないものは書き起こす。
+- D-030: PMセッションを廃止し、採否はUser承認。`working-agreement.md`を AGENTS.md・D-028に揃えた（競合時は実装を正、PowerShell手順を外す、停滞14日で引き継ぎ可）。feature-checklist・proposals・project-status §7・intake-reviews（休止）を改定。
+- DOC-004: 削除契約のData mapへ0019〜0034の10 table、specにF-14〜F-19・5タブ・0034まで、APIにスタッフ／日誌系の約35 routes、securityにスタッフ認可のgap。
+- 要確認（User）: account削除がtokenの役割を見ない（スタッフでも店舗PINで削除できる）、soft auth経路のスタッフ権限。
+- 検証: `check-docs-links` 0件。docsのみでtest未実行。記述はコード読みで、実機・testでは確かめていない。
+- version: 0.187.2 → **0.187.3**。
+
 ## 2026-11-02 — version 0.187.2 / agent向けdocsの整理（AGENTS.md一本化・段階読み・session log当月化）→ DOC-003
 
 User: AI開発のdocs手法と照らして足りない部分をブラッシュアップしたい。調査結果の1〜2から。
