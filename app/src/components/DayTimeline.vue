@@ -44,20 +44,28 @@ const _tick = () => { const n = new Date(); nowHm.value = `${String(n.getHours()
 onMounted(() => { _tick(); timer = setInterval(_tick, 60000) })
 onUnmounted(() => clearInterval(timer))
 // 「いま」の線は、いまの時刻を過ぎた最後の行の下
-// 中断が多い棚卸（4回を超える）は、開いていなければ中断・再開の行を隠し、開始の下に1行
+// 棚卸の区間には、時間の長さに関係なく「進み方」の1行を開始の下に出す（短い棚卸でも見られるように・User決定 2026-11-02）。
+// 中身は中断・再開と、人ごとの入力。中断が多い（4回を超える）か2人以上で数えた棚卸は、はじめは閉じておく
 const FOLD_OVER = 4
-const openSpans = ref(new Set())
-function toggleSpan(k) { const n = new Set(openSpans.value); n.has(k) ? n.delete(k) : n.add(k); openSpans.value = n }
+const toggled = ref(new Set())   // はじめの開き方から押して変えた区間
+function toggleSpan(k) { const n = new Set(toggled.value); n.has(k) ? n.delete(k) : n.add(k); toggled.value = n }
 const rows = computed(() => {
-  const counts = new Map(tl.value.timed.filter(x => x.ev === 'end').map(x => [x.span, x.pauseCount || 0]))
+  const ends = new Map(tl.value.timed.filter(x => x.ev === 'end').map(x => [x.span, x]))
+  const opened = k => {
+    const e = ends.get(k)
+    const startOpen = (e?.pauseCount || 0) <= FOLD_OVER && (e?.crewCount || 0) < 2
+    return startOpen !== toggled.value.has(k)
+  }
   const out = []
   for (const x of tl.value.timed) {
-    const folded = x.span && counts.get(x.span) > FOLD_OVER && !openSpans.value.has(x.span)
-    if (folded && (x.ev === 'pause' || x.ev === 'resume')) continue
+    const e = x.span ? ends.get(x.span) : null
+    const hasMore = e && ((e.pauseCount || 0) > 0 || (e.crewCount || 0) > 0)
+    if (hasMore && !opened(x.span) && (x.ev === 'pause' || x.ev === 'resume' || x.ev === 'join')) continue
     out.push(x)
-    if (x.ev === 'start' && counts.get(x.span) > FOLD_OVER) {
-      const end = tl.value.timed.find(z => z.span === x.span && z.ev === 'end')
-      out.push({ key: `${x.span}-fold`, time: x.time, fold: x.span, open: !folded, band: 'solid', title: `中断 ${counts.get(x.span)}回（${fmtDuration(end?.pauseMs ?? 0)}）` })
+    if (x.ev === 'start' && hasMore) {
+      const n = e.pauseCount || 0
+      const title = ['進み方', e.crewCount > 1 ? `${e.crewCount}人` : '', n ? `中断 ${n}回（${fmtDuration(e.pauseMs ?? 0)}）` : '中断なし'].filter(Boolean).join(' ・ ')
+      out.push({ key: `${x.span}-fold`, time: x.time, fold: x.span, open: opened(x.span), band: 'solid', title })
     }
   }
   return out
@@ -186,6 +194,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 .dt-row.ev .dt-tm { padding-top: 5px; }
 .dt-evdot { position: relative; z-index: 1; margin-top: 8px; width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; background: #2aa6bf; border: 2px solid #2aa6bf; }
 .dt-evdot.pause { background: #fff; }
+.dt-evdot.join { width: 10px; height: 10px; margin-left: 1px; background: #fff; border-color: #7aa7b3; }
 .dt-ev { flex: 1; min-width: 0; border: none; background: none; font: inherit; text-align: left; cursor: pointer; display: grid; gap: 1px; padding: 4px 0 8px; color: #0b5f73; }
 .dt-ev b { font-size: 12px; font-weight: 900; }
 .dt-ev small { font-size: 10.5px; font-weight: 700; color: #3d6a76; }

@@ -35,6 +35,24 @@ export function workSpans(start, end, stamps = []) {
   return { from, to, pauses, activeMs }
 }
 
+/**
+ * 人ごとの入力の区間（User決定 2026-11-02）: 名前・最初と最後の入力の時刻・入れた品目の数。
+ * 短い棚卸や中断の無い棚卸でも、だれがいつからいつまで数えたかを日誌で見られるように。最初に入れた人から順
+ */
+export function crewSpans(audit = []) {
+  const by = new Map()
+  for (const e of audit) {
+    const t = _ms(e?.timestamp)
+    const name = e?.enteredBy || ''
+    if (t == null || !name) continue
+    const c = by.get(name) ?? by.set(name, { name, from: t, to: t, items: new Set() }).get(name)
+    if (t < c.from) c.from = t
+    if (t > c.to) c.to = t
+    if (e.ingredient) c.items.add(e.ingredient)
+  }
+  return [...by.values()].sort((a, b) => a.from - b.from).map(c => ({ name: c.name, from: c.from, to: c.to, count: c.items.size }))
+}
+
 /** 品目シートで1つずつ入れた入出庫を、同じ種類・30分以内の続きで1件にまとめる */
 export function mergeMovements(moves = []) {
   const out = []
@@ -107,13 +125,14 @@ export function stockRecords(sessions = [], snapshotOf = () => null) {
     const imported = !!s.importBatchId
     const span = imported ? { from: null, to: null, pauses: [], activeMs: null } : workSpans(s.startedAt, s.endedAt, stamps)
     const people = (snap?.participants ?? []).map(p => ({ name: p.name, count: p.items?.length ?? 0 }))
+    const crew = imported ? [] : crewSpans(snap?.auditLog ?? [])
     const items = snap ? snap.items.filter(i => i.qty != null).length : (s.itemCount ?? 0)
     return {
       key: `stock-${s.id}`, kind: 'stock', at: span.from, end: span.to, pauses: span.pauses,
       activeMs: snap?.activeMs ?? span.activeMs,
       pauseMs: span.pauses.reduce((n, p) => n + p.ms, 0),
       title: `棚卸 完了 ・ ${items}品目`, items, imported,
-      by: people.map(p => p.name).join('・'), people,
+      by: people.map(p => p.name).join('・'), people, crew,
       total: snap?.totalValue ?? null, session: s,
     }
   })

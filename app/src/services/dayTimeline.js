@@ -3,6 +3,7 @@
 // state: done（済み）| todo（まだ）| missed（過ぎた日のやり残し）| live（途中）| plan（先の日の予定）
 // 棚卸（始め・終わりのある記録）は区間に（User決定 2026-10-26・キャンバス⑤）: 開始・中断・再開・終了の小さな行（ev）と、
 // 縦の線の横の帯（band: start | solid | hatch（中断）| end）。かぶった業務には during（棚卸の最中／棚卸の中断中）
+// 人ごとの入力（ev: join）も区間の行に入れる。だれが何時から何時まで何品目を入れたか（User決定 2026-11-02）
 // 画面には依存しない（材料は引数で受け取る）
 import { stockTimeLabel, fmtHm, fmtDuration } from './journalRecords.js'
 import { isSimple } from './checklistSchedule.js'
@@ -60,7 +61,11 @@ export function buildDayTimeline({ date, today, tasks = [], late = [], carry = [
         out.push({ key: `${r.key}-p${i}`, time: _hhmm(p.from), ev: 'pause', span: r.key, kind: '棚卸', title: `中断 ${fmtDuration(p.to - p.from)}`, sub: `${fmtHm(p.from)}〜${fmtHm(p.to)}`, state: 'done', ref })
         out.push({ key: `${r.key}-r${i}`, time: _hhmm(p.to), ev: 'resume', span: r.key, kind: '棚卸', title: '再開', sub: '', state: 'done', ref })
       })
-      out.push({ key: `${r.key}-e`, time: _hhmm(r.end), ev: 'end', span: r.key, kind: '棚卸', title: r.title, sub: stockTimeLabel(r), state: 'done', ref, pauseCount: pauses.length, pauseMs: pauses.reduce((n, p) => n + (p.to - p.from), 0) })
+      const crew = r.crew ?? []
+      crew.forEach((c, i) => {
+        out.push({ key: `${r.key}-j${i}`, time: _hhmm(c.from), ev: 'join', span: r.key, kind: '棚卸', title: `${c.name} ${c.count}品目`, sub: `${fmtHm(c.from)}〜${fmtHm(c.to)}`, state: 'done', ref })
+      })
+      out.push({ key: `${r.key}-e`, time: _hhmm(r.end), ev: 'end', span: r.key, kind: '棚卸', title: r.title, sub: stockTimeLabel(r), state: 'done', ref, pauseCount: pauses.length, pauseMs: pauses.reduce((n, p) => n + (p.to - p.from), 0), crewCount: crew.length })
       continue
     }
     const sub = r.kind === 'stock' ? [stockTimeLabel(r), r.by].filter(Boolean).join(' ・ ') : [r.by, r.lines?.slice(0, 3).map(l => l.item).join('・')].filter(Boolean).join(' ・ ')
@@ -72,7 +77,7 @@ export function buildDayTimeline({ date, today, tasks = [], late = [], carry = [
   for (const t of someday) out.push({ key: t.id, time: '', kind: 'いつか', title: t.text, sub: _who(t), state: 'todo', someday: true, ref: { type: 'task', task: t } })
   if (note) out.push({ key: 'note', time: '', kind: 'メモ', title: note, sub: '', state: 'info', ref: { type: 'note' } })
   const allDay = out.filter(x => !x.time)
-  const EV = { start: 0, pause: 1, resume: 2, end: 4 }
+  const EV = { start: 0, join: 0.5, pause: 1, resume: 2, end: 4 }
   const timed = out.filter(x => x.time).sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0) || (EV[a.ev] ?? 3) - (EV[b.ev] ?? 3))
   // 帯とかぶり: その日の分（時刻）で比べる
   const _min = hm => { const [h, m] = hm.split(':').map(Number); return h * 60 + m }
