@@ -433,3 +433,19 @@
   - `CLAUDE.md`が参照していた`~/.claude/CLAUDE.md`はクラウドのセッションに存在せず、そこにしかないルールが届いていなかった。
 - 検査: `node scripts/check-docs-links.mjs`（相対リンク切れと`AGENTS.md`主要ファイル一覧の実在）。
 - 適用: [`tasks/DOC-003.md`](tasks/DOC-003.md)
+
+## D-030 — 採否はUserが承認する（PMセッションを廃止）
+
+- 日付: 2026-11-02
+- 状態: 採用
+- 決定者: User
+- 判断:
+  - 提案・設計判断の採否は User が承認する。PMセッションによるトリアージ・取り込みレビューは置かない。
+  - User が会話で依頼・承認した仕様は採用済みとして扱い、同じタスクで恒久docsへ反映する。
+    User が明示していない設計判断だけを`docs/proposals.md`で承認待ちにする。
+  - `proposals.md`の「PM判断」欄は「User判断」と読み替える。過去エントリは書き換えない。
+  - `intake-reviews.md`は履歴として休止する。`feature-checklist.md`は各セッションが改訂してよく、項目の削除はUser承認。
+  - 文書と実装の矛盾はD-028（実装を正とする）で扱い、`working-agreement.md`の「コードを無条件に正とせず」を置き換える。
+- 理由: PMセッションの記録は2026-07-21が最後で、未トリアージの提案が52件たまり、
+  「実装済みでも合意ではない」規則により3か月分の実装が文書上は未合意のままだった。
+- 置き換え: `feature-checklist.md`の旧§運用、`project-status.md` §7の旧運用ルール、`working-agreement.md`の旧§競合時。
