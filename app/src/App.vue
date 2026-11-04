@@ -61,7 +61,7 @@ import {
 } from './composables/useAuditSync.js'
 import { effectiveLot } from './services/lot.js'
 import { mergeOrderSnapshot, applyOrderLine, orderDraftToPayload, dropHeldLines } from './services/orderSync.js'
-import { isAuthenticated, clearAuthLocal, setAccountResetHandler, getSessionLines, pendingJoin, can, denyMessage, refreshMe } from './composables/useAuth.js'
+import { isAuthenticated, clearAuthLocal, setAccountResetHandler, getSessionLines, pendingJoin, can, denyMessage, refreshMe, currentStaff } from './composables/useAuth.js'
 import { startPresence } from './composables/usePresence.js'
 import { syncPushOwner } from './composables/usePush.js'
 import { buildSnapshotFromLines } from './services/snapshotFromLines.js'
@@ -2165,6 +2165,8 @@ const staffJoinToken = ref('')
 function onStaffJoined() {
   currentView.value = 'sessions'
   onAuthDone()
+  // 承認されて入ったことをアプリの中でも一言（User 2026-11-04）
+  showToast(`参加が承認されました。${currentStaff.value?.name ? `${currentStaff.value.name}さん、` : ''}ようこそ`, 4000, 'success')
 }
 
 // 発注の書き出し（品目名と数量だけを業者ごとに）。発注を終えたときに開く

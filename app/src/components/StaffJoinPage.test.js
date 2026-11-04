@@ -8,11 +8,12 @@ let app = null, host = null, api, events
 const tick = async () => { for (let i = 0; i < 6; i++) await nextTick() }
 const TOKEN = 'a'.repeat(48)
 
-beforeEach(() => { localStorage.clear(); vi.resetModules(); vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] }) })
+beforeEach(() => { localStorage.clear(); vi.resetModules(); vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] }) })
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null; vi.useRealTimers() })
 
 async function mount(token = TOKEN) {
   ({ apiFetch: api } = await import('../utils/api.js'))
+  api._approved = false
   api.mockImplementation(async (path, opts) => {
     if (path.startsWith('/staff/invite?')) return { storeName: '本店', shopCode: 'ABCDEF', name: '山田', role: 'arbeit', expiresAt: new Date(Date.now() + 9 * 60000).toISOString() }
     if (path === '/staff/join') return { pendingKey: 'b'.repeat(48), shopCode: 'ABCDEF', storeName: '本店', name: JSON.parse(opts.body).name, staffId: 'st_1' }
@@ -46,12 +47,30 @@ describe('招待から参加', () => {
     await click(host.querySelector('.sj-btn.pri'))
     expect(host.textContent).toContain('参加を申請しました')
     api._approved = true
-    await vi.advanceTimersByTimeAsync(5000); await tick()
+    await vi.advanceTimersByTimeAsync(3000); await tick()
+    // まず「承認されました」を見せてから、アプリへ進む（User 2026-11-04）
+    expect(host.textContent).toContain('承認されました')
+    expect(events).not.toContain('done')
+    await vi.advanceTimersByTimeAsync(1800); await tick()
     const auth = await import('../composables/useAuth.js')
     expect(auth.currentStaff.value).toEqual({ id: 'st_1', name: '山田', role: 'arbeit' })
     expect(auth.currentRole.value).toBe('arbeit')
     expect(auth.isAdmin.value).toBe(false)
     expect(events).toContain('done')
     expect(localStorage.getItem('_staff_join')).toBeNull()
+  })
+
+  it('画面に戻ったら、次のタイマーを待たずにすぐ聞く。「はじめる」ですぐ入れる', async () => {
+    await mount()
+    await set('#sj-pin', '284713'); await set('#sj-pin2', '284713')
+    await click(host.querySelector('.sj-btn.pri'))
+    const asked = () => api.mock.calls.filter(c => c[0].startsWith('/staff/pending?')).length
+    const before = asked()
+    api._approved = true
+    document.dispatchEvent(new Event('visibilitychange')); await tick()
+    expect(asked()).toBe(before + 1)
+    expect(host.textContent).toContain('承認されました')
+    await click([...host.querySelectorAll('button')].find(b => b.textContent.includes('はじめる')))
+    expect(events).toContain('done')
   })
 })

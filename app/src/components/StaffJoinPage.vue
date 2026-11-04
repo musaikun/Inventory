@@ -3,6 +3,8 @@
  * 招待から参加する画面（段 2-1・User決定 2026-10-07）。
  * 招待の URL（?join=…）を開くとここ。名前と6桁の暗証番号を入れて申請し、管理者の承認を待つ。
  * 承認されたら、この端末がそのままスタッフとしてログインする（暗証番号を入れ直さない）。
+ * 承認はすぐ拾う（User 2026-11-04）: 3秒ごと＋画面に戻った・通信が戻ったときにすぐ聞く（裏にいる間はタイマーが止まる端末がある）。
+ * 承認されたら「承認されました」を見せ、通知を許していれば端末の通知も出してから、アプリへ進む。
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { getInvite, joinAsStaff, pendingJoin, checkPendingJoin, forgetPendingJoin, ROLE_LABELS } from '../composables/useAuth.js'
@@ -11,7 +13,7 @@ import PasswordReveal from './PasswordReveal.vue'
 const props = defineProps({ token: { type: String, default: '' } })
 const emit = defineEmits(['done', 'cancel'])
 
-const step = ref('loading')   // loading | form | waiting | invalid | rejected
+const step = ref('loading')   // loading | form | waiting | approved | invalid | rejected
 const invite = ref(null)
 const name = ref('')
 const pin = ref('')
@@ -20,21 +22,68 @@ const error = ref('')
 const busy = ref(false)
 const waiting = ref(pendingJoin())
 
-let timer = null
+let timer = null, goTimer = null
+let _asking = false   // 聞いている途中は重ねて聞かない（承認の1回きりの返事を2本目が「もう無い」と受けないように）
+const POLL_MS = 3000
+async function poll() {
+  if (step.value !== 'waiting' || _asking) return
+  _asking = true
+  try {
+    const st = await checkPendingJoin()
+    if (st === 'active') approved()
+    else if (st === 'rejected' || st === 'gone' || st === 'deleted') { stopWaiting(); step.value = 'rejected' }
+  } catch (_) { /* 通信できないときは次に聞く */ } finally { _asking = false }
+}
+// 画面に戻った・通信が戻ったら、次のタイマーを待たずに聞く
+const _onBack = () => { if (document.visibilityState !== 'hidden') poll() }
 function startWaiting() {
   step.value = 'waiting'
-  clearInterval(timer)
-  const poll = async () => {
-    try {
-      const st = await checkPendingJoin()
-      if (st === 'active') { clearInterval(timer); emit('done') }
-      else if (st === 'rejected' || st === 'gone' || st === 'deleted') { clearInterval(timer); step.value = 'rejected' }
-    } catch (_) { /* 通信できないときは次に聞く */ }
-  }
+  stopWaiting()
   poll()
-  timer = setInterval(poll, 5000)
+  timer = setInterval(poll, POLL_MS)
+  document.addEventListener('visibilitychange', _onBack)
+  window.addEventListener('focus', _onBack)
+  window.addEventListener('online', _onBack)
 }
-onUnmounted(() => clearInterval(timer))
+function stopWaiting() {
+  clearInterval(timer)
+  document.removeEventListener('visibilitychange', _onBack)
+  window.removeEventListener('focus', _onBack)
+  window.removeEventListener('online', _onBack)
+}
+onUnmounted(() => { stopWaiting(); clearTimeout(goTimer) })
+
+// ── 承認されたら ─────────────────────────────
+// 「承認されました」を一瞬見せてからアプリへ（いきなり画面が変わると何が起きたか分からない）
+function approved() {
+  stopWaiting()
+  step.value = 'approved'
+  try { navigator.vibrate?.(30) } catch (_) {}
+  notifyApproved()
+  goTimer = setTimeout(goIn, 1800)
+}
+function goIn() { clearTimeout(goTimer); emit('done') }
+
+// 端末の通知（待っている間に別のアプリを見ていても気づけるように）。許可は待ちの画面のボタンから訊く
+const canAskNotify = ref(typeof Notification !== 'undefined' && Notification.permission === 'default')
+const notifyOn = ref(typeof Notification !== 'undefined' && Notification.permission === 'granted')
+async function askNotify() {
+  try {
+    const r = await Notification.requestPermission()
+    notifyOn.value = r === 'granted'
+  } catch (_) { /* 訊けない端末では何もしない */ }
+  canAskNotify.value = false
+}
+async function notifyApproved() {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+  const title = '参加が承認されました'
+  const body = `${waiting.value?.storeName || waiting.value?.shopCode || ''} にスタッフとして入れます`
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration?.()
+    if (reg?.showNotification) { await reg.showNotification(title, { body, tag: 'staff-join', icon: './icon-192.png' }); return }
+    new Notification(title, { body, tag: 'staff-join' })
+  } catch (_) { /* 出せなくても画面の表示で分かる */ }
+}
 
 onMounted(async () => {
   if (!props.token && waiting.value) { startWaiting(); return }
@@ -70,7 +119,7 @@ async function submit() {
     busy.value = false
   }
 }
-function giveUp() { forgetPendingJoin(); clearInterval(timer); emit('cancel') }
+function giveUp() { forgetPendingJoin(); stopWaiting(); emit('cancel') }
 const digits = v => v.replace(/\D/g, '').slice(0, 6)
 </script>
 
@@ -114,7 +163,15 @@ const digits = v => v.replace(/\D/g, '').slice(0, 6)
         <div class="sj-wait" aria-hidden="true">⏳</div>
         <p class="sj-p"><b>{{ waiting?.name }}</b>さんの参加を申請しました。<br>管理者が承認すると、このままログインします。</p>
         <p class="sj-p sj-small">{{ waiting?.storeName || waiting?.shopCode }} ・ 店舗コード {{ waiting?.shopCode }}</p>
+        <button v-if="canAskNotify" type="button" class="sj-btn sec" @click="askNotify">🔔 承認されたら通知で知らせる</button>
+        <p v-else-if="notifyOn" class="sj-p sj-small">🔔 承認されたら、この端末に通知します</p>
         <button type="button" class="sj-btn sec" @click="giveUp">申請をやめる</button>
+      </template>
+
+      <template v-else-if="step === 'approved'">
+        <div class="sj-ok" aria-hidden="true">✓</div>
+        <p class="sj-p" role="status"><b>承認されました</b><br>{{ waiting?.storeName || waiting?.shopCode }} にスタッフとして入ります</p>
+        <button type="button" class="sj-btn pri" @click="goIn">はじめる</button>
       </template>
 
       <template v-else-if="step === 'rejected'">
@@ -141,6 +198,9 @@ const digits = v => v.replace(/\D/g, '').slice(0, 6)
 .sj-small { font-size: 12px; color: #7d969c; }
 .sj-err { margin: 0; font-size: 13px; font-weight: 700; color: #b91c1c; text-align: center; }
 .sj-wait { font-size: 40px; text-align: center; }
+.sj-ok { width: 64px; height: 64px; margin: 0 auto; border-radius: 50%; background: #16a34a; color: #fff; font-size: 34px; font-weight: 900; display: flex; align-items: center; justify-content: center; animation: sj-pop .4s cubic-bezier(.2,1.6,.4,1); }
+@keyframes sj-pop { from { transform: scale(.4); } to { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .sj-ok { animation: none; } }
 .sj-btn { min-height: 48px; border-radius: 12px; font-size: 15px; font-weight: 800; cursor: pointer; margin-top: 6px; }
 .sj-btn.pri { border: none; background: var(--grad-btn); color: var(--on-grad); }
 .sj-btn.pri:disabled { opacity: .6; }
