@@ -29,6 +29,10 @@
   .fav { display:inline-flex; align-items:center; gap:4px; border:1.5px solid #fcd34d; background:var(--starw); color:#78350f; border-radius:999px; padding:5px 10px; font-size:11.5px; font-weight:800; white-space:nowrap; }
   .fav i { font-style:normal; font-size:10px; color:var(--star); }
   .fav.cl { border-color:#c4b5fd; background:var(--clw); color:#4c1d95; } .fav.rt { border-color:#99f6e4; background:var(--rtw); color:#134e4a; }
+  .pick { display:grid; gap:7px; }
+  .pk { display:flex; gap:10px; align-items:center; border:1.5px solid var(--line2); border-radius:14px; padding:7px 10px; }
+  .pk em { font-style:normal; font-size:22px; width:32px; text-align:center; flex:none; }
+  .pk b { font-size:14px; display:block; } .pk small { font-size:11px; color:var(--muted); font-weight:700; line-height:1.45; }
   .kinds { display:grid; grid-template-columns:repeat(4,1fr); gap:5px; }
   .kinds span { border:1.5px solid var(--line2); border-radius:10px; padding:7px 2px; text-align:center; font-size:10.5px; font-weight:900; display:grid; gap:2px; color:var(--muted); }
   .kinds span em { font-style:normal; font-size:16px; }
@@ -83,55 +87,81 @@
   <h1>やることの作り方：入口を1つに、チェック表は種類の1つ、お気に入りと複製</h1>
   <p class="lead">
     作る入口は<b>「＋ 追加」の1つだけ</b>（日誌・ボード・ホームのやること、どこから押しても同じ画面）。
-    まず「何を」を書き、次に<b>いつ</b>（1回・いつか・進行中・繰り返す）を選ぶ。<b>📋 項目を付ける</b>を入れるとチェック表になる。
+    押したら<b>まず種類を選ぶ</b>（やること・チェック表・ルーティン・進行中・いつか）。次の画面はその種類に要る欄だけ。
     よく使うものは<b>★ お気に入り</b>にしておけば、次から押すだけ。作ったものは<b>別の日にコピー</b>できる。スタッフも作れる。画面の内容は見本。
   </p>
 
-  <h2><span class="n">1</span>1つの追加画面</h2>
+  <h2><span class="n">1</span>「＋」→ まず種類を選ぶ → その種類に合う入力だけ</h2>
   <div class="row">
     <div class="col">
-      <div class="cap">1-1 開いたところ<small>いちばん上に名前。その下に ★ お気に入り（押すと中身が全部入る）。いつは4つから1つ。時刻・担当は今と同じ</small></div>
-      <div class="phone"><div class="dim"></div><div class="sheet">
-        <div class="sh-h">追加<i>やめる</i></div>
-        <div class="in ph">何をする？（例：製氷機のフィルター交換）</div>
+      <div class="cap">1-1 種類を選ぶ<small>入力の画面に種類のボタンは置かない。最初にここで1つ選ぶと、次の画面はその種類に要る欄だけになる。下に ★ お気に入り（押すと中身入りで開く）</small></div>
+      <div class="phone"><div class="dim"></div><div class="sheet" style="top:12px">
+        <div class="sh-h">何を足す？<i>やめる</i></div>
+        <div class="pick">
+          <div class="pk"><em>📅</em><span><b>やること</b><small>日付と時刻を決めて1回（揚げ油の交換）</small></span></div>
+          <div class="pk"><em>📋</em><span><b>チェック表</b><small>項目に✓を付けていく（開店準備・閉店チェック）</small></span></div>
+          <div class="pk"><em>🔁</em><span><b>ルーティン</b><small>毎日・曜日・毎月に決まってやる（冷蔵庫の温度）</small></span></div>
+          <div class="pk"><em>⏳</em><span><b>進行中</b><small>何日かかかる。済むまで毎日出る（修理の手配）</small></span></div>
+          <div class="pk"><em>📥</em><span><b>いつか</b><small>日付を決めずにしまっておく（棚の整理）</small></span></div>
+        </div>
         <div class="lbl">★ お気に入りから</div>
-        <div class="favs"><span class="fav cl"><i>★</i>📋 閉店チェック</span><span class="fav rt"><i>★</i>🔁 冷蔵庫の温度</span><span class="fav"><i>★</i>揚げ油の交換</span><span class="fav cl"><i>★</i>📋 開店準備</span></div>
-        <div class="lbl">いつ</div>
-        <div class="kinds"><span class="on"><em>📅</em>1回</span><span><em>📥</em>いつか</span><span><em>⏳</em>進行中</span><span><em>🔁</em>繰り返す</span></div>
-        <div class="grid2"><div class="field"><small>日付</small>11月5日（木）</div><div class="field"><small>時刻（任意）</small>—</div></div>
+        <div class="favs"><span class="fav cl"><i>★</i>📋 閉店チェック</span><span class="fav rt"><i>★</i>🔁 冷蔵庫の温度</span></div>
+      </div></div>
+    </div>
+
+    <div class="col">
+      <div class="cap">1-2 📅 やること<small>名前・日付・時刻（任意）・担当・備考。いちばん少ない欄</small></div>
+      <div class="phone"><div class="dim"></div><div class="sheet">
+        <div class="sh-h"><span>‹ 📅 やること</span><i>やめる</i></div>
+        <div class="in">揚げ油の交換</div>
+        <div class="grid2"><div class="field"><small>日付</small>11月5日（木）</div><div class="field"><small>時刻（任意）</small>15:00</div></div>
         <div class="field"><small>担当</small>自分（高木）</div>
-        <div class="tog"><span>📋 項目を付ける<small>チェック表にする（閉店チェックなど）</small></span><span class="sw"></span></div>
+        <div class="field"><small>備考（任意）</small>＋ 書く</div>
+        <label class="chk"><b>★</b>お気に入りにも入れる</label>
         <div class="foot"><div class="btn">追加</div></div>
       </div></div>
     </div>
 
     <div class="col">
-      <div class="cap">1-2 📋 項目を付けた（チェック表）<small>項目を並べる。1回でも繰り返すでも付けられる。下の ☆ に入れると、追加と同時にお気に入りにも入る</small></div>
+      <div class="cap">1-3 📋 チェック表<small>項目が主役。いつは「1回（日付）」か「繰り返す」。繰り返すを選ぶと曜日などが出る（ルーティンのチェック表）</small></div>
       <div class="phone"><div class="dim"></div><div class="sheet">
-        <div class="sh-h">追加<i>やめる</i></div>
+        <div class="sh-h"><span>‹ 📋 チェック表</span><i>やめる</i></div>
         <div class="in">ケータリングの準備</div>
-        <div class="lbl">いつ</div>
-        <div class="kinds"><span class="on"><em>📅</em>1回</span><span><em>📥</em>いつか</span><span><em>⏳</em>進行中</span><span><em>🔁</em>繰り返す</span></div>
-        <div class="grid2"><div class="field"><small>日付</small>11月8日（日）</div><div class="field"><small>時刻（任意）</small>9:00</div></div>
-        <div class="tog on"><span>📋 項目を付ける<small>6項目</small></span><span class="sw"></span></div>
+        <div class="lbl">確かめること</div>
         <div class="items"><div>保冷バッグ 3つ</div><div>ラベルを印刷</div><div>受け取りの電話</div><div>領収書</div><div class="add">項目を足す</div></div>
+        <div class="rep"><span class="on">1回</span><span>繰り返す</span></div>
+        <div class="grid2"><div class="field"><small>日付</small>11月8日（日）</div><div class="field"><small>時刻（任意）</small>9:00</div></div>
+        <div class="field"><small>担当</small>高木</div>
         <label class="chk"><b>★</b>お気に入りにも入れる</label>
-        <div class="foot"><div class="btn">追加（チェック表）</div></div>
+        <div class="foot"><div class="btn">追加（4項目）</div></div>
       </div></div>
     </div>
 
     <div class="col">
-      <div class="cap">1-3 🔁 繰り返す<small>今のルーティンと同じ選び方（毎日・曜日・毎月・月末）。時刻はいくつでも。文で言い直す。チェック表と組み合わせられる</small></div>
+      <div class="cap">1-4 🔁 ルーティン<small>いつ（毎日・曜日・毎月・月末）と時刻（いくつでも）。項目は任意（入れればチェック表になる）。決めた内容を一文で言い直す</small></div>
       <div class="phone"><div class="dim"></div><div class="sheet">
-        <div class="sh-h">追加<i>やめる</i></div>
-        <div class="in">閉店チェック</div>
-        <div class="lbl">いつ</div>
-        <div class="kinds"><span><em>📅</em>1回</span><span><em>📥</em>いつか</span><span><em>⏳</em>進行中</span><span class="on"><em>🔁</em>繰り返す</span></div>
+        <div class="sh-h"><span>‹ 🔁 ルーティン</span><i>やめる</i></div>
+        <div class="in">冷蔵庫の温度</div>
         <div class="rep"><span class="on">毎日</span><span>曜日</span><span>毎月</span></div>
-        <div class="grid2"><div class="field"><small>時刻</small>22:30</div><div class="field"><small>担当</small>山田</div></div>
-        <div class="tog on"><span>📋 項目を付ける<small>6項目</small></span><span class="sw"></span></div>
-        <div class="sent">🔁 毎日 22:30 に、山田が「閉店チェック」（6項目）をする</div>
-        <div class="foot"><div class="btn">追加（ルーティン）</div></div>
+        <div class="lbl">時刻（1日に何回でも）</div>
+        <div class="rep"><span class="on">10:00 ✕</span><span class="on">15:00 ✕</span><span class="on">20:00 ✕</span><span>＋</span></div>
+        <div class="field"><small>担当</small>全員</div>
+        <div class="tog"><span>📋 項目を付ける<small>任意（なし＝押せば済む）</small></span><span class="sw"></span></div>
+        <div class="sent">🔁 毎日 10:00・15:00・20:00 に、全員の「冷蔵庫の温度」</div>
+        <div class="foot"><div class="btn">追加</div></div>
+      </div></div>
+    </div>
+
+    <div class="col">
+      <div class="cap">1-5 ⏳ 進行中 ／ 📥 いつか<small>進行中は期限（任意）だけ。日付は決めない（済むまで毎日出る）。いつかは名前と担当だけ</small></div>
+      <div class="phone"><div class="dim"></div><div class="sheet">
+        <div class="sh-h"><span>‹ ⏳ 進行中</span><i>やめる</i></div>
+        <div class="in">製氷機の修理の手配</div>
+        <div class="field"><small>期限（任意）</small>11月7日（土）</div>
+        <div class="field"><small>担当</small>佐藤</div>
+        <div class="field"><small>備考（任意）</small>業者：03-xxxx-xxxx</div>
+        <div class="sent" style="background:var(--pgw);color:var(--pg)">⏳ 済むまで毎日「進行中」に出ます。止まったらアプリが知らせます</div>
+        <div class="foot"><div class="btn">進行中として追加</div></div>
       </div></div>
     </div>
   </div>
@@ -193,8 +223,8 @@
   <div class="tablewrap">
   <table class="map">
     <tr><th>こと</th><th>今</th><th>変えた後</th><th>サーバー</th></tr>
-    <tr><td>作る入口</td><td>日誌の＋（やること）と、ルーティンの画面（🔁）が別</td><td>「＋ 追加」の1つ。どこから押しても同じ画面</td><td>要らない</td></tr>
-    <tr><td>チェック表</td><td>ルーティンの中身として作る（管理者だけ）</td><td>「📋 項目を付ける」で、1回でも繰り返すでも。スタッフも作れる</td><td>作る権限を変える</td></tr>
+    <tr><td>作る入口</td><td>日誌の＋（やること）と、ルーティンの画面（🔁）が別。種類は入力の中で切り替え</td><td>「＋ 追加」の1つ。最初に種類を選び、その種類の欄だけを出す</td><td>要らない</td></tr>
+    <tr><td>チェック表</td><td>ルーティンの中身として作る（管理者だけ）</td><td>種類の1つ。1回でも繰り返すでも。スタッフも作れる</td><td>作る権限を変える</td></tr>
     <tr><td>いつか・進行中にチェック表</td><td>付けられない</td><td>付けられる（手順の✓）。後の版</td><td>やることに項目を持たせる（migration）</td></tr>
     <tr><td>別の日にコピー</td><td>無い</td><td>どの種類でも。日を何日でも選ぶ</td><td>要らない（作るのと同じ）</td></tr>
     <tr><td>★ お気に入り</td><td>無い（見本のルーティンだけ）</td><td>店で共有のひな形。押すと中身入りで追加</td><td>ひな形の表を足す（migration）</td></tr>
