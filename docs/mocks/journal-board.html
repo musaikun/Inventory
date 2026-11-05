@@ -1,0 +1,307 @@
+<title>日誌の予定ボード</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* 予約台帳（レストランボード）の形を借りた、日誌の1日の予定ボード。アプリの明るい見た目の1テーマ */
+  :root {
+    color-scheme: light;
+    --page:#d3dfe3; --paper:#ffffff; --ink:#12303a; --muted:#4c6a72; --faint:#94a3b8; --line:#e2ecef; --line2:#cfdde2;
+    --pri:#0e7490; --priw:#ecfeff; --off:#f3f6f8;
+    --task:#0e7490; --taskw:#cffafe; --prep:#7c3aed; --prepw:#ede9fe; --clean:#15803d; --cleanw:#dcfce7; --order:#c2410c; --orderw:#ffedd5;
+    --now:#dc2626; --done:#94a3b8;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:var(--page); color:var(--ink);
+    padding-block:20px 32px; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px));
+    display:flex; gap:28px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
+  .side { max-width:340px; display:grid; gap:10px; font-size:13px; line-height:1.7; color:var(--muted); }
+  .side h1 { font-size:19px; color:var(--ink); text-wrap:balance; }
+  .side b { color:var(--ink); }
+  .side ul { display:grid; gap:2px; } .side li { margin-left:18px; }
+  .phone { width:360px; max-width:100%; height:720px; background:var(--paper); border-radius:30px; overflow:hidden; display:flex; flex-direction:column;
+    box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; position:relative; user-select:none; -webkit-user-select:none; }
+  .hd { display:flex; align-items:center; gap:6px; padding:10px 12px; border-bottom:1px solid var(--line); }
+  .hd b { font-size:15.5px; } .hd small { font-size:11px; color:var(--muted); font-weight:700; }
+  .hd .nav { border:none; background:var(--off); border-radius:8px; width:30px; height:30px; font-size:15px; cursor:pointer; color:var(--ink); }
+  .zoom { margin-left:auto; display:flex; border:1.5px solid var(--line2); border-radius:9px; overflow:hidden; }
+  .zoom button { border:none; background:var(--paper); color:var(--pri); font-size:11.5px; font-weight:900; padding:6px 9px; cursor:pointer; }
+  .zoom button.on { background:var(--pri); color:#fff; }
+  .allday { display:flex; gap:6px; align-items:center; padding:7px 12px; border-bottom:1px solid var(--line); overflow-x:auto; }
+  .allday > span { flex:none; font-size:10.5px; font-weight:800; color:var(--muted); width:44px; }
+  .ad { flex:none; border-radius:8px; padding:5px 9px; font-size:11.5px; font-weight:800; background:var(--off); border:1px solid var(--line2); cursor:pointer; }
+  .ad.done { color:var(--done); text-decoration:line-through; }
+  .board { flex:1; min-height:0; display:grid; grid-template-columns:58px 1fr; overflow:hidden; position:relative; }
+  .rows { border-right:1px solid var(--line2); background:var(--paper); z-index:3; }
+  .rows .rh { height:22px; border-bottom:1px solid var(--line2); }
+  .rows .r { display:flex; flex-direction:column; justify-content:center; gap:1px; padding:0 8px; border-bottom:1px solid var(--line); font-size:12px; font-weight:900; }
+  .rows .r small { font-size:9.5px; color:var(--muted); font-weight:700; }
+  .rows .r .av { width:22px; height:22px; border-radius:50%; background:var(--off); display:flex; align-items:center; justify-content:center; font-size:11px; }
+  .scroll { overflow-x:auto; overflow-y:hidden; position:relative; touch-action:pan-x; scrollbar-width:thin; }
+  .canvas { position:relative; }
+  .axis { height:22px; border-bottom:1px solid var(--line2); position:relative; }
+  .axis span { position:absolute; top:4px; font-size:10px; font-weight:800; color:var(--muted); transform:translateX(-50%); font-variant-numeric:tabular-nums; }
+  .grid { position:absolute; left:0; right:0; top:22px; bottom:0; }
+  .off { position:absolute; top:0; bottom:0; background:repeating-linear-gradient(45deg, var(--off), var(--off) 6px, #fff 6px, #fff 12px); }
+  .vl { position:absolute; top:0; bottom:0; width:1px; background:var(--line); }
+  .vl.h { background:var(--line2); }
+  .hl { position:absolute; left:0; right:0; height:1px; background:var(--line); }
+  .now { position:absolute; top:0; bottom:0; width:2px; background:var(--now); z-index:6; pointer-events:none; }
+  .now::before { content:'いま'; position:absolute; top:2px; left:3px; background:var(--now); color:#fff; font-size:9.5px; font-weight:900; border-radius:5px; padding:1px 5px; white-space:nowrap; }
+  .blk { position:absolute; border-radius:8px; padding:3px 7px; font-size:11.5px; font-weight:800; overflow:hidden; cursor:grab; z-index:4; display:flex; flex-direction:column; justify-content:center; line-height:1.25; touch-action:none; border:1.5px solid; transition:left .18s, top .18s, width .18s; }
+  .blk small { font-size:9.5px; font-weight:700; opacity:.85; white-space:nowrap; }
+  .blk .t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .blk.k-task { background:var(--taskw); border-color:var(--task); color:#0b4f61; }
+  .blk.k-prep { background:var(--prepw); border-color:var(--prep); color:#4c1d95; }
+  .blk.k-clean { background:var(--cleanw); border-color:var(--clean); color:#14532d; }
+  .blk.k-order { background:var(--orderw); border-color:var(--order); color:#7c2d12; }
+  .blk.done { opacity:.55; } .blk.done .t { text-decoration:line-through; }
+  .blk.thin .t, .blk.thin small { visibility:hidden; }
+  .blk.pin { border-radius:999px; padding:3px 8px 3px 6px; }
+  .blk.pin::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; }
+  .blk.drag { transition:none; z-index:20; box-shadow:0 10px 20px rgba(0,0,0,.22); cursor:grabbing; }
+  .blk.rec { cursor:default; border-style:dashed; background:repeating-linear-gradient(-45deg, #e0f2fe, #e0f2fe 5px, #f0f9ff 5px, #f0f9ff 10px); border-color:#0284c7; color:#075985; }
+  .grip { position:absolute; right:0; top:0; bottom:0; width:12px; cursor:ew-resize; }
+  .grip::after { content:''; position:absolute; right:4px; top:30%; bottom:30%; width:2px; border-radius:2px; background:currentColor; opacity:.45; }
+  .ghost { position:absolute; border:2px dashed var(--pri); border-radius:8px; background:rgba(14,116,144,.08); z-index:3; pointer-events:none; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:900; color:var(--pri); }
+  .tip { position:absolute; z-index:25; background:var(--ink); color:#fff; font-size:11px; font-weight:800; border-radius:7px; padding:3px 7px; pointer-events:none; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .legend { display:flex; gap:10px; flex-wrap:wrap; padding:7px 12px; border-top:1px solid var(--line); font-size:10.5px; color:var(--muted); font-weight:700; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:3px; vertical-align:-1px; border:1.5px solid; }
+  .fab { position:absolute; right:14px; bottom:44px; width:52px; height:52px; border-radius:50%; border:none; background:var(--pri); color:#fff; font-size:28px; cursor:pointer; box-shadow:0 6px 16px rgba(14,116,144,.4); z-index:10; }
+  .toast { position:absolute; left:12px; right:12px; top:56px; background:var(--ink); color:#fff; border-radius:12px; padding:9px 12px; font-size:12.5px; font-weight:700; display:flex; align-items:center; gap:10px; opacity:0; transform:translateY(-6px); transition:.2s; pointer-events:none; z-index:30; }
+  .toast.show { opacity:1; transform:none; pointer-events:auto; }
+  .toast button { margin-left:auto; border:none; background:#fff; color:var(--ink); border-radius:8px; padding:5px 10px; font-weight:900; font-size:12px; cursor:pointer; }
+  .sheet-bg { position:absolute; inset:0; background:rgba(6,34,43,.4); display:flex; align-items:flex-end; z-index:40; }
+  .sheet-bg[hidden] { display:none; }
+  .sheet { width:100%; background:var(--paper); border-radius:20px 20px 0 0; padding:16px 14px 18px; display:grid; gap:9px; }
+  .sh-h { display:flex; justify-content:space-between; align-items:center; font-size:15px; font-weight:900; }
+  .sh-h button { border:none; background:none; font-size:18px; color:var(--muted); cursor:pointer; }
+  .lbl { font-size:11px; font-weight:800; color:var(--muted); }
+  .in { font-size:16px; padding:9px 11px; border:1.5px solid var(--line2); border-radius:10px; width:100%; }
+  .in:focus { outline:none; border-color:var(--pri); }
+  .chips { display:flex; gap:5px; flex-wrap:wrap; }
+  .chips button { border:1.5px solid var(--line2); background:var(--paper); border-radius:999px; padding:6px 11px; font-size:12px; font-weight:800; color:var(--ink); cursor:pointer; }
+  .chips button.on { border-color:var(--pri); color:var(--pri); background:var(--priw); }
+  .meta { font-size:12.5px; font-weight:800; color:var(--pri); background:var(--priw); border-radius:10px; padding:8px 10px; }
+  .acts { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .btn { border:none; border-radius:12px; padding:12px; font-size:14px; font-weight:900; cursor:pointer; background:var(--off); color:var(--ink); }
+  .btn.p { background:var(--pri); color:#fff; } .btn.ng { background:#fef2f2; color:#b91c1c; }
+  .btn:focus-visible, .chips button:focus-visible, .zoom button:focus-visible { outline:3px solid #a5f3fc; outline-offset:1px; }
+  @media (prefers-reduced-motion: reduce) { .blk, .toast { transition:none; } }
+</style>
+
+<div class="side">
+  <h1>日誌の予定ボード（予約台帳の形）</h1>
+  <div>レストランボードの予約台帳と同じく、<b>横が時間、縦が人</b>。右の画面を指（マウス）で触ってください。見本の予定で、保存はしません。</div>
+  <ul>
+    <li><b>空いているマス</b>を押す → その時間・その人で予定を足す</li>
+    <li>予定を<b>掴んで横へ</b> → 時間を変える（15分ごとに止まる）</li>
+    <li>予定を<b>掴んで縦へ</b> → 担当を替える</li>
+    <li>予定の<b>右の端</b>を引く → 終わりの時刻を変える</li>
+    <li>予定を<b>押す</b> → 済み・名前を直す・消す（元に戻せる）</li>
+    <li>右上の <b>3時間／1日</b> で縮尺を切り替え（1日では細い予定は色だけ）。斜線は営業時間の外</li>
+    <li>点線の帯は<b>棚卸の記録</b>（動かせない）。丸い形は終わりの無い「◯時までに」</li>
+  </ul>
+</div>
+
+<div class="phone" id="phone">
+  <div class="hd">
+    <button class="nav" id="prev" aria-label="前の日">‹</button>
+    <div><b id="dl">11月5日（木）</b><br><small id="ds">今日・予定 7件</small></div>
+    <button class="nav" id="next" aria-label="次の日">›</button>
+    <div class="zoom" role="radiogroup" aria-label="縮尺"><button id="z4" class="on" role="radio" aria-checked="true">3時間</button><button id="z24" role="radio" aria-checked="false">1日</button></div>
+  </div>
+  <div class="allday" id="allday"></div>
+  <div class="board">
+    <div class="rows" id="rows"></div>
+    <div class="scroll" id="scroll"><div class="canvas" id="canvas"></div></div>
+  </div>
+  <div class="legend">
+    <span><i style="background:var(--taskw);border-color:var(--task)"></i>やること</span>
+    <span><i style="background:var(--prepw);border-color:var(--prep)"></i>仕込み</span>
+    <span><i style="background:var(--cleanw);border-color:var(--clean)"></i>清掃</span>
+    <span><i style="background:var(--orderw);border-color:var(--order)"></i>発注・納品</span>
+  </div>
+  <button class="fab" id="fab" aria-label="予定を足す">＋</button>
+  <div class="toast" id="toast" role="status"><span id="tmsg"></span><button id="undo">元に戻す</button></div>
+  <div class="sheet-bg" id="sbg" hidden><div class="sheet" id="sheet"></div></div>
+</div>
+
+<script>
+const START = 8, END = 24, OPEN = 11, CLOSE = 22, SNAP = 15
+const ROWS = [{ id: 'all', name: '全員', sub: 'みんな' }, { id: 'sato', name: '佐藤', sub: '店長' }, { id: 'takagi', name: '高木', sub: 'キッチン' }, { id: 'yamada', name: '山田', sub: 'ホール' }]
+const ROW_H = 74
+const KINDS = { task: 'やること', prep: '仕込み', clean: '清掃', order: '発注・納品' }
+let S = {
+  allday: [{ id: 'a1', text: '月末の棚卸の準備', done: false }, { id: 'a2', text: '冷蔵庫の温度を記録', done: true }],
+  items: [
+    { id: 'i1', row: 'takagi', start: 9 * 60, end: 10 * 60 + 30, text: 'ランチの仕込み', kind: 'prep' },
+    { id: 'i2', row: 'sato', start: 10 * 60, end: null, text: '野菜の発注（締切）', kind: 'order' },
+    { id: 'i3', row: 'yamada', start: 10 * 60 + 30, end: 11 * 60, text: 'ホールの清掃', kind: 'clean', done: true },
+    { id: 'i4', row: 'all', start: 14 * 60 + 30, end: 15 * 60, text: '朝礼の連絡・試食', kind: 'task' },
+    { id: 'i5', row: 'takagi', start: 15 * 60, end: 17 * 60, text: 'ディナーの仕込み', kind: 'prep' },
+    { id: 'i6', row: 'sato', start: 15 * 60 + 30, end: 16 * 60, text: '納品の検品', kind: 'order' },
+    { id: 'i7', row: 'yamada', start: 22 * 60, end: 22 * 60 + 45, text: '閉店後の清掃', kind: 'clean' },
+  ],
+  rec: [{ row: 'sato', start: 7 * 60 + 40, end: 8 * 60 + 50, text: '棚卸（記録）' }],
+}
+let hourW = 104, history = []
+const $ = id => document.getElementById(id)
+const canvas = $('canvas'), scroll = $('scroll')
+const xOf = m => (m / 60 - START) * hourW
+const mOf = x => START * 60 + x / hourW * 60
+const snapM = m => Math.round(m / SNAP) * SNAP
+const hm = m => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`
+const rowIdx = id => ROWS.findIndex(r => r.id === id)
+const save = () => history.push(JSON.stringify(S))
+const nowM = 13 * 60 + 40   // 見本の「いま」
+
+function render() {
+  $('rows').innerHTML = '<div class="rh"></div>' + ROWS.map(r => `<div class="r" style="height:${ROW_H}px"><span class="av">${r.id === 'all' ? '👥' : r.name[0]}</span>${r.name}<small>${r.sub}</small></div>`).join('')
+  const W = (END - START) * hourW
+  canvas.style.width = W + 'px'
+  canvas.style.height = (22 + ROWS.length * ROW_H) + 'px'
+  let h = '<div class="axis">'
+  for (let t = START; t <= END; t++) if (hourW > 30 || t % 3 === 0) h += `<span style="left:${xOf(t * 60)}px">${hourW > 30 ? t + ':00' : t + '時'}</span>`
+  h += '</div><div class="grid" id="grid">'
+  h += `<div class="off" style="left:0;width:${xOf(OPEN * 60)}px"></div><div class="off" style="left:${xOf(CLOSE * 60)}px;width:${W - xOf(CLOSE * 60)}px"></div>`
+  for (let t = START; t <= END; t++) {
+    h += `<div class="vl h" style="left:${xOf(t * 60)}px"></div>`
+    if (hourW > 30 && t < END) h += `<div class="vl" style="left:${xOf(t * 60 + 30)}px"></div>`
+  }
+  ROWS.forEach((_, i) => { h += `<div class="hl" style="top:${(i + 1) * ROW_H}px"></div>` })
+  h += `<div class="now" style="left:${xOf(nowM)}px"></div>`
+  for (const r of S.rec) {
+    const s = Math.max(r.start, START * 60)
+    h += `<div class="blk rec" style="left:${xOf(s)}px;top:${rowIdx(r.row) * ROW_H + 8}px;width:${xOf(r.end) - xOf(s)}px;height:${ROW_H - 16}px"><span class="t">${r.text}</span><small>${hm(r.start)}〜${hm(r.end)}</small></div>`
+  }
+  for (const it of S.items) {
+    const pin = it.end == null
+    const w = pin ? Math.max(92, hourW * 1.3) : Math.max(28, xOf(it.end) - xOf(it.start))
+    h += `<div class="blk k-${it.kind}${pin ? ' pin' : ''}${it.done ? ' done' : ''}${w < 44 ? ' thin' : ''}" data-id="${it.id}" style="left:${xOf(it.start)}px;top:${rowIdx(it.row) * ROW_H + 8}px;width:${w}px;height:${ROW_H - 16}px">`
+      + `<span class="t">${it.done ? '✓ ' : ''}${it.text}</span><small>${pin ? `${hm(it.start)}までに` : `${hm(it.start)}〜${hm(it.end)}`}</small>${pin ? '' : '<span class="grip" data-grip="1"></span>'}</div>`
+  }
+  h += '</div>'
+  canvas.innerHTML = h
+  $('allday').innerHTML = '<span>終日</span>' + S.allday.map(a => `<button class="ad${a.done ? ' done' : ''}" data-ad="${a.id}">${a.done ? '✓ ' : ''}${a.text}</button>`).join('')
+  $('ds').textContent = `今日・予定 ${S.items.length + S.allday.length}件`
+}
+
+function toast(msg) {
+  $('tmsg').textContent = msg; $('toast').classList.add('show')
+  clearTimeout(toast.t); toast.t = setTimeout(() => $('toast').classList.remove('show'), 4000)
+}
+$('undo').onclick = () => { const h = history.pop(); if (h) { S = JSON.parse(h); render(); $('toast').classList.remove('show') } }
+function setZoom(w, btn) {
+  const center = (scroll.scrollLeft + scroll.clientWidth / 2) / hourW
+  hourW = w; render(); scroll.scrollLeft = center * hourW - scroll.clientWidth / 2
+  for (const b of [$('z4'), $('z24')]) { b.classList.toggle('on', b === btn); b.setAttribute('aria-checked', b === btn) }
+}
+$('z4').onclick = () => setZoom(104, $('z4'))
+$('z24').onclick = () => setZoom(scroll.clientWidth / (END - START), $('z24'))
+$('prev').onclick = $('next').onclick = () => toast('見本は1日だけです（本物は前後の日へ送れます）')
+
+// ── 押す・掴む ──
+let act = null
+const pt = e => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top - 22 } }
+canvas.addEventListener('pointerdown', e => {
+  const b = e.target.closest('.blk[data-id]')
+  const p = pt(e)
+  if (b) {
+    const it = S.items.find(x => x.id === b.dataset.id)
+    act = { kind: e.target.dataset.grip ? 'resize' : 'move', it, el: b, x0: e.clientX, y0: e.clientY, s0: it.start, e0: it.end, r0: it.row, moved: false, pid: e.pointerId }
+    return
+  }
+  if (e.target.closest('.blk')) return
+  act = { kind: 'tap', p, x0: e.clientX, y0: e.clientY }
+})
+canvas.addEventListener('pointermove', e => {
+  if (!act || act.kind === 'tap') return
+  const dx = e.clientX - act.x0, dy = e.clientY - act.y0
+  if (!act.moved && Math.hypot(dx, dy) < 6) return
+  if (!act.moved) { act.moved = true; act.el.setPointerCapture(act.pid); act.el.classList.add('drag'); save() }
+  const it = act.it
+  if (act.kind === 'move') {
+    const len = it.end == null ? null : act.e0 - act.s0
+    let s = snapM(act.s0 + dx / hourW * 60)
+    s = Math.max(START * 60, Math.min(END * 60 - (len ?? 15), s))
+    const ri = Math.max(0, Math.min(ROWS.length - 1, rowIdx(act.r0) + Math.round(dy / ROW_H)))
+    it.start = s; if (len != null) it.end = s + len; it.row = ROWS[ri].id
+    act.el.style.left = xOf(s) + 'px'; act.el.style.top = (ri * ROW_H + 8) + 'px'
+    tip(act.el, `${hm(s)}${len != null ? '〜' + hm(s + len) : 'までに'} ・ ${ROWS[ri].name}`)
+  } else {
+    let en = snapM(act.e0 + dx / hourW * 60)
+    en = Math.max(it.start + SNAP, Math.min(END * 60, en))
+    it.end = en; act.el.style.width = (xOf(en) - xOf(it.start)) + 'px'
+    tip(act.el, `${hm(it.start)}〜${hm(en)}（${(en - it.start)}分）`)
+  }
+})
+function tip(el, text) {
+  let t = canvas.querySelector('.tip'); if (!t) { t = document.createElement('div'); t.className = 'tip'; canvas.appendChild(t) }
+  t.textContent = text; t.style.left = el.style.left; t.style.top = (parseFloat(el.style.top) + 22 - 22) + 'px'
+}
+function end(e) {
+  if (!act) return
+  const a = act; act = null
+  canvas.querySelector('.tip')?.remove()
+  if (a.kind === 'tap') {
+    if (Math.hypot(e.clientX - a.x0, e.clientY - a.y0) > 8) return   // 横にスクロールしただけ
+    const ri = Math.floor(a.p.y / ROW_H); if (ri < 0 || ri >= ROWS.length) return
+    openAdd(ROWS[ri].id, Math.floor(mOf(a.p.x) / 30) * 30)
+    return
+  }
+  if (!a.moved) { openDetail(a.it); return }
+  try { navigator.vibrate && navigator.vibrate(10) } catch (_) {}
+  render()
+  const it = a.it
+  if (a.kind === 'resize') toast(`「${it.text}」を ${hm(it.start)}〜${hm(it.end)} にしました`)
+  else if (it.row !== a.r0) toast(`「${it.text}」を${ROWS[rowIdx(it.row)].name}の担当にしました（${hm(it.start)}）`)
+  else toast(`「${it.text}」を ${hm(it.start)} からにしました`)
+}
+canvas.addEventListener('pointerup', end)
+canvas.addEventListener('pointercancel', () => { act = null; canvas.querySelector('.tip')?.remove(); render() })
+$('allday').addEventListener('click', e => {
+  const b = e.target.closest('[data-ad]'); if (!b) return
+  const a = S.allday.find(x => x.id === b.dataset.ad); save(); a.done = !a.done; render()
+  toast(a.done ? `「${a.text}」を済みにしました` : `「${a.text}」を済みから戻しました`)
+})
+
+// ── シート ──
+function openSheet(html) { $('sheet').innerHTML = html; $('sbg').hidden = false }
+function closeSheet() { $('sbg').hidden = true }
+$('sbg').addEventListener('click', e => { if (e.target === $('sbg')) closeSheet() })
+const LENS = [['なし（◯時までに）', null], ['30分', 30], ['1時間', 60], ['2時間', 120]]
+function openAdd(row, start) {
+  let len = 30, kind = 'task'
+  const draw = () => {
+    openSheet(`<div class="sh-h">予定を足す<button id="cx" aria-label="閉じる">✕</button></div>
+      <div class="meta">${ROWS[rowIdx(row)].name} ・ ${hm(start)}${len ? '〜' + hm(start + len) : 'までに'}</div>
+      <label class="lbl" for="nt">やること</label><input class="in" id="nt" placeholder="例：揚げ油の交換" />
+      <div class="lbl">長さ</div><div class="chips" id="lens">${LENS.map(([l, v]) => `<button data-v="${v}" class="${v === len ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="lbl">種類</div><div class="chips" id="kinds">${Object.entries(KINDS).map(([k, l]) => `<button data-k="${k}" class="${k === kind ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <button class="btn p" id="ok">足す</button>`)
+    $('cx').onclick = closeSheet
+    $('lens').onclick = e => { const b = e.target.closest('button'); if (!b) return; const t = $('nt').value; len = b.dataset.v === 'null' ? null : +b.dataset.v; draw(); $('nt').value = t }
+    $('kinds').onclick = e => { const b = e.target.closest('button'); if (!b) return; const t = $('nt').value; kind = b.dataset.k; draw(); $('nt').value = t }
+    $('ok').onclick = () => {
+      const text = $('nt').value.trim(); if (!text) { $('nt').focus(); return }
+      save(); S.items.push({ id: 'n' + Date.now(), row, start, end: len ? start + len : null, text, kind })
+      closeSheet(); render(); toast(`「${text}」を足しました（${ROWS[rowIdx(row)].name}・${hm(start)}）`)
+    }
+  }
+  draw()
+}
+$('fab').onclick = () => openAdd('all', Math.ceil(nowM / 30) * 30)
+function openDetail(it) {
+  openSheet(`<div class="sh-h">${KINDS[it.kind]}<button id="cx" aria-label="閉じる">✕</button></div>
+    <label class="lbl" for="et">やること</label><input class="in" id="et" value="${it.text.replace(/"/g, '&quot;')}" />
+    <div class="meta">${ROWS[rowIdx(it.row)].name} ・ ${it.end == null ? hm(it.start) + 'までに' : hm(it.start) + '〜' + hm(it.end)}　<span style="font-weight:600;color:var(--muted)">（ずらすのはボードの上で）</span></div>
+    <div class="acts"><button class="btn p" id="dn">${it.done ? '済みから戻す' : '✓ 済みにする'}</button><button class="btn" id="sv">名前を保存</button></div>
+    <button class="btn ng" id="rm">消す</button>`)
+  $('cx').onclick = closeSheet
+  $('dn').onclick = () => { save(); it.done = !it.done; closeSheet(); render(); toast(it.done ? `「${it.text}」を済みにしました` : `「${it.text}」を済みから戻しました`) }
+  $('sv').onclick = () => { const t = $('et').value.trim(); if (!t) return; save(); it.text = t; closeSheet(); render(); toast('名前を直しました') }
+  $('rm').onclick = () => { save(); S.items = S.items.filter(x => x !== it); closeSheet(); render(); toast(`「${it.text}」を消しました`) }
+}
+
+render()
+scroll.scrollLeft = xOf(12 * 60 + 30)
+</script>
