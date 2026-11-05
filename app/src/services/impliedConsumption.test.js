@@ -142,3 +142,12 @@ describe('発注があったはずなのに入庫が無い区間', () => {
     expect(iv.flagReason).toBe('negative')
   })
 })
+
+describe('日をまたいだ棚卸の観測日（User決定 2026-11-05）', () => {
+  it('品目ごとに数えた日を観測日にする（at が無ければ棚卸日）', () => {
+    const snaps = [{ date: '2026-10-28', items: [{ item: 'A', qty: 5, at: new Date('2026-10-29T21:00:00').getTime() }, { item: 'B', qty: 2 }] }]
+    expect(stockObservations('A', snaps)[0].date).toBe('2026-10-29')
+    expect(stockObservations('B', snaps)[0].date).toBe('2026-10-28')
+  })
+})
+

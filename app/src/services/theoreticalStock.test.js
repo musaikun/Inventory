@@ -85,4 +85,16 @@ describe('theoreticalStock（理論在庫の導出）', () => {
     const moves = [move('2026-07-02', 'in', [{ item: 'A', qty: 0.2 }])]
     expect(theoreticalStock('A', snaps, moves).qty).toBe(0.3)
   })
+
+  it('日をまたいだ棚卸: 品目ごとの数えた時刻（at）から入出庫を数える（User決定 2026-11-05）', () => {
+    const ms = iso => new Date(iso).getTime()
+    // 10/28 に始めて 10/29 22:30 に完了。A は 10/28 21:10 に、B は 10/29 21:00（納品の後）に数えた
+    const snaps = [{ date: '2026-10-28', savedAt: new Date('2026-10-29T22:30:00').toISOString(), items: [
+      { item: 'A', qty: 5, at: ms('2026-10-28T21:10:00') }, { item: 'B', qty: 8, at: ms('2026-10-29T21:00:00') },
+    ] }]
+    const moves = [move('2026-10-29', 'in', [{ item: 'A', qty: 3 }, { item: 'B', qty: 3 }], new Date('2026-10-29T12:00:00').toISOString())]
+    expect(theoreticalStock('A', snaps, moves).qty).toBe(8)   // 数えた後の納品を足す
+    expect(theoreticalStock('B', snaps, moves).qty).toBe(8)   // 納品の後に数えたので足さない
+  })
 })
+

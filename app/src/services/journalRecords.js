@@ -145,6 +145,12 @@ export function stockRecords(sessions = [], snapshotOf = () => null) {
 export function stockTimeLabel(r) {
   if (r?.imported || r?.at == null || r?.end == null) return ''
   const n = r.pauses?.length ?? 0
+  // 日をまたいだ棚卸: 合計は夜をまたぐので出さず、日付と作業した時間（中断を除く）にする
+  const a = new Date(r.at), e = new Date(r.end)
+  if (a.toDateString() !== e.toDateString()) {
+    const pause = r.pauseMs ?? (r.pauses ?? []).reduce((s, p) => s + (p.to - p.from), 0)
+    return [`${a.getMonth() + 1}/${a.getDate()}〜${e.getMonth() + 1}/${e.getDate()}`, `作業 ${fmtDuration(Math.max(0, r.end - r.at - pause))}`, n ? `中断${n}回` : ''].filter(Boolean).join(' ・ ')
+  }
   return [`合計 ${fmtDuration(r.end - r.at)}`, n ? `中断${n}回 ${fmtDuration(r.pauseMs ?? r.pauses.reduce((s, p) => s + (p.to - p.from), 0))}` : ''].filter(Boolean).join(' ・ ')
 }
 
@@ -165,8 +171,20 @@ export function fmtHm(ms) {
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+/** 'YYYY-MM-DD…' か ISO の時刻 → 端末の地域の日付 */
+function _dayKey(v) {
+  v = String(v ?? '')
+  if (!v) return ''
+  if (!v.includes('T')) return v.slice(0, 10)
+  const t = new Date(v)
+  if (Number.isNaN(t.getTime())) return v.slice(0, 10)
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
+}
+
 /**
- * 棚卸が載る日（カレンダーと同じ決め方）。通常は終わった日（深夜に終えた棚卸も作業日へ）。
+ * 棚卸の日（カレンダー・レポートと同じ）。**始めた日**。日をまたいだ棚卸も始めた日の棚卸にする
+ * （月末に始めた棚卸をその月に入れる・User決定 2026-11-05。以前は終わった日）。
+ * 明細があれば明細の日付（＝完了のときに決めた棚卸日。サーバーの taken_at と同じ）を使う。
  * 取込は終わりが「取り込んだ日時」なので、始め（実施日 'YYYY-MM-DD…'）の日付だけを使う
  */
 export function stockDateKey(s, snap = null) {
@@ -175,10 +193,14 @@ export function stockDateKey(s, snap = null) {
     const d = String(s.startedAt || '').slice(0, 10) || snap?.date || ''
     if (d) return d
   }
-  const v = String(s?.endedAt ?? s?.startedAt ?? '')
-  if (!v) return ''
-  if (!v.includes('T')) return v.slice(0, 10)
-  const t = new Date(v)
-  if (Number.isNaN(t.getTime())) return v.slice(0, 10)
-  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
+  if (snap?.date) return snap.date
+  return _dayKey(s?.startedAt ?? s?.endedAt)
+}
+
+/** 棚卸の作業が載る日（始めた日〜終えた日）。日をまたいだ棚卸は、日誌ではどちらの日にも出す */
+export function stockWorkDays(s, snap = null) {
+  const from = stockDateKey(s, snap)
+  if (s?.importBatchId || snap?.source === 'import') return { from, to: from }
+  const end = _dayKey(s?.endedAt)
+  return { from, to: end && end > from ? end : from }
 }

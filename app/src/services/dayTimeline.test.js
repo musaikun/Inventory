@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { buildDayTimeline } from './dayTimeline.js'
 
 const at = hm => new Date(`2026-10-26T${hm}:00`).getTime()
+const at20 = hm => new Date(`2026-10-20T${hm}:00`).getTime()
 const slot = (cl, s, o = {}) => ({ cl, date: '2026-10-26', slot: s, marks: {}, filled: 0, total: cl.items.length || 1, complete: false, lastAt: null, ...o })
 const list = (cl, slots) => ({ cl, slots })
 
@@ -40,7 +41,7 @@ describe('日誌のタイムライン（User決定 2026-10-26）', () => {
       date: '2026-10-20', today: '2026-10-26',
       tasks: [{ id: 'a', text: '野菜の検品', dueTime: '11:10', doneAt: 'x' }, { id: 'b', text: '発注の確認', dueTime: '13:40', doneAt: 'x' }, { id: 'c', text: '退店', dueTime: '22:00', doneAt: 'x' }],
       records: [
-        { key: 's1', kind: 'stock', at: at('10:35'), end: at('16:15'), pauses: [{ from: at('11:05'), to: at('11:20') }, { from: at('12:10'), to: at('12:30') }], title: '棚卸 完了 ・ 40品目', by: '高木・山田' },
+        { key: 's1', kind: 'stock', at: at20('10:35'), end: at20('16:15'), pauses: [{ from: at20('11:05'), to: at20('11:20') }, { from: at20('12:10'), to: at20('12:30') }], title: '棚卸 完了 ・ 40品目', by: '高木・山田' },
         { key: 's2', kind: 'stock', at: null, end: null, imported: true, title: '棚卸 完了 ・ 10品目' },
       ],
     })
@@ -56,6 +57,20 @@ describe('日誌のタイムライン（User決定 2026-10-26）', () => {
     expect(tl.timed[1]).toMatchObject({ title: '中断 15分', sub: '11:05〜11:20' })
     expect(tl.allDay.map(x => x.title)).toEqual(['棚卸 完了 ・ 10品目'])
     expect(tl.count).toBe(3)                                         // 棚卸の行は数えない
+  })
+
+  it('日をまたいだ棚卸: 始めた日は開始〜「中断（翌日に続く）」、終えた日は「再開（前日から）」〜完了（User決定 2026-11-05）', () => {
+    const t = (d, hm) => new Date(`2026-10-${d}T${hm}:00`).getTime()
+    const rec = { key: 's1', kind: 'stock', at: t(28, '21:00'), end: t(29, '22:30'),
+      pauses: [{ from: t(28, '21:05'), to: t(28, '21:30') }, { from: t(28, '22:00'), to: t(29, '20:10') }], pauseMs: 0, title: '棚卸 完了 ・ 40品目' }
+    rec.pauseMs = rec.pauses.reduce((n, p) => n + p.to - p.from, 0)
+    const d1 = buildDayTimeline({ date: '2026-10-28', today: '2026-11-05', records: [rec] })
+    expect(d1.timed.map(x => [x.time, x.title])).toEqual([
+      ['21:00', '棚卸 開始'], ['21:05', '中断 25分'], ['21:30', '再開'], ['22:00', '中断（翌日に続く）'],
+    ])
+    const d2 = buildDayTimeline({ date: '2026-10-29', today: '2026-11-05', records: [rec] })
+    expect(d2.timed.map(x => [x.time, x.title])).toEqual([['20:10', '再開（前日から）'], ['22:30', '棚卸 完了 ・ 40品目']])
+    expect(d2.timed[1].sub).toBe('10/28〜10/29 ・ 作業 2時間55分 ・ 中断2回')
   })
 
   it('期限つきのやることは「期限 m/d」。進行中・いつか・メモも終日（いつか・メモは数に入れない）', () => {

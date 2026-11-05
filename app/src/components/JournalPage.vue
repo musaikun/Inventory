@@ -30,7 +30,7 @@ import { useOrders } from '../composables/useOrders.js'
 import { useMovements } from '../composables/useMovements.js'
 import { useDayNotes } from '../composables/useDayNotes.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
-import { stockRecords, mergeOrders, mergeMovements, sortRecords, stockDateKey } from '../services/journalRecords.js'
+import { stockRecords, mergeOrders, mergeMovements, sortRecords, stockDateKey, stockWorkDays } from '../services/journalRecords.js'
 import { buildDayTimeline } from '../services/dayTimeline.js'
 import { localDateKey } from '../utils/localDate.js'
 import { isMeId } from '../composables/useDeviceId.js'
@@ -70,7 +70,8 @@ const { getNote, setNote } = useDayNotes()
 const completedStock = computed(() => sessions.value.filter(s => s.status === 'completed' && (s.type ?? 'stock') !== 'order'))
 /** その日の記録（棚卸・発注・入出庫）を時刻の順に */
 function recordsOn(d) {
-  const ss = completedStock.value.filter(s => stockDateKey(s, getSnapshotBySessionId(s.id)) === d)
+  // 日をまたいだ棚卸は、始めた日にも終えた日にも出す（その日の分だけ・services/dayTimeline.js）
+  const ss = completedStock.value.filter(s => { const w = stockWorkDays(s, getSnapshotBySessionId(s.id)); return w.from <= d && d <= w.to })
   return sortRecords([
     ...stockRecords(ss, getSnapshotBySessionId),
     ...mergeOrders(getOrders().filter(o => o.date === d)),

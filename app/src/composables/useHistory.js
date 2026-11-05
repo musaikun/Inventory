@@ -110,11 +110,12 @@ export function useHistory() {
    * @param {Array}    auditLog   変更履歴（参加者別集計に使用）
    * @param {object}   categories config.categories（カテゴリ名マップ）
    */
-  function buildSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null, categories = null, sessionId = null, activeMs = null, lotSizes = null, prevMonths = null, tagsA = null, tagsB = null, axisNames = null, layout = null) {
+  function buildSnapshot(inventory, prices, order, codes, entryLog, auditLog, recountFlags = null, categories = null, sessionId = null, activeMs = null, lotSizes = null, prevMonths = null, tagsA = null, tagsB = null, axisNames = null, layout = null, takenDate = null) {
     if (Object.keys(inventory).length === 0) return null
 
-    // 端末の地域の日付。UTC だと日本時間 0〜9時に完了した棚卸が前日の日付になる
-    const today = localDateKey()
+    // 棚卸日。日をまたいだ棚卸は**始めた日**（月末に始めた棚卸をその月に入れる・User決定 2026-11-05）。
+    // 呼び出し側が始めた日を渡す。無ければ端末の地域の今日（UTC だと日本時間 0〜9時が前日になる）
+    const today = /^\d{4}-\d{2}-\d{2}$/.test(takenDate ?? '') && takenDate <= localDateKey() ? takenDate : localDateKey()
 
     // config.order 順全件 → カスタム品目（config.orderに含まれないもの）
     const allKeys = [
@@ -135,6 +136,8 @@ export function useHistory() {
       items.push({
         item,
         qty:       entry != null ? entry.qty : null,  // null = 未入力
+        // 数えた時刻（ms）。日をまたいだ棚卸で、在庫の見込み・使用量をこの時刻から数える（services/theoreticalStock.js）
+        at:        entry?.updatedAt ?? null,
         unit:      entry?.unit ?? '',
         unitPrice,
         subtotal,

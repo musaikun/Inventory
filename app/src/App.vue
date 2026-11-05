@@ -1828,6 +1828,12 @@ function onNoOpenStock() {
   reset(); clearAuditLog()
 }
 
+// 棚卸を始めた日（端末の地域の日付）。日をまたいだ棚卸の日付に使う（User決定 2026-11-05）
+function _startDateOf(s) {
+  const t = s?.startedAt ? new Date(s.startedAt) : null
+  return t && !Number.isNaN(t.getTime()) ? localDateKey(t) : null
+}
+
 // 入力中の品目数を D1 に保存（active）。直列化・確定後の無視は useSession が担当
 let _draftSaveTimer = null
 watch(filledCount, (count) => {
@@ -2044,7 +2050,7 @@ function _buildCompletionRequest() {
   // 発注セッションでは snapshot 自体を作らない（送れないので作る意味が無い）。
   const snapshot = type === 'order' ? null
     : buildSnapshot(inventory, config.prices, config.order, config.codes, entryLog, auditLog, recountFlags, config.categories, sessionId, activeTimer.elapsedMs(), config.lotSizes, config.prevMonths, config.tagsA, config.tagsB, config.axisNames,
-        { categoryOrder: categoryOrderOf(config), axisGroupsA: config.axisGroupsA, axisGroupsB: config.axisGroupsB })
+        { categoryOrder: categoryOrderOf(config), axisGroupsA: config.axisGroupsA, axisGroupsB: config.axisGroupsB }, _startDateOf(pendingSession.value))
   // 品目の備考は明細の行に添えて残す（履歴で見返せるように）
   if (snapshot?.items) snapshot.items = snapshot.items.map(it => itemNotes[it.item]?.text ? { ...it, note: itemNotes[it.item].text } : it)
 

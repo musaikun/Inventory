@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { workSpans, mergeMovements, mergeOrders, stockRecords, stockDateKey, sortRecords, fmtDuration, stockTimeLabel, PAUSE_MS } from './journalRecords.js'
+import { workSpans, mergeMovements, mergeOrders, stockRecords, stockDateKey, stockWorkDays, sortRecords, fmtDuration, stockTimeLabel, PAUSE_MS } from './journalRecords.js'
 
 const T = (h, m = 0) => new Date(2026, 9, 9, h, m).getTime()
 
@@ -59,5 +59,15 @@ describe('日誌の記録（User決定 2026-10-09）', () => {
     expect(stockDateKey({ startedAt: '2026-09-30T00:00:00.000Z', endedAt: '2026-10-09T10:00:00Z', importBatchId: 'b' })).toBe('2026-09-30')
     expect(stockDateKey(s)).toBe('2026-10-09')
     expect(fmtDuration(8400_000)).toBe('2時間20分')
+  })
+})
+
+describe('日をまたいだ棚卸（User決定 2026-11-05）', () => {
+  it('棚卸の日は始めた日。明細があれば明細の日付。日誌は始めた日〜終えた日に出す', () => {
+    const s = { id: 's1', startedAt: new Date('2026-10-31T21:00:00').toISOString(), endedAt: new Date('2026-11-01T22:30:00').toISOString() }
+    expect(stockDateKey(s)).toBe('2026-10-31')
+    expect(stockDateKey(s, { date: '2026-10-31' })).toBe('2026-10-31')
+    expect(stockWorkDays(s)).toEqual({ from: '2026-10-31', to: '2026-11-01' })
+    expect(stockWorkDays({ ...s, importBatchId: 'b' })).toEqual({ from: s.startedAt.slice(0, 10), to: s.startedAt.slice(0, 10) })
   })
 })
