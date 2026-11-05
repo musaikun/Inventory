@@ -37,7 +37,7 @@ const task = (o = {}) => ({ id: 't1', text: 'ランチの仕込み', date: '2099
 describe('予定ボード', () => {
   it('行は 全員＋人。やることは担当の行に、始まり〜終わりの帯で（種類の色）', async () => {
     await mount(await timelineWith([task(), task({ id: 't2', text: '野菜の発注', dueTime: '10:00', endTime: null, category: 'order', assign: 'all', assigneeId: null })]))
-    expect([...host.querySelectorAll('.db-r')].map(e => e.textContent.replace(/\s/g, ''))).toEqual(['👥全員みんな', 'オオーナーオーナー', '佐佐藤'])
+    expect([...host.querySelectorAll('.db-r')].map(e => e.textContent.replace(/\s/g, ''))).toEqual(['全員みんな', 'オオーナーオーナー', '佐佐藤'])
     const b = host.querySelector('[data-block="t1"]')
     expect(b.classList.contains('k-prep')).toBe(true)
     expect(b.style.top).toBe(`${2 * ROW_H + 7}px`)

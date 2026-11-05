@@ -47,9 +47,9 @@ describe('品目が0件', () => {
   it('一覧の代わりに登録の入口を出す（1つずつ・ファイル・棚卸しながら）', async () => {
     await mount()
     expect(host.textContent).toContain('最初の品目を追加')
-    await click(btn('📄 ファイルからまとめて取込'))
+    await click(btn('ファイルからまとめて取込'))
     expect(events.openMaster).toBe(1)
-    await click(btn('👥 棚卸をしながら登録する'))
+    await click(btn('棚卸をしながら登録する'))
     expect(events.startSession).toBe(1)
     await click(btn('＋ 1つずつ追加'))
     expect(host.querySelector('[aria-label="品目を追加"][role="dialog"]')).not.toBeNull()

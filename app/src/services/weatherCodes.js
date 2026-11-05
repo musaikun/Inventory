@@ -3,17 +3,17 @@
 
 export function weatherCodeInfo(code) {
   const c = Number(code)
-  if (c === 0) return { icon: '☀️', label: '快晴' }
-  if (c === 1) return { icon: '🌤️', label: '晴れ' }
-  if (c === 2) return { icon: '⛅', label: '晴れ時々曇り' }
-  if (c === 3) return { icon: '☁️', label: '曇り' }
-  if (c === 45 || c === 48) return { icon: '🌫️', label: '霧' }
-  if (c >= 51 && c <= 57) return { icon: '🌦️', label: '霧雨' }
-  if (c >= 61 && c <= 67) return { icon: '🌧️', label: '雨' }
-  if (c >= 71 && c <= 77) return { icon: '🌨️', label: '雪' }
-  if (c >= 80 && c <= 82) return { icon: '🌦️', label: 'にわか雨' }
-  if (c === 85 || c === 86) return { icon: '🌨️', label: 'にわか雪' }
-  if (c >= 95 && c <= 99) return { icon: '⛈️', label: '雷雨' }
+  if (c === 0) return { icon: 'sun', label: '快晴' }
+  if (c === 1) return { icon: 'cloud-sun', label: '晴れ' }
+  if (c === 2) return { icon: 'cloud-sun', label: '晴れ時々曇り' }
+  if (c === 3) return { icon: 'cloud', label: '曇り' }
+  if (c === 45 || c === 48) return { icon: 'fog', label: '霧' }
+  if (c >= 51 && c <= 57) return { icon: 'drizzle', label: '霧雨' }
+  if (c >= 61 && c <= 67) return { icon: 'rain', label: '雨' }
+  if (c >= 71 && c <= 77) return { icon: 'snow', label: '雪' }
+  if (c >= 80 && c <= 82) return { icon: 'rain', label: 'にわか雨' }
+  if (c === 85 || c === 86) return { icon: 'snow', label: 'にわか雪' }
+  if (c >= 95 && c <= 99) return { icon: 'thunder', label: '雷雨' }
   return { icon: '', label: '' }
 }
 

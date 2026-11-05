@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, nextTick } from 'vue'
 import QRCode from 'qrcode'
 import { useSync } from '../composables/useSync.js'
@@ -218,11 +219,11 @@ function onShareMail() {
         </div>
 
         <div v-if="!deviceName" class="sync-warn">
-          ⚠️ 端末名が未設定です。設定画面で「Aさん」「厨房」などの名前を付けると、誰が入力したか分かりやすくなります。
+          <LineIcon name="alert" /> 端末名が未設定です。設定画面で「Aさん」「厨房」などの名前を付けると、誰が入力したか分かりやすくなります。
         </div>
 
         <button class="btn btn-primary sync-main-btn" @click="onCreateRoom">
-          🔗 {{ actLabel }}ルームを開始
+          <LineIcon name="link" /> {{ actLabel }}ルームを開始
         </button>
 
         <div v-if="createError" class="msg error" style="margin-top:10px">
@@ -256,23 +257,23 @@ function onShareMail() {
           <div class="share-label">招待リンクを送る</div>
           <button class="share-url-row" @click="onCopyUrl">
             <span class="share-url-text">{{ getShareUrl() }}</span>
-            <span class="share-url-copy">{{ urlCopied ? '✓' : '📋' }}</span>
+            <span class="share-url-copy"><LineIcon :name="urlCopied ? 'check' : 'copy'" /></span>
           </button>
           <div class="share-btns">
             <button v-if="canNativeShare" class="share-btn share-btn-native" @click="onNativeShare">
-              📤 共有
+              <LineIcon name="upload" /> 共有
             </button>
             <button class="share-btn share-btn-line" @click="onShareLine">
-              <span class="share-btn-ico">💬</span> LINE
+              <span class="share-btn-ico"><LineIcon name="chat" /></span> LINE
             </button>
             <button class="share-btn share-btn-mail" @click="onShareMail">
-              <span class="share-btn-ico">✉️</span> メール
+              <span class="share-btn-ico"><LineIcon name="mail" /></span> メール
             </button>
           </div>
         </div>
 
         <button class="btn btn-secondary qr-toggle-btn" @click="toggleQR">
-          {{ showQR ? '🔼 QRコードを閉じる' : '📷 QRコードを表示' }}
+          <LineIcon :name="showQR ? 'up' : 'qr'" /> {{ showQR ? 'QRコードを閉じる' : 'QRコードを表示' }}
         </button>
 
         <div v-if="showQR && qrDataUrl" class="qr-wrap">

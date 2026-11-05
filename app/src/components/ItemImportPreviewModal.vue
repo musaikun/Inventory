@@ -7,6 +7,7 @@
  * 同じデータに基づく（同じファイルから2回組み立て直さない）。
  * 全入れ替えは既定から外し、明示的な確認を通した時だけ実行する。
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed, watch } from 'vue'
 import {
   useConfig, IMPORT_MODE_MERGE, IMPORT_MODE_REPLACE,
@@ -217,7 +218,7 @@ async function onConfirm() {
 
       <!-- 推奨フォーマットに合わないファイルの受け皿。列を自分で指定して取り込む -->
       <button v-if="canMapColumns" class="map-columns-btn" @click="onMapColumns">
-        🗂 {{ mapColumnsLabel }}
+        <LineIcon name="folders" /> {{ mapColumnsLabel }}
       </button>
 
       <!-- 1件も取り込めなかった場合でも、行番号・列・理由は出す -->
@@ -455,7 +456,7 @@ async function onConfirm() {
 
         <!-- 全入れ替えの警告と確認 -->
         <div v-if="isReplace" class="warn danger-warn">
-          <p class="warn-title">⚠ {{ counts.removed }}件の品目が削除されます</p>
+          <p class="warn-title"><LineIcon name="alert" /> {{ counts.removed }}件の品目が削除されます</p>
           <p class="warn-body">
             単価・別名・分類など、削除される品目に紐づく設定も一緒に消えます。
             取込の直後にかぎり「取込前に戻す」で1回だけ戻せますが、この端末のメモリ上だけの退避です。

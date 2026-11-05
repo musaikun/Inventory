@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './components/LineIcon.vue'
 import { ref, computed, watch, watchEffect, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRegisterSW } from 'virtual:pwa-register/vue'
 import { useVoice, parseText } from './composables/useVoice.js'
@@ -553,7 +554,7 @@ const _bootPage = readLastPage()
 // 発注セッションから離れる先。以前は仕入れの発注タブへ返していたが、発注の入口はホームの
 // 操作ボタンへ移った（画面の再設計・2026-09-30）ので、棚卸と同じくホームへ返す。
 const leavesToMovement  = computed(() => false)
-const leaveSessionIcon  = computed(() => (leavesToMovement.value ? '🛒' : '🏠'))
+const leaveSessionIcon  = computed(() => (leavesToMovement.value ? 'cart' : 'home'))   // 線のアイコンの名前
 const leaveSessionTitle = computed(() =>
   practiceMode.value ? '練習を終了して戻る'
     : leavesToMovement.value ? '仕入れに戻る' : 'ホームに戻る')
@@ -1018,7 +1019,7 @@ function onToggleRecountFlag(item, on) {
     const cur = inventory[item]
     _localAudit(item, on ? 'flag_recount' : 'unflag_recount', 0, cur?.qty ?? 0, cur?.unit ?? '')
   }
-  showToast(on ? `「${item}」を“あとで数える”に追加 🔖` : `「${item}」の“あとで数える”を解除`, 2400, on ? 'warning' : 'default')
+  showToast(on ? `「${item}」を“あとで数える”に追加` : `「${item}」の“あとで数える”を解除`, 2400, on ? 'warning' : 'default')
 }
 
 // 受信ハンドラを登録（useInventory ↔ useSync を循環なしで接続）
@@ -1220,7 +1221,7 @@ function onResolveConflict(c, resolution) {
   showToast(`「${c.ingredient}」を ${qty}${unit} に確定しました`, 2400, 'success')
   if (syncActive.value) {
     const label = resolution === 'sum' ? '合計' : resolution === 'mine' ? '自分の値' : '相手の値'
-    broadcastMessage(`✅ 「${c.ingredient}」: ${label}（${qty}${unit}）で確定 — ${deviceName.value || '名前未設定'}`)
+    broadcastMessage(`「${c.ingredient}」: ${label}（${qty}${unit}）で確定 — ${deviceName.value || '名前未設定'}`)
   }
 }
 setNameTakenCallback((prevName) => {
@@ -2546,7 +2547,7 @@ function _postConflictToChat(ingredient) {
   const last = _conflictPostedAt.get(ingredient) ?? 0
   if (Date.now() - last < 5000) return
   _conflictPostedAt.set(ingredient, Date.now())
-  broadcastMessage(`⚡ 「${ingredient}」で同時入力が発生しました`)
+  broadcastMessage(`「${ingredient}」で同時入力が発生しました`)
 }
 
 // ── 複数人編集品目（同期中のみ）──────────────────────────────────────────────
@@ -3584,12 +3585,12 @@ function dismissReview() {
       <!-- ヘッダー -->
       <header class="app-header">
         <div class="header-left">
-          <button v-if="isAuthenticated" class="settings-btn home-btn" :disabled="completing" @click="onHomeBtn" :title="leaveSessionTitle">{{ leaveSessionIcon }}</button>
-          <span v-if="practiceMode" class="practice-chip">🎯 練習モード</span>
+          <button v-if="isAuthenticated" class="settings-btn home-btn" :disabled="completing" @click="onHomeBtn" :title="leaveSessionTitle"><LineIcon :name="leaveSessionIcon" /></button>
+          <span v-if="practiceMode" class="practice-chip"><LineIcon name="target" /> 練習モード</span>
         </div>
         <div class="header-right">
-          <div v-if="sessionPaused" class="session-elapsed paused" title="5分間操作が無いため計測を一時停止しています。操作すると自動で再開します">⏸ 一時停止中</div>
-          <div v-else-if="sessionElapsed" class="session-elapsed" title="棚卸の実働時間（離席時間は除外）">⏱ {{ sessionElapsed }}</div>
+          <div v-if="sessionPaused" class="session-elapsed paused" title="5分間操作が無いため計測を一時停止しています。操作すると自動で再開します"><LineIcon name="pause" /> 一時停止中</div>
+          <div v-else-if="sessionElapsed" class="session-elapsed" title="棚卸の実働時間（離席時間は除外）"><LineIcon name="timer" /> {{ sessionElapsed }}</div>
           <div class="date">{{ dateStr }}</div>
           <!-- 同期中はステータス表示（タップで詳細）。未同期時はメニューから開く -->
           <button
@@ -3598,13 +3599,13 @@ function dismissReview() {
             @click="showSync = true"
             :title="`ルーム ${syncState.roomCode}（${participantList.length}名）`"
           >
-            <span class="sync-badge">🔗<span class="sync-count">{{ participantList.length }}</span></span>
+            <span class="sync-badge"><LineIcon name="link" /><span class="sync-count">{{ participantList.length }}</span></span>
           </button>
           <!-- ひとりで数えているとき、途中からスタッフを呼ぶ入口（大きなカードはやめて小さく・User決定 2026-10-04） -->
           <button
             v-if="!syncActive && !isCompleted && shopCode && !practiceMode"
             class="room-mini" type="button" @click="onCreateRoomFromMain" title="ルームを作成して、スタッフのスマホをつなぐ"
-          >👥 みんなで</button>
+          ><LineIcon name="users" /> みんなで</button>
         </div>
       </header>
 
@@ -3617,7 +3618,7 @@ function dismissReview() {
             ・{{ syncState.isConnected ? 'ルーム ' + syncState.roomCode : '再接続中…' }}
           </span>
           <button class="sync-banner-btn sync-msg-btn" @click="showChat = true" title="チャット">
-            💬<span v-if="unreadCount > 0" class="unread-badge">!</span>
+            <LineIcon name="chat" /><span v-if="unreadCount > 0" class="unread-badge">!</span>
           </button>
           <button class="sync-banner-btn" @click="showSync = true">詳細</button>
         </div>
@@ -3662,22 +3663,22 @@ function dismissReview() {
             :continuous-mode="continuousMode"
             @toggle="onVoiceButtonTap"
           />
-          <button class="search-btn" @click="onTextSearch" title="検索">🔍</button>
+          <button class="search-btn" @click="onTextSearch" title="検索"><LineIcon name="search" /></button>
           <!-- バーコードのある品目があるときだけ（☰ から移した・User決定 2026-10-04） -->
-          <button v-if="BARCODE_BUTTON && hasBarcodedItems && !inputLocked" class="search-btn barcode-btn" type="button" title="バーコードスキャン" aria-label="バーコードスキャン" @click="showBarcode = true">📷</button>
+          <button v-if="BARCODE_BUTTON && hasBarcodedItems && !inputLocked" class="search-btn barcode-btn" type="button" title="バーコードスキャン" aria-label="バーコードスキャン" @click="showBarcode = true"><LineIcon name="camera" /></button>
         </div>
 
         <!-- 品目編集フォーム（編集時のみ表示。追加は検索欄からの積み上げ登録が主動線） -->
         <div v-if="showAddItemForm || editingItem" class="add-item-form">
           <div v-if="barcodeAddCode" class="barcode-add-hint">
-            <span class="barcode-add-icon">📷</span>
+            <span class="barcode-add-icon"><LineIcon name="camera" /></span>
             <span>バーコード <code>{{ barcodeAddCode }}</code> を品目名と紐付けて登録します</span>
             <button class="barcode-add-clear" @click="barcodeAddCode = ''; newItemError = ''; _pendingItemSubmit = null">✕</button>
           </div>
           <p v-if="syncActive && !syncIsHost && !editingItem" class="guest-add-hint">
-            ✋ 追加する品目はホストの承認が必要です
+            <LineIcon name="hand" /> 追加する品目はホストの承認が必要です
           </p>
-          <p class="add-item-label">{{ editingItem ? `✏️ 品目を編集` : '＋ 品目を追加' }}</p>
+          <p class="add-item-label">{{ editingItem ? '品目を編集' : '＋ 品目を追加' }}</p>
           <div class="add-item-row">
             <input
               ref="newItemNameRef"
@@ -3733,7 +3734,7 @@ function dismissReview() {
       <!-- 同時入力 競合解決バナー（入力欄直下） -->
       <div v-if="conflictQueue.length > 0" class="conflict-resolve-wrap">
         <div v-for="c in conflictQueue" :key="c.ingredient" class="conflict-resolve-card">
-          <div class="conflict-resolve-title">⚡ 「{{ c.ingredient }}」の同時入力</div>
+          <div class="conflict-resolve-title"><LineIcon name="zap" /> 「{{ c.ingredient }}」の同時入力</div>
           <div class="conflict-resolve-vals">
             <span class="crv-mine">あなた: {{ c.local.qty }}{{ c.local.unit }}</span>
             <span class="crv-sep">｜</span>
@@ -3757,7 +3758,7 @@ function dismissReview() {
       <div v-if="syncIsHost && pendingItemRequests.length > 0" class="item-req-wrap">
         <div v-for="req in pendingItemRequests" :key="req.requestId" class="item-req-card">
           <div class="item-req-info">
-            <span class="item-req-icon">📋</span>
+            <span class="item-req-icon"><LineIcon name="clipboard" /></span>
             <span class="item-req-text">
               <strong>{{ req.fromDeviceName }}</strong> が
               「<strong>{{ req.name }}</strong>」の追加を申請
@@ -3777,14 +3778,14 @@ function dismissReview() {
           v-if="pendingHideRequests.length >= 2" type="button" class="item-req-fold"
           :aria-expanded="String(hideHostOpen)" @click="hideHostOpen = !hideHostOpen"
         >
-          <span class="item-req-icon">🙈</span>
+          <span class="item-req-icon"><LineIcon name="eye-off" /></span>
           <span class="item-req-text">非表示の申請 <strong>{{ pendingHideRequests.length }}件</strong></span>
           <span class="item-req-fold-arrow">{{ hideHostOpen ? '▲ 閉じる' : '▼ 一覧' }}</span>
         </button>
         <template v-if="pendingHideRequests.length === 1 || hideHostOpen">
           <div v-for="req in pendingHideRequests" :key="req.requestId" class="item-req-card">
             <div class="item-req-info">
-              <span class="item-req-icon">🙈</span>
+              <span class="item-req-icon"><LineIcon name="eye-off" /></span>
               <span class="item-req-text">
                 <strong>{{ req.fromDeviceName }}</strong> が
                 「<strong>{{ req.name }}</strong>」の非表示を申請
@@ -3800,14 +3801,14 @@ function dismissReview() {
 
       <!-- ゲスト: ホスト承認待ち状態 -->
       <div v-if="approvedAddItem" class="item-req-pending-guest item-req-approved">
-        <span class="item-req-pending-icon">✅</span>
+        <span class="item-req-pending-icon"><LineIcon name="check-circle" /></span>
         「<strong>{{ approvedAddItem }}</strong>」の追加が承認されました
         <button class="item-req-pending-cancel item-req-go" @click="onApprovedAddQty">数量を入れる</button>
         <button class="item-req-pending-cancel" aria-label="閉じる" @click="approvedAddItem = null">✕</button>
       </div>
 
       <div v-if="pendingGuestRequest" class="item-req-pending-guest">
-        <span class="item-req-pending-icon">⏳</span>
+        <span class="item-req-pending-icon"><LineIcon name="hourglass" /></span>
         「<strong>{{ pendingGuestRequest.name }}</strong>」の追加をホストに申請中…
         <button class="item-req-pending-cancel" @click="pendingGuestRequest = null">取消</button>
       </div>
@@ -3817,13 +3818,13 @@ function dismissReview() {
         v-if="pendingHideGuestRequests.length >= 2" type="button" class="item-req-pending-guest item-req-fold-guest"
         :aria-expanded="String(hideGuestOpen)" @click="hideGuestOpen = !hideGuestOpen"
       >
-        <span class="item-req-pending-icon">⏳</span>
+        <span class="item-req-pending-icon"><LineIcon name="hourglass" /></span>
         非表示をホストに申請中 <strong>{{ pendingHideGuestRequests.length }}件</strong>
         <span class="item-req-fold-arrow">{{ hideGuestOpen ? '▲' : '▼' }}</span>
       </button>
       <template v-if="pendingHideGuestRequests.length === 1 || hideGuestOpen">
         <div v-for="r in pendingHideGuestRequests" :key="r.requestId" class="item-req-pending-guest">
-          <span class="item-req-pending-icon">⏳</span>
+          <span class="item-req-pending-icon"><LineIcon name="hourglass" /></span>
           「<strong>{{ r.name }}</strong>」の非表示をホストに申請中…
           <button class="item-req-pending-cancel" @click="pendingHideGuestRequests = pendingHideGuestRequests.filter(x => x.requestId !== r.requestId)">取消</button>
         </div>
@@ -3832,7 +3833,7 @@ function dismissReview() {
       <!-- あとで数える 一覧バナー（ソロ・複数人 共通）-->
       <div v-if="recountItems.length > 0" class="recount-notice">
         <button class="recount-notice-toggle" @click="recountOpen = !recountOpen" type="button">
-          <span class="recount-notice-icon">🔖</span>
+          <span class="recount-notice-icon"><LineIcon name="bookmark" /></span>
           <span class="recount-notice-label">あとで数える品目が {{ recountItems.length }}件あります</span>
           <span class="recount-notice-arrow">{{ recountOpen ? '▲' : '▼' }}</span>
         </button>
@@ -3860,7 +3861,7 @@ function dismissReview() {
       <!-- 複数人編集品目バナー -->
       <div v-if="conflictItems.length > 0" class="conflict-notice">
         <button class="conflict-notice-toggle" @click="conflictOpen = !conflictOpen" type="button">
-          <span class="conflict-notice-icon">⚡</span>
+          <span class="conflict-notice-icon"><LineIcon name="zap" /></span>
           <span class="conflict-notice-label">複数人が入力した品目が {{ conflictItems.length }}件あります</span>
           <span class="conflict-notice-arrow">{{ conflictOpen ? '▲' : '▼' }}</span>
         </button>
@@ -4008,11 +4009,11 @@ function dismissReview() {
                 ? (syncActive && !syncIsHost ? '↩ 入力再開' : `↩ ${actNoun}再開`)
                 : (syncActive && !syncIsHost ? '✓ 入力完了' : `✓ ${actNoun}完了`)
               }}</button>
-            <button v-if="!syncActive || syncIsHost" class="btn-export" @click="onExport">💾 CSV</button>
+            <button v-if="!syncActive || syncIsHost" class="btn-export" @click="onExport"><LineIcon name="save" /> CSV</button>
           </template>
           <template v-else>
             <button class="btn-new-session" @click="onStartNew">＋ 新規棚卸</button>
-            <button v-if="!syncActive || syncIsHost" class="btn-export" @click="onExport">💾 CSV</button>
+            <button v-if="!syncActive || syncIsHost" class="btn-export" @click="onExport"><LineIcon name="save" /> CSV</button>
           </template>
         </div>
       </div>
@@ -4050,10 +4051,10 @@ function dismissReview() {
       <div class="modal-sheet leave-sheet" role="dialog" aria-modal="true" :aria-label="`${actNoun}を離れる`">
         <div class="sheet-handle"></div>
         <button class="leave-btn" type="button" :disabled="completing" @click="onLeavePause">
-          <span class="leave-ico" aria-hidden="true">⏸</span><span>中断してホームへ<small>入力した数は残り、ホームの「{{ actNoun }}を再開」から続けられます</small></span>
+          <span class="leave-ico" aria-hidden="true"><LineIcon name="pause" /></span><span>中断してホームへ<small>入力した数は残り、ホームの「{{ actNoun }}を再開」から続けられます</small></span>
         </button>
         <button class="leave-btn ng" type="button" :disabled="completing" @click="onLeaveDiscard">
-          <span class="leave-ico" aria-hidden="true">🗑</span><span>この{{ actNoun }}を破棄…<small>確認のあとで破棄します（24時間は元に戻せます）</small></span>
+          <span class="leave-ico" aria-hidden="true"><LineIcon name="trash" /></span><span>この{{ actNoun }}を破棄…<small>確認のあとで破棄します（24時間は元に戻せます）</small></span>
         </button>
         <button class="leave-cancel" type="button" @click="leaveAsk = false">キャンセル</button>
       </div>
@@ -4127,7 +4128,7 @@ function dismissReview() {
     <!-- PWA 更新バナー -->
     <Transition name="pwa-banner">
       <div v-if="needRefresh" class="pwa-update-banner">
-        <span class="pwa-banner-text">🔄 新しいバージョンがあります</span>
+        <span class="pwa-banner-text"><LineIcon name="refresh" /> 新しいバージョンがあります</span>
         <button class="pwa-banner-btn" @click="updateServiceWorker()">今すぐ更新</button>
       </div>
     </Transition>
@@ -4154,14 +4155,14 @@ function dismissReview() {
           <ol class="onboard-steps">
             <!-- 声で数えるは推さない（User決定 2026-10-19）。みんなで同時に数えるを先に -->
             <li class="onboard-step">
-              <span class="onboard-icon">👥</span>
+              <span class="onboard-icon"><LineIcon name="users" /></span>
               <div>
                 <strong>みんなで同時に数える</strong>
                 <p>「みんなで始める」のQRで仲間のスマホをつなぐ。入れた数はすぐ全員の画面にそろいます</p>
               </div>
             </li>
             <li class="onboard-step">
-              <span class="onboard-icon">📦</span>
+              <span class="onboard-icon"><LineIcon name="box" /></span>
               <div>
                 <strong>場所ごとに手分け</strong>
                 <p>冷蔵庫・冷凍庫など、担当の場所を開いて上から数えます。誰かが入力中の品目は黄色</p>
@@ -4175,7 +4176,7 @@ function dismissReview() {
               </div>
             </li>
             <li class="onboard-step">
-              <span class="onboard-icon">📋</span>
+              <span class="onboard-icon"><LineIcon name="clipboard" /></span>
               <div>
                 <strong>品目がない場合は追加</strong>
                 <p>「＋ 品目を追加」フォームからその場で登録できます</p>
@@ -4230,7 +4231,7 @@ function dismissReview() {
               class="review-star"
               :class="{ filled: s <= reviewRating }"
               @click="onReviewRate(s)"
-            >★</button>
+            ><LineIcon name="star" /></button>
           </div>
           <button class="feedback-skip" @click="dismissReview">あとで</button>
         </template>
@@ -4239,7 +4240,7 @@ function dismissReview() {
         <template v-else-if="reviewStep === 'thanks'">
           <div class="feedback-title">ありがとうございます！</div>
           <div class="review-thanks-stars">
-            <span v-for="s in reviewRating" :key="s" class="review-star-filled">★</span>
+            <span v-for="s in reviewRating" :key="s" class="review-star-filled"><LineIcon name="star" /></span>
           </div>
           <p class="feedback-desc">ご愛用いただき、誠にありがとうございます。</p>
           <div class="feedback-actions">

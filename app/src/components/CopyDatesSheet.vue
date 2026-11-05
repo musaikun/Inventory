@@ -4,6 +4,7 @@
  * 日は何日でも選べる（押すたびに選ぶ・外す）。今日より前は選べない。元の日は枠。中身（項目・時刻・担当）はそのまま、担当だけ替えられる。
  * 実際に作るのは親（コピーする中身の種類で作り方が違う）。ここは日と担当を決めて返すだけ
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed, onUnmounted } from 'vue'
 import { localDateKey } from '../utils/localDate.js'
 import { staffNames } from '../composables/useAuth.js'
@@ -55,7 +56,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
   <Teleport to="body">
     <div class="cd-bg" @click.self="emit('close')">
       <section class="cd" role="dialog" aria-label="別の日にコピー">
-        <div class="cd-h"><b>📄 別の日にコピー</b><button type="button" class="cd-x" @click="emit('close')">やめる</button></div>
+        <div class="cd-h"><b><LineIcon name="file" /> 別の日にコピー</b><button type="button" class="cd-x" @click="emit('close')">やめる</button></div>
         <div class="cd-src"><b>{{ title }}</b><small v-if="sub">{{ sub }}</small></div>
         <div class="cd-bar">
           <button type="button" aria-label="前の月" @click="step(-1)">‹</button>

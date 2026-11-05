@@ -12,7 +12,7 @@ import { isAdmin, can } from './useAuth.js'
 import { loadTemplatesFromD1, saveTemplateToD1 } from './useStore.js'
 
 export const TEMPLATE_NAME_MAX = 60
-export const KIND_ICON = { task: '📅', checklist: '📋', routine: '🔁', progress: '⏳', someday: '📥' }
+export const KIND_ICON = { task: 'date', checklist: 'clipboard', routine: 'repeat', progress: 'hourglass', someday: 'inbox' }   // 線のアイコンの名前（LineIcon）
 export const KIND_LABEL = { task: 'やること', checklist: 'チェック表', routine: 'ルーティン', progress: '進行中', someday: 'いつか' }
 
 const _data = reactive({ list: [] })

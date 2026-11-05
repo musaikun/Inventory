@@ -7,6 +7,7 @@
  *   スタッフの管理と全品目・アカウントの削除は管理者だけ（切り替えられない）。管理者・自分の権限は変えられない
  * - オーナーの名前（User決定 2026-10-14）: オーナーの画面で、オーナー本人だけが変えられる。変えると過去の記録もそろう
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import QRCode from 'qrcode'
 import {
@@ -203,7 +204,7 @@ const actionGroups = computed(() => {
   }
   return out
 })
-const ACT_ICON = { stock: '📦', order: '🧾', in: '📥', out: '📤', task: '＋', done: '✓' }
+const ACT_ICON = { stock: 'box', order: 'receipt', in: 'inbox', out: 'upload', task: 'plus', done: 'check' }   // 線のアイコンの名前
 const workDays = computed(() => {
   const map = new Map()
   for (const w of activity.value?.work ?? []) {
@@ -336,7 +337,7 @@ watch(selId, id => { if (id && !rows.value.some(r => r.id === id)) selId.value =
 
       <!-- 暗証番号の失敗で止まっているときだけ -->
       <div v-if="lockLeft > 0" class="sp2-lockwarn">
-        <span>⚠ 暗証番号を5回まちがえて止まっています（あと{{ lockLeft }}分で自動で解けます）</span>
+        <span><LineIcon name="alert" /> 暗証番号を5回まちがえて止まっています（あと{{ lockLeft }}分で自動で解けます）</span>
         <button type="button" class="sp2-btn sec" :disabled="!!busy" @click="act(sel, 'unlock')">解除する</button>
       </div>
 
@@ -371,7 +372,7 @@ watch(selId, id => { if (id && !rows.value.some(r => r.id === id)) selId.value =
             :aria-label="`${g.label}`" :disabled="!canEditPerms || !!busy" @click="toggleGroup(g.key)"
           ></button>
         </div>
-        <div class="sp2-lock">🔒 スタッフの招待・権限の付与、全品目・アカウントの削除は管理者だけ（切り替えられません）<template v-if="sel.owner || sel.role === 'admin'">。オーナーと管理者はすべての権限を持っています</template><template v-else-if="isMe(sel)">。自分の権限は変えられません</template></div>
+        <div class="sp2-lock"><LineIcon name="lock" /> スタッフの招待・権限の付与、全品目・アカウントの削除は管理者だけ（切り替えられません）<template v-if="sel.owner || sel.role === 'admin'">。オーナーと管理者はすべての権限を持っています</template><template v-else-if="isMe(sel)">。自分の権限は変えられません</template></div>
       </div>
       <p v-if="msg" class="sp2-err">{{ msg }}</p>
 
@@ -400,7 +401,7 @@ watch(selId, id => { if (id && !rows.value.some(r => r.id === id)) selId.value =
         <template v-for="g in actionGroups" :key="g.head">
           <div class="sp2-dh">{{ g.head }}</div>
           <div v-for="(a, i) in g.items" :key="g.head + i" class="sp2-act">
-            <time>{{ hm(a.at) }}</time><span class="sp2-k" aria-hidden="true">{{ ACT_ICON[a.kind] || '・' }}</span>
+            <time>{{ hm(a.at) }}</time><span class="sp2-k" aria-hidden="true"><LineIcon v-if="ACT_ICON[a.kind]" :name="ACT_ICON[a.kind]" /><template v-else>・</template></span>
             <span class="sp2-tx">{{ a.text }}<small v-if="a.sub">{{ a.sub }}</small></span>
           </div>
         </template>

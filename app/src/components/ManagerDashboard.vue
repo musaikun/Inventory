@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
@@ -297,7 +298,7 @@ const cards = computed(() => {
   const first = trend.value[0]
   return [
     {
-      key: 'trend', icon: '📈', title: '在庫金額の推移',
+      key: 'trend', icon: 'trend-up', title: '在庫金額の推移',
       ok: trend.value.length >= 2,
       value: trend.value.length >= 2 ? `${trend.value.length}か月` : '',
       sub: trend.value.length >= 2
@@ -305,13 +306,13 @@ const cards = computed(() => {
         : '金額のある月末在庫が2か月分必要です',
     },
     {
-      key: 'genre', icon: '🗂', title: 'ジャンル別在庫金額',
+      key: 'genre', icon: 'folders', title: 'ジャンル別在庫金額',
       ok: genreBreakdown.value.length > 0,
       value: top ? `${top.genre} ${top.pctOfTotal}%` : '',
       sub: top ? `${genreBreakdown.value.length}ジャンル・最多は${top.genre}` : '単価が未設定です',
     },
     {
-      key: 'diff', icon: '🔔', title: '前回差アラート',
+      key: 'diff', icon: 'bell', title: '前回差アラート',
       ok: !!prevSnap.value,
       value: prevSnap.value ? `${d.increases.length + d.decreases.length + d.appeared.length + d.gone.length}件` : '',
       sub: prevSnap.value
@@ -319,18 +320,18 @@ const cards = computed(() => {
         : '前の月の棚卸が必要です',
     },
     {
-      key: 'abc', icon: '🅰', title: 'ABC分析',
+      key: 'abc', icon: 'letter', title: 'ABC分析',
       ok: !!abc.value,
       value: abc.value ? `A ${abc.value.A.count}品目` : '',
       sub: abc.value ? `A品目で在庫金額の${abc.value.A.pctOfValue}%` : '単価が未設定です',
     },
     ...(orphans.value.length ? [{
-      key: 'orphan', icon: '🧩', title: 'カレンダーに無い棚卸', warn: true, ok: true,
+      key: 'orphan', icon: 'puzzle', title: 'カレンダーに無い棚卸', warn: true, ok: true,
       value: `${orphans.value.length}件`,
       sub: '記録だけ残っています。確認して削除できます',
     }] : []),
     ...(anomalies.value.length ? [{
-      key: 'anomaly', icon: '⚠️', title: '要確認', warn: true, ok: true,
+      key: 'anomaly', icon: 'alert', title: '要確認', warn: true, ok: true,
       value: `${anomalies.value.length}件`,
       sub: '単位変更・桁違いの可能性',
     }] : []),
@@ -343,13 +344,13 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
   <div :class="embedded ? 'dash-embedded' : 'dash-overlay'">
     <div v-if="!embedded || view !== 'hub'" class="dash-header">
       <button class="dash-back" @click="back">‹ 戻る</button>
-      <div class="dash-title">{{ view === 'hub' ? '📊 在庫分析' : VIEW_TITLE[view] }}</div>
+      <div class="dash-title"><LineIcon v-if="view === 'hub'" name="chart" /> {{ view === 'hub' ? '在庫分析' : VIEW_TITLE[view] }}</div>
       <div class="dash-header-spacer"></div>
     </div>
 
     <div class="dash-body">
       <div v-if="!hasData" class="dash-empty">
-        <div class="dash-empty-icon">📊</div>
+        <div class="dash-empty-icon"><LineIcon name="chart" /></div>
         <div class="dash-empty-title">分析できるデータがありません</div>
         <div class="dash-empty-desc">棚卸を完了すると在庫金額・差異が表示されます</div>
       </div>
@@ -401,13 +402,13 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
           </template>
           <div class="dash-meta">
             <div class="dash-meta-item" v-if="summary.duration">
-              <span class="dash-meta-icon">⏱</span>{{ summary.duration }}
+              <span class="dash-meta-icon"><LineIcon name="timer" /></span>{{ summary.duration }}
             </div>
             <div class="dash-meta-item" v-if="summary.headcount">
-              <span class="dash-meta-icon">👥</span>{{ summary.headcount }}人
+              <span class="dash-meta-icon"><LineIcon name="users" /></span>{{ summary.headcount }}人
             </div>
             <div class="dash-meta-item">
-              <span class="dash-meta-icon">📦</span>{{ summary.entered }}品目
+              <span class="dash-meta-icon"><LineIcon name="box" /></span>{{ summary.entered }}品目
             </div>
           </div>
           <!-- この棚卸の詳細（品目一覧・参加者・変更履歴・レポート）へ -->
@@ -421,7 +422,7 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
             :class="['dash-card', { off: !c.ok, warn: c.warn }]" :disabled="!c.ok"
             @click="openView(c.key)"
           >
-            <span class="dash-card-head"><span class="dash-card-icon">{{ c.icon }}</span>{{ c.title }}</span>
+            <span class="dash-card-head"><span class="dash-card-icon"><LineIcon :name="c.icon" /></span>{{ c.title }}</span>
             <span v-if="c.value" class="dash-card-value">{{ c.value }}</span>
             <span class="dash-card-sub">{{ c.sub }}</span>
           </button>
@@ -502,7 +503,7 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
           <div class="dash-slider-hint">小さな増減を隠して、本当に増えた／減った品目だけを表示します</div>
 
           <div class="dash-alert-group" v-if="diffRows.increases.length">
-            <div class="dash-alert-head up">📈 急増 {{ diffRows.increases.length }}件</div>
+            <div class="dash-alert-head up"><LineIcon name="trend-up" /> 急増 {{ diffRows.increases.length }}件</div>
             <div v-for="r in diffRows.increases" :key="'inc' + r.item" class="dash-alert-row">
               <span class="dash-alert-item">{{ r.item }}</span>
               <span class="dash-alert-change up">
@@ -513,7 +514,7 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
           </div>
 
           <div class="dash-alert-group" v-if="diffRows.decreases.length">
-            <div class="dash-alert-head down">📉 急減 {{ diffRows.decreases.length }}件</div>
+            <div class="dash-alert-head down"><LineIcon name="trend-down" /> 急減 {{ diffRows.decreases.length }}件</div>
             <div v-for="r in diffRows.decreases" :key="'dec' + r.item" class="dash-alert-row">
               <span class="dash-alert-item">{{ r.item }}</span>
               <span class="dash-alert-change down">
@@ -524,7 +525,7 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
           </div>
 
           <div class="dash-alert-group" v-if="diffRows.appeared.length">
-            <div class="dash-alert-head new">🆕 新規・復活 {{ diffRows.appeared.length }}件</div>
+            <div class="dash-alert-head new"><LineIcon name="new" /> 新規・復活 {{ diffRows.appeared.length }}件</div>
             <div v-for="r in diffRows.appeared" :key="'app' + r.item" class="dash-alert-row">
               <span class="dash-alert-item">{{ r.item }}</span>
               <span class="dash-alert-change new">前回0 → {{ _fmtVal(r.curVal) }}{{ _fmtUnit(r.unit) }}</span>
@@ -532,7 +533,7 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
           </div>
 
           <div class="dash-alert-group" v-if="diffRows.gone.length">
-            <div class="dash-alert-head gone">⚠️ 今回未入力 {{ diffRows.gone.length }}件</div>
+            <div class="dash-alert-head gone"><LineIcon name="alert" /> 今回未入力 {{ diffRows.gone.length }}件</div>
             <div v-for="r in diffRows.gone" :key="'gone' + r.item" class="dash-alert-row">
               <span class="dash-alert-item">{{ r.item }}</span>
               <span class="dash-alert-change gone">前回 {{ _fmtVal(r.prevVal) }}{{ _fmtUnit(r.unit) }} → 未入力</span>

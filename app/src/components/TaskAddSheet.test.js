@@ -74,7 +74,7 @@ describe('種類から選ぶ追加の画面', () => {
     await mount(Sheet)
     await click(sheet().querySelector('.ta-kind[data-kind="routine"]'))
     expect(sheet().querySelector('input[aria-label="項目"]')).toBeNull()
-    expect(sheet().textContent).toContain('📋 チェック表 で作ります')
+    expect(sheet().textContent).toContain('チェック表 で作ります')
   })
 
   it('★ お気に入りから選ぶと、種類と中身が入った状態で開く（日付だけ選ぶ）', async () => {

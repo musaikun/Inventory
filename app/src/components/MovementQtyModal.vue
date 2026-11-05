@@ -10,6 +10,7 @@
  * 「あとで数える」・新規品目登録まで抱えており、入出庫には無い概念が付いてくる。
  * ここで扱うのは**今回記録する数量だけ**（保存は従来どおりバラ換算後の個数）。
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed } from 'vue'
 import NumPad from './NumPad.vue'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
@@ -61,7 +62,7 @@ const cases = computed(() => {
       <div class="sheet-handle"></div>
 
       <div class="mq-head">
-        <span :class="['mq-badge', mode]">{{ isOut ? '📤 出庫' : '📥 入庫' }}</span>
+        <span :class="['mq-badge', mode]"><LineIcon :name="isOut ? 'upload' : 'inbox'" /> {{ isOut ? '出庫' : '入庫' }}</span>
         <span class="mq-item">{{ item }}</span>
       </div>
 

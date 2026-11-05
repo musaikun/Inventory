@@ -6,6 +6,7 @@
  * - 「今日はなし」: 理由は任意（その場の小窓）。済みに数える
  * - 外せるのは付けた人がその日のうち（管理者はいつでも）。先の日は見るだけ
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed, onUnmounted } from 'vue'
 import { runOf, markChecklistItem, canMarkChecklist, canUnmark, CL_ITEM_MAX } from '../composables/useChecklists.js'
 import { localDateKey } from '../utils/localDate.js'
@@ -101,8 +102,8 @@ onUnmounted(registerInnerLayerCloser(() => {
           <button type="button" class="cr-mini grow" @click="emit('close')">{{ left ? 'あとで続ける' : '閉じる' }}</button>
         </div>
         <div v-if="canCopy" class="cr-row">
-          <button type="button" class="cr-mini" @click="emit('copy', cl)">📄 別の日にコピー</button>
-          <button type="button" class="cr-mini" @click="emit('fav', cl)">★ お気に入りに入れる</button>
+          <button type="button" class="cr-mini" @click="emit('copy', cl)"><LineIcon name="file" /> 別の日にコピー</button>
+          <button type="button" class="cr-mini" @click="emit('fav', cl)"><LineIcon name="star" /> お気に入りに入れる</button>
         </div>
       </div>
     </div>

@@ -6,6 +6,7 @@
  * 承認はすぐ拾う（User 2026-11-04）: 3秒ごと＋画面に戻った・通信が戻ったときにすぐ聞く（裏にいる間はタイマーが止まる端末がある）。
  * 承認されたら「承認されました」を見せ、通知を許していれば端末の通知も出してから、アプリへ進む。
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { getInvite, joinAsStaff, pendingJoin, checkPendingJoin, forgetPendingJoin, ROLE_LABELS } from '../composables/useAuth.js'
 import PasswordReveal from './PasswordReveal.vue'
@@ -160,11 +161,11 @@ const digits = v => v.replace(/\D/g, '').slice(0, 6)
       </template>
 
       <template v-else-if="step === 'waiting'">
-        <div class="sj-wait" aria-hidden="true">⏳</div>
+        <div class="sj-wait" aria-hidden="true"><LineIcon name="hourglass" /></div>
         <p class="sj-p"><b>{{ waiting?.name }}</b>さんの参加を申請しました。<br>管理者が承認すると、このままログインします。</p>
         <p class="sj-p sj-small">{{ waiting?.storeName || waiting?.shopCode }} ・ 店舗コード {{ waiting?.shopCode }}</p>
-        <button v-if="canAskNotify" type="button" class="sj-btn sec" @click="askNotify">🔔 承認されたら通知で知らせる</button>
-        <p v-else-if="notifyOn" class="sj-p sj-small">🔔 承認されたら、この端末に通知します</p>
+        <button v-if="canAskNotify" type="button" class="sj-btn sec" @click="askNotify"><LineIcon name="bell" /> 承認されたら通知で知らせる</button>
+        <p v-else-if="notifyOn" class="sj-p sj-small"><LineIcon name="bell" /> 承認されたら、この端末に通知します</p>
         <button type="button" class="sj-btn sec" @click="giveUp">申請をやめる</button>
       </template>
 

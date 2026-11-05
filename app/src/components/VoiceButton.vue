@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 // 検索欄の隣に置く小さいマイク。以前は画面中央に130pxの円で置いていたが、
 // 音声も文字も「品目を探して数量を打つ」ための同じ入口なので、検索欄と同じ行へ寄せた。
 // 文字が入る大きさではないので、状態は色と脈で示し、読み上げ向けには aria-label で出す。
@@ -22,7 +23,7 @@ defineEmits(['toggle'])
     :title="isListening ? '聞いています（タップで停止）' : 'タップして話す'"
     @click="$emit('toggle')"
   >
-    <span class="mic" aria-hidden="true">🎤</span>
+    <span class="mic" aria-hidden="true"><LineIcon name="mic" /></span>
   </button>
 </template>
 

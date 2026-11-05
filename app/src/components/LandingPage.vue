@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { ref } from 'vue'
 import { shopCode } from '../composables/useStore.js'
 import { isTwaApp } from '../utils/appMode.js'
@@ -31,7 +32,7 @@ async function onStart() {
     <div class="lp-body">
       <!-- ロゴ -->
       <div class="lp-logo">
-        <span class="lp-logo-icon">📋</span>
+        <span class="lp-logo-icon"><LineIcon name="clipboard" /></span>
         <span class="lp-logo-name">タナオロ</span>
         <span class="lp-version">v{{ version }}<template v-if="buildSha"> ({{ buildSha }})</template></span>
       </div>
@@ -52,7 +53,7 @@ async function onStart() {
         :disabled="loading"
         @click="onStart"
       >
-        <span class="lp-card-icon">📋</span>
+        <span class="lp-card-icon"><LineIcon name="clipboard" /></span>
         <span class="lp-card-body">
           <span class="lp-card-title">ログイン・店舗の登録</span>
           <span class="lp-card-sub">

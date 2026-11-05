@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { ref, computed, reactive, watch, nextTick, onUnmounted } from 'vue'
 import { useConfig, ROUTE } from '../composables/useConfig.js'
 import { useRowHideSwipe, REVEAL_AT } from '../composables/useRowHideSwipe.js'
@@ -104,7 +105,7 @@ const filterMode   = ref('all')       // 'all' | 'filled' | 'empty'
 // 並べ替え軸の選択肢（軸名が設定されている汎用軸のみ追加）
 const sortOpts = computed(() => {
   const opts = [
-    ...(hasRoute.value ? [{ value: 'route', label: '🚶 導線' }] : []),
+    ...(hasRoute.value ? [{ value: 'route', label: '導線' }] : []),
     { value: 'category', label: 'ジャンル' },
   ]
   const names = config.value.axisNames ?? ['', '']
@@ -1034,23 +1035,23 @@ function fmtYen(n) {
                   v-if="recountFlags?.[row.item]"
                   class="recount-flag-badge"
                   title="あとで数えるフラグが立っています"
-                >🔖</span>
+                ><LineIcon name="bookmark" /></span>
                 <span v-if="!readOnly && manualSet.has(row.item)" class="manual-actions" @click.stop>
                   <button class="manual-btn-edit" @click="emit('edit-item', row.item)">編集</button>
                   <button class="manual-btn-delete" @click="requestDelete(row.item)">削除</button>
                 </span>
               </div>
-              <div v-if="itemNotes?.[row.item]?.text" class="item-note" :title="itemNotes[row.item].text">📝 {{ itemNotes[row.item].text }}</div>
+              <div v-if="itemNotes?.[row.item]?.text" class="item-note" :title="itemNotes[row.item].text"><LineIcon name="note" /> {{ itemNotes[row.item].text }}</div>
               <div v-if="pendingDelete === row.item" class="delete-confirm" @click.stop>
                 <span class="delete-confirm-msg">「{{ row.item }}」を削除しますか？</span>
                 <button class="delete-confirm-yes" @click="confirmDelete(row.item)">削除</button>
                 <button class="delete-confirm-no"  @click="cancelDelete">キャンセル</button>
               </div>
               <div v-else-if="conflictLocked?.has(row.item)" class="conflict-indicator">
-                ⚡ 競合中 — ホストが解決中
+                <LineIcon name="zap" /> 競合中 — ホストが解決中
               </div>
               <div v-else-if="typingMap?.[row.item]" class="typing-indicator">
-                ✏️ {{ typingMap[row.item].name }}が入力中…
+                <LineIcon name="pencil" /> {{ typingMap[row.item].name }}が入力中…
               </div>
               <div v-else-if="(preview && $slots.qty) || row.lotSize || row.prevMonth || noteMap?.[row.item]" class="hints-row">
                 <template v-if="preview && $slots.qty">
@@ -1121,7 +1122,7 @@ function fmtYen(n) {
           <td :colspan="totalCols" class="empty-cell">
             <template v-if="config.order.length === 0">上のフォームから品目を追加してください</template>
             <template v-else-if="filterMode === 'filled'">{{ orderMode ? '確認済みの品目がありません' : '入力済みの品目がありません' }}</template>
-            <template v-else-if="filterMode === 'empty'">{{ orderMode ? 'すべての品目を確認しました 🎉' : 'すべての品目が入力済みです 🎉' }}</template>
+            <template v-else-if="filterMode === 'empty'">{{ orderMode ? 'すべての品目を確認しました' : 'すべての品目が入力済みです' }}</template>
             <template v-else>品目がありません</template>
           </td>
         </tr>

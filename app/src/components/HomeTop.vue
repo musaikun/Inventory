@@ -10,6 +10,7 @@
  *   管理者には「スタッフ」も（承認待ちの数。管理から移した・User決定 2026-10-14）
  * 棚卸・発注は在庫タブの今のボタンからも始められる（両方に置く・User決定）。
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted } from 'vue'
 import { tasksOn, overdueTasks, isAssignedToMe, isMarkedByMe, pullTasks } from '../composables/useTasks.js'
 import { currentStaff, storeName, canSeeReport, isAuthenticated, isAdmin, can } from '../composables/useAuth.js'
@@ -61,10 +62,10 @@ const { state: weatherState } = useWeather()
 const today = localDateKey()
 const wx = computed(() => {
   const w = weatherState.weather?.[today]
-  if (!w) return ''
+  if (!w) return null
   const t = w.tempHi != null ? `${Math.round(w.tempHi)}°` : ''
   const pop = w.pop != null ? `降水 ${w.pop}%` : ''
-  return [`${w.icon} ${t}`.trim(), weatherState.loc?.name || '', pop].filter(Boolean).join(' ・ ')
+  return { icon: w.icon, text: [t, weatherState.loc?.name || '', pop].filter(Boolean).join(' ・ ') }   // アイコンは線のアイコンで（2026-11-05）
 })
 
 // ── 今日のやること ──
@@ -196,7 +197,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
       </div>
       <div class="ht-hi">
         <b>{{ dateLabel }}</b>
-        <span v-if="wx" class="ht-wx">{{ wx }}</span>
+        <span v-if="wx" class="ht-wx"><LineIcon :name="wx.icon" /> {{ wx.text }}</span>
       </div>
     </section>
 
@@ -269,7 +270,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
           </template>
           <template v-else-if="sheet === 'sort'">
             <button type="button" class="ht-sh-b route" @click="pickSheet(() => openRoute())">
-              <b>🚶 導線作成</b>
+              <b><LineIcon name="route" /> 導線作成</b>
               <small v-if="hasRoute">{{ routeLabel }}</small>
               <small v-else>棚卸で歩く順番。場所ごとに品目を入れ、その順で数えます</small>
               <span v-if="hasRoute" class="ht-sh-bar" aria-hidden="true"><span :style="{ width: (routeStats.total ? routeStats.done / routeStats.total * 100 : 0) + '%' }"></span></span>

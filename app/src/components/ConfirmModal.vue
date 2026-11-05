@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import NumPad from './NumPad.vue'
 import NoteField from './NoteField.vue'
@@ -165,8 +166,8 @@ function formatAction(action) {
   if (action === 'add')       return '追加'
   if (action === 'overwrite') return '上書'
   if (action === 'remove')    return '削除'
-  if (action === 'flag_recount')   return '🔖付'
-  if (action === 'unflag_recount') return '🔖解'
+  if (action === 'flag_recount')   return '印 付'
+  if (action === 'unflag_recount') return '印 解'
   return action
 }
 
@@ -303,13 +304,13 @@ function saveEdit() {
 
       <!-- 新規登録の注意（誤登録防止・何をしているかの明確化）-->
       <div v-if="isNew" class="new-item-notice">
-        🆕 この品目を<strong>新しく追加</strong>します<br>
+        <LineIcon name="new" /> この品目を<strong>新しく追加</strong>します<br>
         <span class="new-item-sub">リストに無い品目です。下の「新規登録」で追加します</span>
       </div>
 
       <!-- 他メンバーの入力中インジケータ -->
       <div v-if="typingUser" class="typing-user-banner">
-        ✏️ {{ typingUser }}が入力中…
+        <LineIcon name="pencil" /> {{ typingUser }}が入力中…
       </div>
 
       <!-- 品目名：編集モードは入力欄、それ以外は表示のみ -->
@@ -339,7 +340,7 @@ function saveEdit() {
             role="img"
             aria-label="あとで数えるに入っています"
             title="あとで数えるに入っています"
-          >🔖</span>
+          ><LineIcon name="bookmark" /></span>
           <button
             class="name-nav next"
             :disabled="!canNext"
@@ -351,10 +352,10 @@ function saveEdit() {
         <!-- 参考情報はすべてこの1行に集める。1つずつ行を持つと、見る回数の少ない
              ものほど画面の上を占める。 -->
         <div class="name-hints">
-          <span v-if="isFlagged && !isEdit" class="hint-chip hint-flag">🔖 あとで数える</span>
+          <span v-if="isFlagged && !isEdit" class="hint-chip hint-flag"><LineIcon name="bookmark" /> あとで数える</span>
           <span v-if="lotSize"   class="hint-chip hint-lot">入数: {{ lotSize }}</span>
           <span v-if="prevMonth" class="hint-chip hint-prev">前月: {{ prevMonth }}</span>
-          <span v-if="category" class="hint-chip hint-genre">{{ category }} 🔒</span>
+          <span v-if="category" class="hint-chip hint-genre">{{ category }} <LineIcon name="lock" /></span>
           <button
             v-if="itemHistory.length > 0 && !isEdit"
             class="hint-chip hint-history"
@@ -400,7 +401,7 @@ function saveEdit() {
         </div>
         <!-- 単位：インポートでロック済みはバッジ、編集モードや未ロックはドロップダウン -->
         <div v-if="!unitEditable" class="unit-locked-badge">
-          {{ unit }}<span class="unit-lock-icon">🔒</span>
+          {{ unit }}<span class="unit-lock-icon"><LineIcon name="lock" /></span>
         </div>
         <div v-else class="select-wrap unit-select-wrap">
           <select class="field-select" :value="unitSelectValue" @change="onUnitChange($event.target.value)">
@@ -424,7 +425,7 @@ function saveEdit() {
       />
 
       <!-- 単位警告 -->
-      <div v-if="unitWarning" class="unit-warning">⚠️ {{ unitWarning }}</div>
+      <div v-if="unitWarning" class="unit-warning"><LineIcon name="alert" /> {{ unitWarning }}</div>
 
       <!-- 単価（編集モードのみ） -->
       <div v-if="isEdit" class="price-row">

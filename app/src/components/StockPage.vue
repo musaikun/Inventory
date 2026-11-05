@@ -13,6 +13,7 @@
  * - 入庫の日付（期限・買った日）から、期限が近い・切れた品目を一覧に出す（User決定 2026-10-27）
  * - 右下の「＋」で1品目ずつ追加。行をタップすると品目シート（入庫・出庫・品目の情報・品目のカレンダー）
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed, onUnmounted } from 'vue'
 import { can, denyMessage } from '../composables/useAuth.js'
 import DismissibleHint from './DismissibleHint.vue'
@@ -168,24 +169,24 @@ onUnmounted(registerInnerLayerCloser(() => {
   <div :class="['sp', { embedded }]">
     <header v-if="!embedded" class="sp-header">
       <button class="sp-back" @click="emit('back')">‹ 戻る</button>
-      <span class="sp-title">📦 品目・在庫</span>
+      <span class="sp-title"><LineIcon name="box" /> 品目・在庫</span>
     </header>
 
     <slot name="top" :empty="isEmpty" />
 
     <div v-if="locked" class="sp-locked" role="status">
-      ⏳ 棚卸・発注の完了をサーバーで確認しています。確定するまで品目の追加・変更はできません。
+      <LineIcon name="hourglass" /> 棚卸・発注の完了をサーバーで確認しています。確定するまで品目の追加・変更はできません。
     </div>
 
     <!-- 品目が0件：一覧の代わりに、登録の入口を大きく出す -->
     <div v-if="isEmpty" class="sp-empty">
-      <div class="sp-empty-ico">📦</div>
+      <div class="sp-empty-ico"><LineIcon name="box" /></div>
       <div class="sp-empty-title">最初の品目を追加</div>
       <p class="sp-empty-sub">在庫を数える品目を登録します</p>
       <button class="sp-btn pri" type="button" @click="openAdd">＋ 1つずつ追加</button>
       <!-- ファイルは押したその場でファイル選択を開く（管理へ移さない）。棚卸しながら登録も同じ大きさのカードに（2026-10-14） -->
-      <button v-if="can('item.admin')" class="sp-btn sec" type="button" @click="emit('openMaster')">📄 ファイルからまとめて取込</button>
-      <button v-if="can('stock.start')" class="sp-btn sec" type="button" @click="emit('startSession')">👥 棚卸をしながら登録する</button>
+      <button v-if="can('item.admin')" class="sp-btn sec" type="button" @click="emit('openMaster')"><LineIcon name="file" /> ファイルからまとめて取込</button>
+      <button v-if="can('stock.start')" class="sp-btn sec" type="button" @click="emit('startSession')"><LineIcon name="users" /> 棚卸をしながら登録する</button>
     </div>
 
     <div v-else class="sp-body">

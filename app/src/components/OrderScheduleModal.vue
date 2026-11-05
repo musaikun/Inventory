@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import DismissibleHint from './DismissibleHint.vue'
 import { useConfig } from '../composables/useConfig.js'
@@ -77,7 +78,7 @@ function onSave() {
   <div class="os-overlay" @click.self="emit('close')">
     <div class="os-sheet" ref="sheet">
       <div class="os-handle"></div>
-      <div class="os-title">🗓 発注スケジュール</div>
+      <div class="os-title"><LineIcon name="calendar" /> 発注スケジュール</div>
       <DismissibleHint id="order-schedule" class="os-desc">
         発注する曜日と締め切り時間を設定します。仕入先ごとに分けたい場合は{{ MAX_ORDER_SCHEDULES }}件まで登録できます。
         発注セッションの位置づけ表示や締切の目安に使います。

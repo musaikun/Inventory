@@ -9,6 +9,7 @@
  * - 棚卸・発注・入出庫の記録は動かせない点線の帯・札
  * 見せるだけの部品。書き換えは親（JournalPage）
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { staffNames } from '../composables/useAuth.js'
 import { canEditTask } from '../composables/useTasks.js'
@@ -191,11 +192,11 @@ const KIND_LABEL = { prep: '仕込み', clean: '清掃', order: '発注・納品
     <div v-if="strip.length" class="db-all">
       <span class="db-lab">終日</span>
       <button v-for="x in strip" :key="x.key" type="button" :class="['db-ad', x.state, x.ref.type]" @click="emit('open', x)">
-        {{ x.state === 'done' ? '✓ ' : '' }}{{ x.ref.type === 'list' ? '🔁 ' : '' }}{{ x.title }}<small v-if="x.ref.type === 'list' && x.sub"> {{ x.sub }}</small>
+        {{ x.state === 'done' ? '✓ ' : '' }}<LineIcon v-if="x.ref.type === 'list'" name="repeat" size="1em" />{{ x.ref.type === 'list' ? ' ' : '' }}{{ x.title }}<small v-if="x.ref.type === 'list' && x.sub"> {{ x.sub }}</small>
       </button>
     </div>
     <div v-if="lane.length" class="db-lane">
-      <button type="button" class="db-lane-h" :aria-expanded="laneOpen" @click="laneOpen = !laneOpen">⏳ 進行中 {{ lane.length }}（済むまで毎日出る）{{ laneOpen ? '▲' : '▼' }}</button>
+      <button type="button" class="db-lane-h" :aria-expanded="laneOpen" @click="laneOpen = !laneOpen"><LineIcon name="hourglass" /> 進行中 {{ lane.length }}（済むまで毎日出る）{{ laneOpen ? '▲' : '▼' }}</button>
       <template v-if="laneOpen">
         <button v-for="x in lane" :key="x.key" type="button" class="db-pbar" @click="emit('open', x)"><b>{{ x.title }}</b><small v-if="x.sub">{{ x.sub }}</small></button>
       </template>
@@ -205,7 +206,7 @@ const KIND_LABEL = { prep: '仕込み', clean: '清掃', order: '発注・納品
       <div class="db-rows">
         <div class="db-rh"></div>
         <div v-for="r in rows" :key="r.id" class="db-r" :style="{ height: ROW_H + 'px' }">
-          <span class="db-av" aria-hidden="true">{{ r.id === 'all' ? '👥' : r.name.slice(0, 1) }}</span>{{ r.name }}<small v-if="r.sub">{{ r.sub }}</small>
+          <span class="db-av" aria-hidden="true"><LineIcon v-if="r.id === 'all'" name="users" size="1em" /><template v-else>{{ r.name.slice(0, 1) }}</template></span>{{ r.name }}<small v-if="r.sub">{{ r.sub }}</small>
         </div>
       </div>
       <div ref="scrollEl" class="db-scroll">
@@ -232,7 +233,7 @@ const KIND_LABEL = { prep: '仕込み', clean: '清掃', order: '発注・納品
               :class="['db-blk', `k-${b.kind}`, b.state, { pin: b.end == null, fixed: !b.movable, drag: drag && b.task && drag.id === b.task.id, thin: b.end != null && (xOf(b.end) - xOf(b.start)) < 44 }]"
               :style="style(b)" :aria-label="`${b.title} ${hmShort(b.start)}${b.end != null ? '〜' + hmShort(b.end) : ''}`"
               @keydown.enter="emit('open', b.x)">
-              <span class="db-t">{{ b.state === 'done' ? '✓ ' : '' }}{{ b.kind === 'routine' ? '🔁 ' : '' }}{{ b.title }}</span>
+              <span class="db-t">{{ b.state === 'done' ? '✓ ' : '' }}<LineIcon v-if="b.kind === 'routine'" name="repeat" size="1em" />{{ b.kind === 'routine' ? ' ' : '' }}{{ b.title }}</span>
               <small>{{ b.end != null ? `${hmShort(b.start)}〜${hmShort(b.end)}` : b.kind === 'task' || KIND_LABEL[b.kind] ? `${hmShort(b.start)}までに` : `${hmShort(b.start)}${b.sub ? ` ・ ${b.sub}` : ''}` }}</small>
               <span v-if="b.movable && b.end != null" class="db-grip" data-grip="1" aria-hidden="true"></span>
             </div>
@@ -243,7 +244,7 @@ const KIND_LABEL = { prep: '仕込み', clean: '清掃', order: '発注・納品
     </div>
 
     <p v-if="placing" class="db-placing" role="status">「{{ placing.title }}」を置くマスを押してください<button type="button" @click="placing = null">やめる</button></p>
-    <button v-if="someday.length && canAdd" type="button" class="db-box" @click="boxOpen = !boxOpen">📥 いつか<b>{{ someday.length }}</b></button>
+    <button v-if="someday.length && canAdd" type="button" class="db-box" @click="boxOpen = !boxOpen"><LineIcon name="inbox" /> いつか<b>{{ someday.length }}</b></button>
     <div v-if="boxOpen" class="db-boxlist" role="dialog" aria-label="いつか">
       <p>選んでからボードのマスを押すと、その時間・その人に入ります</p>
       <button v-for="x in someday" :key="x.key" type="button" @click="pick(x)">{{ x.title }}<small>置く ›</small></button>

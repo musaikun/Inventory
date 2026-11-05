@@ -2,6 +2,7 @@
 // パスワード・暗証番号の入力欄に 👁️ を付け、入力した中身を見られるようにする。
 // 入力欄は呼び出し側に置く（slot）。各画面の scoped な入力欄の見た目をそのまま使うため。
 //   <PasswordReveal v-slot="{ type }"><input :type="type" ... /></PasswordReveal>
+import LineIcon from './LineIcon.vue'
 import { ref } from 'vue'
 
 const shown = ref(false)
@@ -16,7 +17,7 @@ const shown = ref(false)
       :aria-label="shown ? '入力した内容を隠す' : '入力した内容を表示する'"
       :aria-pressed="shown"
       @click="shown = !shown"
-    >{{ shown ? '🙈' : '👁️' }}</button>
+    ><LineIcon :name="shown ? 'eye-off' : 'eye'" /></button>
   </span>
 </template>
 

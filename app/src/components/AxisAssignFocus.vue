@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { ref, reactive, computed, watch, nextTick, onUnmounted } from 'vue'
 import DismissibleHint from './DismissibleHint.vue'
 import CountOrderSheet from './CountOrderSheet.vue'
@@ -1400,7 +1401,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
   <div :class="['af', { route: isRoute }]" @selectstart="onSelectStart">
     <header class="af-head">
       <button class="af-back" @click="emit('close')">‹ 閉じる</button>
-      <span class="af-title">{{ isRoute ? '🚶 導線' : axisName ? `${axisName}の並び替え` : '振り分け' }}</span>
+      <span class="af-title"><LineIcon v-if="isRoute" name="route" /> {{ isRoute ? '導線' : axisName ? `${axisName}の並び替え` : '振り分け' }}</span>
       <button v-if="axisName && !isRoute" class="af-title-edit" aria-label="分け方の名前を変える・消す" @click="openAxisPanel(activeAxis)">✎</button>
       <button
         v-if="axisName && countSource && axisHasAssignments" class="af-more" aria-label="その他の操作"
@@ -1408,14 +1409,14 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
       >⋯</button>
       <div v-if="moreOpen" class="af-more-back" @click="moreOpen = false"></div>
       <div v-if="moreOpen" class="af-more-menu" role="menu">
-        <button type="button" role="menuitem" @click="openCountOrder">⏱ 前回の数えた順に並べ直す…</button>
+        <button type="button" role="menuitem" @click="openCountOrder"><LineIcon name="timer" /> 前回の数えた順に並べ直す…</button>
       </div>
     </header>
 
     <!-- 進捗バー -->
     <div class="af-progress">
       <div class="af-prog-text">
-        <span class="af-prog-icon">{{ allDone ? '🎉' : '📦' }}</span>
+        <span class="af-prog-icon"><LineIcon :name="allDone ? 'party' : 'box'" /></span>
         <span>振り分け済み <b>{{ assignedCount }}</b> / {{ total }}</span>
         <span v-if="allDone" class="af-done">全部できました！</span>
         <span class="af-prog-pct">{{ progressPct }}%</span>
@@ -1457,7 +1458,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
       <!-- 分け方のタブは外した（入口は在庫タブの並び替えカード）。もう一方へは小さな切り替えで -->
       <!-- まだ振り分けていない並び替えでは主役の入口。振り分け済みなら見出しの ⋯ の中へ下げる -->
       <button v-if="countSource && !axisHasAssignments" type="button" class="af-count-btn" @click="openCountOrder">
-        ⏱ 前回の数えた順で場所を作る
+        <LineIcon name="timer" /> 前回の数えた順で場所を作る
       </button>
 
       <!-- 分類先ホイール。触った方へ面積を寄せる（回す＝広い／入れる＝帯） -->
@@ -1515,8 +1516,8 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
           class="af-rail"
           :aria-hidden="banded ? 'true' : 'false'" :inert="banded ? '' : null"
         >
-          <button ref="editTriggerEl" class="af-rail-btn gear" :aria-label="`${G}をまとめて編集`" @click="openEdit">⚙</button>
-          <button class="af-rail-btn del" :aria-label="`この${G}を消す`" :disabled="!target" @click="askDelete(target)">🗑</button>
+          <button ref="editTriggerEl" class="af-rail-btn gear" :aria-label="`${G}をまとめて編集`" @click="openEdit"><LineIcon name="settings" /></button>
+          <button class="af-rail-btn del" :aria-label="`この${G}を消す`" :disabled="!target" @click="askDelete(target)"><LineIcon name="trash" /></button>
         </div>
       </div>
 
@@ -1663,8 +1664,8 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
           </div>
         </template>
         <div v-if="poolItems.length === 0" class="af-empty">
-          {{ unassignedOnly ? '未振り分けの品目はありません 🎉'
-           : neverUsedOnly ? '直近3回とも数えていない品目はありません 🎉'
+          {{ unassignedOnly ? '未振り分けの品目はありません'
+           : neverUsedOnly ? '直近3回とも数えていない品目はありません'
            : newOnly ? '前回の棚卸のあとに増えた品目はありません'
            : hiddenOnly ? '非表示の品目はありません'
            : '該当する品目がありません。' }}
@@ -1728,7 +1729,7 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
             @click="openAssignedFor(g)"
           >{{ groupCount[g] || 0 }}</button>
           <button class="af-ebtn" :aria-label="`${g} の名前を変える`" @click="openRename(g)">✎</button>
-          <button class="af-ebtn del" :aria-label="`${g} を削除`" @click="askDelete(g)">🗑</button>
+          <button class="af-ebtn del" :aria-label="`${g} を削除`" @click="askDelete(g)"><LineIcon name="trash" /></button>
         </div>
       </div>
       <div class="af-edit-foot">
@@ -1901,11 +1902,11 @@ function toggleCat(c) { openCat[c] = !openCat[c] }
         <div class="af-dialog-title">まだ分けていない {{ restItems.length }}品目</div>
         <p class="af-rest-p">今は扱っていない品目が混ざっていても、ここでまとめれば振り分けを完了にできます。あとから1つずつ別の場所へ移せます。</p>
         <button type="button" class="af-rest-opt pri" :disabled="!!busy" @click="restToOther()">
-          <b>📦 「{{ REST_GROUP }}」にまとめる（{{ restItems.length }}品目）</b>
+          <b><LineIcon name="box" /> 「{{ REST_GROUP }}」にまとめる（{{ restItems.length }}品目）</b>
           <small>数える品目のまま、棚卸の一覧の最後にまとまります<template v-if="!groups.includes(REST_GROUP)">。「{{ REST_GROUP }}」の場所を作ります</template></small>
         </button>
         <button v-if="restUnused.length" type="button" class="af-rest-opt" :disabled="!!busy" @click="restToOther({ hideUnused: true })">
-          <b>🙈 直近3回数えていない {{ restUnused.length }}品目は非表示にする</b>
+          <b><LineIcon name="eye-off" /> 直近3回数えていない {{ restUnused.length }}品目は非表示にする</b>
           <small>棚卸にも出なくなります<template v-if="restItems.length > restUnused.length">。残り{{ restItems.length - restUnused.length }}品目は「{{ REST_GROUP }}」へ</template></small>
         </button>
         <button type="button" class="af-rest-cancel" :disabled="!!busy" @click="restOpen = false">やめる</button>

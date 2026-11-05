@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { ref, onMounted } from 'vue'
 import { assertSpreadsheetFile, parseExcelFile, parsePdfFile, itemsToConfigCSV } from '../composables/usePdfImporter.js'
 import { extractRows } from '../utils/pdfTableParser.js'
@@ -197,7 +198,7 @@ function onImport() {
         @click="!loading && fileInput.click()"
       >
         <template v-if="loading">
-          <div class="drop-icon">⏳</div>
+          <div class="drop-icon"><LineIcon name="hourglass" /></div>
           <template v-if="pdfProgress">
             <div class="drop-label">解析中... {{ pdfProgress.current }} / {{ pdfProgress.total }} ページ</div>
             <div class="pdf-progress-bar">
@@ -208,7 +209,7 @@ function onImport() {
           <LoadingSpinner v-else />
         </template>
         <template v-else>
-          <div class="drop-icon">📄</div>
+          <div class="drop-icon"><LineIcon name="file" /></div>
           <div class="drop-label">PDFまたはExcelをドラッグ or タップして選択</div>
           <div class="drop-hint">.pdf / .xlsx（30ページ一括対応）</div>
         </template>
@@ -228,12 +229,12 @@ function onImport() {
 
       <!-- 手動マッピング（PDFのrawトークンがあるとき）。CSV・Excel と同じ画面へ入る -->
       <button v-if="pdfPages.length" class="manual-map-btn" @click="openGrid">
-        🗂 列を指定して取り込む
+        <LineIcon name="folders" /> 列を指定して取り込む
       </button>
 
       <!-- 手動マッピング（Excel。自動解析に当たらないフォーマットの受け皿）-->
       <button v-if="excelFile" class="manual-map-btn" @click="useColumnMapper">
-        🗂 列を指定して取り込む
+        <LineIcon name="folders" /> 列を指定して取り込む
       </button>
 
       <!-- プレビュー -->

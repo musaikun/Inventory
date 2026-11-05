@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { can } from '../composables/useAuth.js'
 import { ref, computed, onMounted } from 'vue'
 import { getSessions, logout } from '../composables/useAuth.js'
@@ -76,7 +77,7 @@ const hiddenByPlanCount = computed(() =>
   <div :class="['hcp', { embedded }]">
     <header v-if="!embedded" class="hcp-header">
       <button class="hcp-back" @click="emit('back')">‹ 戻る</button>
-      <span class="hcp-title">📅 履歴カレンダー</span>
+      <span class="hcp-title"><LineIcon name="date" /> 履歴カレンダー</span>
       <span v-if="completedSessions.length > 0" class="hcp-count">{{ completedSessions.length }}回</span>
     </header>
 
@@ -104,7 +105,7 @@ const hiddenByPlanCount = computed(() =>
       />
 
       <div v-if="!isPro() && hiddenByPlanCount > 0" class="plan-limit-notice">
-        <span class="plan-limit-icon">🔒</span>
+        <span class="plan-limit-icon"><LineIcon name="lock" /></span>
         <span class="plan-limit-text">過去 {{ hiddenByPlanCount }}件の履歴は無料プランでは表示されません</span>
         <button class="plan-limit-link" @click="emit('openUpgrade', `無料プランで閲覧できるのは直近${FREE_HISTORY_COUNT}回の棚卸です。上限の緩和は将来提供予定です。`)">詳しく</button>
       </div>

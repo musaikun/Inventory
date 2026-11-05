@@ -36,12 +36,12 @@ afterEach(() => {
 describe('在庫分析 — トップは要約と項目カード', () => {
   it('トップに各分析の中身は出さず、カードだけを並べる', async () => {
     await mount(TWO_MONTHS)
-    expect(title()).toBe('📊 在庫分析')
+    expect(title()).toBe('在庫分析')
     expect(host.querySelector('.dash-total').textContent).toContain('16,800')
     expect(host.querySelector('.dash-trend')).toBeNull()
     expect(host.querySelector('.dash-abc-bars')).toBeNull()
     expect([...host.querySelectorAll('.dash-card')].map(c => c.querySelector('.dash-card-head').textContent.trim()))
-      .toEqual(['📈在庫金額の推移', '🗂ジャンル別在庫金額', '🔔前回差アラート', '🅰ABC分析'])
+      .toEqual(['在庫金額の推移', 'ジャンル別在庫金額', '前回差アラート', 'ABC分析'])
     expect(card('ジャンル別').querySelector('.dash-card-value').textContent).toBe('肉 95%')
   })
 
@@ -54,7 +54,7 @@ describe('在庫分析 — トップは要約と項目カード', () => {
     expect(host.querySelector('.dash-context').textContent).toContain('2026年9月')
 
     await click(host.querySelector('.dash-back'))
-    expect(title()).toBe('📊 在庫分析')
+    expect(title()).toBe('在庫分析')
     expect(closed).toBe(0)
     await click(host.querySelector('.dash-back'))
     expect(closed).toBe(1)

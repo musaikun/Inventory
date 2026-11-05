@@ -287,7 +287,7 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     const page = document.body.querySelector('.cp')
     await click(btn('見本で始める', page))
     const { saveChecklistToD1 } = await import('../composables/useStore.js')
-    expect(saveChecklistToD1).toHaveBeenCalledWith(expect.objectContaining({ name: '☀ 開店チェック', repeat: 'daily' }))
+    expect(saveChecklistToD1).toHaveBeenCalledWith(expect.objectContaining({ name: '開店チェック', repeat: 'daily' }))
     await click(btn('戻る', page))
     const { localDateKey } = await import('../utils/localDate.js')
     const dt = await openDay(localDateKey())

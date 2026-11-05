@@ -7,6 +7,7 @@
  * - 「お気に入りにも入れる」で、足すのと一緒にお気に入りにも入る
  * - スタッフも作れる（やることを作れる人）。管理者は、やること・進行中・いつかを「管理者だけ」にもできる
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed, onUnmounted } from 'vue'
 import { addTask, TASK_TEXT_MAX, TASK_NOTE_MAX } from '../composables/useTasks.js'
 import { saveChecklist, newItemId, CL_NAME_MAX, CL_ITEM_MAX, CL_ITEMS_MAX, CL_TIMES_MAX } from '../composables/useChecklists.js'
@@ -27,11 +28,11 @@ const props = defineProps({
 const emit = defineEmits(['close', 'added', 'favorites'])
 
 const KINDS = [
-  { k: 'task', icon: '📅', label: 'やること', sub: '日付と時刻を決めて1回（揚げ油の交換）' },
-  { k: 'checklist', icon: '📋', label: 'チェック表', sub: '項目に✓を付けていく。1回でも毎日でも（閉店チェック）' },
-  { k: 'routine', icon: '🔁', label: 'ルーティン', sub: '決まった日に押せば済む1件（冷蔵庫の温度）' },
-  { k: 'progress', icon: '⏳', label: '進行中', sub: '何日かかかる。済むまで毎日出る（修理の手配）' },
-  { k: 'someday', icon: '📥', label: 'いつか', sub: '日付を決めずにしまっておく（棚の整理）' },
+  { k: 'task', icon: 'date', label: 'やること', sub: '日付と時刻を決めて1回（揚げ油の交換）' },
+  { k: 'checklist', icon: 'clipboard', label: 'チェック表', sub: '項目に✓を付けていく。1回でも毎日でも（閉店チェック）' },
+  { k: 'routine', icon: 'repeat', label: 'ルーティン', sub: '決まった日に押せば済む1件（冷蔵庫の温度）' },
+  { k: 'progress', icon: 'hourglass', label: '進行中', sub: '何日かかかる。済むまで毎日出る（修理の手配）' },
+  { k: 'someday', icon: 'inbox', label: 'いつか', sub: '日付を決めずにしまっておく（棚の整理）' },
 ]
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 const today = localDateKey()
@@ -134,10 +135,10 @@ const whoName = computed(() => {
 const sentence = computed(() => {
   if (!repeating.value) return ''
   const w = repeat.value === 'daily' ? '毎日' : repeat.value === 'weekly' ? (weekdays.value.length ? `毎週 ${weekdays.value.map(d => WEEK[d]).join('・')}` : '') : (monthDays.value.length ? `毎月${monthDaysLabel(monthDays.value.join(','))}` : '')
-  if (!w) return '🔁 曜日・日を選んでください'
+  if (!w) return '曜日・日を選んでください'
   const at = times.value.length ? ` ${times.value.join('・')} に` : ''
   const n = name.value.trim() || '（名前）'
-  return `🔁 ${w}${at}、${whoName.value}が「${n}」${kind.value === 'checklist' ? `（${items.value.length}項目）` : ''}をする`
+  return `${w}${at}、${whoName.value}が「${n}」${kind.value === 'checklist' ? `（${items.value.length}項目）` : ''}をする`
 })
 
 // ── 足す ──
@@ -214,13 +215,13 @@ onUnmounted(registerInnerLayerCloser(() => { if (kind.value && !props.startKind 
           <div class="ta-h"><b>何を足す？</b><button type="button" class="ta-x" @click="emit('close')">やめる</button></div>
           <div class="ta-kinds">
             <button v-for="x in KINDS" :key="x.k" type="button" class="ta-kind" :data-kind="x.k" @click="choose(x.k)">
-              <em aria-hidden="true">{{ x.icon }}</em><span><b>{{ x.label }}</b><small>{{ x.sub }}</small></span>
+              <em aria-hidden="true"><LineIcon :name="x.icon" size="22" /></em><span><b>{{ x.label }}</b><small>{{ x.sub }}</small></span>
             </button>
           </div>
-          <div class="ta-favh"><span>★ お気に入りから</span><button v-if="templates.length" type="button" class="ta-link" @click="emit('favorites')">一覧 ›</button></div>
+          <div class="ta-favh"><span><LineIcon name="star" /> お気に入りから</span><button v-if="templates.length" type="button" class="ta-link" @click="emit('favorites')">一覧 ›</button></div>
           <div v-if="templates.length" class="ta-favs">
             <button v-for="t in templates.slice(0, 8)" :key="t.id" type="button" :class="['ta-fav', t.kind]" :title="templateSummary(t)" @click="useTemplate(t)">
-              <i aria-hidden="true">★</i>{{ KIND_ICON[t.kind] }} {{ t.name }}
+              <i aria-hidden="true"><LineIcon name="star" /></i><LineIcon :name="KIND_ICON[t.kind]" size="1em" /> {{ t.name }}
             </button>
           </div>
           <p v-else class="ta-empty">足すときに「お気に入りにも入れる」を選ぶと、ここから押すだけで足せます</p>
@@ -230,7 +231,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (kind.value && !props.startKind 
         <form v-else class="ta-form" @submit.prevent="!visibilityChoice && submit(false)">
           <div class="ta-h">
             <button v-if="!startKind" type="button" class="ta-back" aria-label="種類を選び直す" @click="back">‹</button>
-            <b>{{ kindInfo?.icon }} {{ kindInfo?.label }}</b>
+            <b><LineIcon v-if="kindInfo" :name="kindInfo.icon" /> {{ kindInfo?.label }}</b>
             <button type="button" class="ta-x" @click="emit('close')">やめる</button>
           </div>
           <input v-model="name" type="text" class="ta-in" :maxlength="kind === 'checklist' || kind === 'routine' ? CL_NAME_MAX : TASK_TEXT_MAX"
@@ -295,7 +296,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (kind.value && !props.startKind 
           <!-- 進行中: 期限 -->
           <template v-if="kind === 'progress'">
             <label class="ta-lb">期限（任意）<input v-model="deadline" type="date" class="ta-in" :min="today" /></label>
-            <p class="ta-note pg">⏳ 済むまで毎日「進行中」に出ます。止まったらアプリが知らせます</p>
+            <p class="ta-note pg"><LineIcon name="hourglass" /> 済むまで毎日「進行中」に出ます。止まったらアプリが知らせます</p>
           </template>
 
           <label v-if="hasStaff" class="ta-lb">担当
@@ -311,13 +312,13 @@ onUnmounted(registerInnerLayerCloser(() => { if (kind.value && !props.startKind 
           </template>
 
           <p v-if="sentence" class="ta-note">{{ sentence }}</p>
-          <p v-if="kind === 'routine'" class="ta-sub">項目に✓を付けたいときは <b>📋 チェック表</b> で作ります</p>
-          <label v-if="canAddTemplate" class="ta-fav-chk"><input v-model="fav" type="checkbox" /> ★ お気に入りにも入れる</label>
+          <p v-if="kind === 'routine'" class="ta-sub">項目に✓を付けたいときは <b><LineIcon name="clipboard" /> チェック表</b> で作ります</p>
+          <label v-if="canAddTemplate" class="ta-fav-chk"><input v-model="fav" type="checkbox" /> <LineIcon name="star" /> お気に入りにも入れる</label>
           <p v-if="err" class="ta-err" role="alert">{{ err }}</p>
 
           <div v-if="visibilityChoice" class="ta-acts">
             <button type="button" class="ta-save" :disabled="!canSubmit" @click="submit(false)">みんなに見せて追加</button>
-            <button type="button" class="ta-save admins" :disabled="!canSubmit" @click="submit(true)">🔒 管理者だけで追加</button>
+            <button type="button" class="ta-save admins" :disabled="!canSubmit" @click="submit(true)"><LineIcon name="lock" /> 管理者だけで追加</button>
           </div>
           <button v-else type="submit" class="ta-save" :disabled="!canSubmit">
             {{ kind === 'progress' ? '進行中として追加' : kind === 'checklist' ? `追加（${items.length}項目）` : '追加' }}

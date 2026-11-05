@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { ref, reactive, computed, watch } from 'vue'
 import DismissibleHint from './DismissibleHint.vue'
 import InventoryTable from './InventoryTable.vue'
@@ -119,7 +120,7 @@ function fmtTime(ts) {
 }
 
 function actionLabel(action) {
-  const m = { new: '新規', add: '追加', overwrite: '上書き', remove: '削除', flag_recount: '🔖フラグ', unflag_recount: 'フラグ解除', order_set: '発注', order_clear: '発注取消' }
+  const m = { new: '新規', add: '追加', overwrite: '上書き', remove: '削除', flag_recount: 'フラグ', unflag_recount: 'フラグ解除', order_set: '発注', order_clear: '発注取消' }
   return m[action] ?? action
 }
 
@@ -137,7 +138,7 @@ function actionClass(action) {
 
     <!-- ── エラー（期間切れ・未完了・未発見）── -->
     <div v-if="!result" class="guest-empty">
-      <div class="guest-empty-icon">🔒</div>
+      <div class="guest-empty-icon"><LineIcon name="lock" /></div>
       <div class="guest-empty-title">閲覧できません</div>
       <div class="guest-empty-msg">{{ errorMessage || 'この棚卸の閲覧期間が終了したか、まだ完了していません。' }}</div>
       <button class="guest-home-btn" @click="emit('home')">ホームへ</button>
@@ -150,14 +151,14 @@ function actionClass(action) {
           <div class="header-date">{{ fmtDate(result.date) }}</div>
           <div class="header-meta">
             {{ filledCount }}/{{ totalCount }}品目入力済み
-            <span class="guest-badge">👁 閲覧専用</span>
+            <span class="guest-badge"><LineIcon name="eye" /> 閲覧専用</span>
           </div>
         </div>
         <button class="btn-home" @click="emit('home')">ホーム</button>
       </div>
 
       <button v-if="qtyAlert && activeTab !== 'report'" type="button" class="qty-alert" role="alert" @click="activeTab = 'report'">
-        <span class="qa-ico">⚠️</span>
+        <span class="qa-ico"><LineIcon name="alert" /></span>
         <span class="qa-body">
           <b>前回より多い品目 {{ qtyAlert.more }}件・少ない品目 {{ qtyAlert.fewer }}件があります</b>
           <small>レポートから確認してください</small>

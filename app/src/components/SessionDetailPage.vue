@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { ref, computed, reactive } from 'vue'
 import DismissibleHint from './DismissibleHint.vue'
 import { useHistory } from '../composables/useHistory.js'
@@ -295,7 +296,7 @@ function fmtYen(n) {
 }
 
 function actionLabel(action) {
-  const m = { new: '新規', add: '追加', overwrite: '上書き', remove: '削除', flag_recount: '🔖フラグ', unflag_recount: 'フラグ解除', order_set: '発注', order_clear: '発注取消' }
+  const m = { new: '新規', add: '追加', overwrite: '上書き', remove: '削除', flag_recount: 'フラグ', unflag_recount: 'フラグ解除', order_set: '発注', order_clear: '発注取消' }
   return m[action] ?? action
 }
 
@@ -353,11 +354,11 @@ function onDownload() {
       </div>
       <div class="header-right">
         <span v-if="!isLocked" class="correction-badge" @click="!isLocked && enterEdit()">
-          ✏️ あと{{ correctionDaysRemaining > 0 ? correctionDaysRemaining + '日' : '今日まで' }}
+          <LineIcon name="pencil" /> あと{{ correctionDaysRemaining > 0 ? correctionDaysRemaining + '日' : '今日まで' }}
         </span>
-        <span v-else class="lock-badge">🔒 確定</span>
-        <button v-if="isHost && canShare" class="btn-icon" @click="showShare = !showShare" title="結果を共有">📤</button>
-        <button v-if="isHost" class="btn-icon" @click="onDownload" title="CSVダウンロード">💾</button>
+        <span v-else class="lock-badge"><LineIcon name="lock" /> 確定</span>
+        <button v-if="isHost && canShare" class="btn-icon" @click="showShare = !showShare" title="結果を共有"><LineIcon name="upload" /></button>
+        <button v-if="isHost" class="btn-icon" @click="onDownload" title="CSVダウンロード"><LineIcon name="save" /></button>
       </div>
     </div>
 
@@ -370,18 +371,18 @@ function onDownload() {
       </p>
       <button class="share-url-row" @click="onCopyShareUrl">
         <span class="share-url-text">{{ shareUrl }}</span>
-        <span class="share-url-copy">{{ urlCopied ? '✓' : '📋' }}</span>
+        <span class="share-url-copy"><LineIcon :name="urlCopied ? 'check' : 'copy'" /></span>
       </button>
       <div class="share-btns">
-        <button v-if="canNativeShare" class="share-btn" @click="onNativeShareResult">📤 共有</button>
-        <button class="share-btn" @click="onShareResultLine">💬 LINE</button>
-        <button class="share-btn" @click="onShareResultMail">✉️ メール</button>
+        <button v-if="canNativeShare" class="share-btn" @click="onNativeShareResult"><LineIcon name="upload" /> 共有</button>
+        <button class="share-btn" @click="onShareResultLine"><LineIcon name="chat" /> LINE</button>
+        <button class="share-btn" @click="onShareResultMail"><LineIcon name="mail" /> メール</button>
       </div>
       <div v-if="shareStale" class="share-expiry expired">
-        ⚠️ この端末の訂正がまだ送信されていません。いまリンクを開くと訂正前の内容が表示されます
+        <LineIcon name="alert" /> この端末の訂正がまだ送信されていません。いまリンクを開くと訂正前の内容が表示されます
       </div>
       <div :class="['share-expiry', { expired: shareExpired }]">
-        <template v-if="shareExpired">⚠️ 閲覧期間が終了しています。リンクを開いても表示されません</template>
+        <template v-if="shareExpired"><LineIcon name="alert" /> 閲覧期間が終了しています。リンクを開いても表示されません</template>
         <template v-else-if="shareDaysLeft">閲覧できるのはあと{{ shareDaysLeft }}日です</template>
       </div>
     </div>
@@ -480,7 +481,7 @@ function onDownload() {
                 <span v-if="p.sharedCount" class="pmeta-chip pmeta-shared" title="他の担当者も変更した品目">
                   重複 {{ p.sharedCount }}品目
                 </span>
-                <span v-if="p.activeMs" class="pmeta-chip">⏱ {{ _durationLabel(p.activeMs) }}</span>
+                <span v-if="p.activeMs" class="pmeta-chip"><LineIcon name="timer" /> {{ _durationLabel(p.activeMs) }}</span>
                 <span v-if="p.totalValue != null" class="pmeta-chip pmeta-value">{{ fmtYen(p.totalValue) }}</span>
               </div>
             </button>

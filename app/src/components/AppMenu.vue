@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { ref } from 'vue'
 import { settingsSection } from '../composables/appMenuState.js'
 import { downloadItemsCSV, downloadItemsTemplate } from '../utils/itemExport.js'
@@ -20,11 +21,11 @@ function doTemplate() { open.value = false; downloadItemsTemplate() }
       <!-- 画面固有の項目（セッション一覧に戻る・バーコード等）-->
       <slot :close="() => (open = false)" />
       <!-- 品目の一括インポート・並び替えは品目マスタ管理に集約。セッション中は出さない -->
-      <button v-if="context !== 'session'" class="am-item" @click="pick('import')"><span class="am-ico">📥</span> 品目のインポート</button>
-      <button class="am-item" @click="doExport"><span class="am-ico">📤</span> CSVエクスポート</button>
-      <button class="am-item" @click="doTemplate"><span class="am-ico">📄</span> Excelテンプレート</button>
-      <button class="am-item" @click="pick('device')"><span class="am-ico">📱</span> 端末名</button>
-      <button class="am-item" @click="pick('push')"><span class="am-ico">🔔</span> プッシュ通知</button>
+      <button v-if="context !== 'session'" class="am-item" @click="pick('import')"><span class="am-ico"><LineIcon name="inbox" /></span> 品目のインポート</button>
+      <button class="am-item" @click="doExport"><span class="am-ico"><LineIcon name="upload" /></span> CSVエクスポート</button>
+      <button class="am-item" @click="doTemplate"><span class="am-ico"><LineIcon name="file" /></span> Excelテンプレート</button>
+      <button class="am-item" @click="pick('device')"><span class="am-ico"><LineIcon name="phone" /></span> 端末名</button>
+      <button class="am-item" @click="pick('push')"><span class="am-ico"><LineIcon name="bell" /></span> プッシュ通知</button>
     </div>
   </div>
 </template>

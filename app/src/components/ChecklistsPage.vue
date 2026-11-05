@@ -194,7 +194,7 @@ const title = computed(() => (view.value === 'edit' ? (f.value?.id ? f.value.nam
       <!-- ② 作る・直す -->
       <form v-else-if="view === 'edit' && f" class="cp-body" @submit.prevent="save">
         <p class="cp-sentence"><b>{{ sentence.name }}</b>は<br><u>{{ sentence.when }}</u><u>{{ sentence.at }}</u>、<u>{{ sentence.who }}</u> {{ sentence.verb }}</p>
-        <label class="cp-f">名前<input v-model="f.name" type="text" :maxlength="CL_NAME_MAX" class="cp-in" placeholder="例：🌙 退店チェック／発注書の提出" /></label>
+        <label class="cp-f">名前<input v-model="f.name" type="text" :maxlength="CL_NAME_MAX" class="cp-in" placeholder="例：退店チェック／発注書の提出" /></label>
         <div class="cp-f">確かめること（任意）
           <p v-if="!f.items.length" class="cp-none-items">なし ＝ 押せば済む1件。項目を足すとチェック表になります</p>
           <div v-for="(it, i) in f.items" :key="it.id" class="cp-it">

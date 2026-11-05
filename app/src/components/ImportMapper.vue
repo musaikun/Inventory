@@ -12,6 +12,7 @@
  * の2段にする。①の順番を固定するのは、使うたびに「今回はどの画面だっけ」から
  * 始めさせないため。ファイルの形で問いの形が変わると、学習が積み上がらない。
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed, reactive, watch } from 'vue'
 import { tokenizeCSV } from '../utils/csvParse.js'
 import { headerMatches, isMetaName } from '../utils/importText.js'
@@ -336,7 +337,7 @@ tryRecipe()
           <div class="imp-name">{{ filename || '取り込むファイル' }}</div>
           <div class="imp-sub">{{ records.length.toLocaleString() }}行</div>
         </div>
-        <button v-if="pdfFile" class="imp-pdf" @click="pdfOpen = true">📄 元のPDF</button>
+        <button v-if="pdfFile" class="imp-pdf" @click="pdfOpen = true"><LineIcon name="file" /> 元のPDF</button>
         <button class="imp-x" @click="emit('close')" aria-label="閉じる">✕</button>
       </div>
 

@@ -2,6 +2,7 @@
 // 品目の備考（User決定 2026-11-02）。棚卸・発注の入力画面で共通。
 // 閉じた状態では1行で出し、押すと文字を打てる。書き終わって離れたとき（change）に save を出す。
 // 入力画面はテンキーのために document の keydown を拾っているので、ここで打った文字は外へ漏らさない。
+import LineIcon from './LineIcon.vue'
 import { ref, nextTick } from 'vue'
 import { NOTE_MAX } from '../composables/useInventory.js'
 
@@ -43,7 +44,7 @@ function commit() {
       @blur="commit"
     />
     <button v-else type="button" :class="['nf-btn', { has: !!note }]" :disabled="disabled" @click="open">
-      <span class="nf-icon" aria-hidden="true">📝</span>
+      <span class="nf-icon" aria-hidden="true"><LineIcon name="note" /></span>
       <span class="nf-text">{{ note || '備考を書く' }}</span>
     </button>
   </div>

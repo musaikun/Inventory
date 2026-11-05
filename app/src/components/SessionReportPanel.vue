@@ -9,6 +9,7 @@
  *
  * @prop report services/sessionReport.buildSessionReport の戻り値
  */
+import LineIcon from './LineIcon.vue'
 import { computed, reactive } from 'vue'
 
 // foldLists: 品目の一覧（金額の動き・数量の比較）を開閉式にし、閉じた状態で出す（閲覧用・User 2026-10-01）
@@ -66,7 +67,7 @@ function fmtYen(n) {
       <div class="rp-value-label">在庫金額</div>
       <div class="rp-value-num">{{ report.value.total != null ? fmtYen(report.value.total) : '—' }}</div>
       <div v-if="report.value.partial" class="rp-warn">
-        ⚠️ {{ report.value.unpricedCount }}品目は単価が未設定のため、この金額に含まれていません
+        <LineIcon name="alert" /> {{ report.value.unpricedCount }}品目は単価が未設定のため、この金額に含まれていません
       </div>
       <div v-else-if="report.value.total == null" class="rp-warn">
         単価が設定されていないため、金額を算出できません

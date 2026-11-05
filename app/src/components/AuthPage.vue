@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { ref } from 'vue'
 import { register, login, staffLogin } from '../composables/useAuth.js'
 import { deviceId } from '../composables/useDeviceId.js'
@@ -113,7 +114,7 @@ function onLoginPinInput(e) {
 <template>
   <div class="auth-page">
     <div class="auth-card">
-      <div class="auth-logo">🏪</div>
+      <div class="auth-logo"><LineIcon name="store" /></div>
       <h1 class="auth-title">タナオロ</h1>
       <p class="auth-subtitle">店舗アカウントでログインして<br>セッション履歴を管理できます</p>
 
@@ -201,7 +202,7 @@ function onLoginPinInput(e) {
         <!-- 登録完了画面 -->
         <template v-if="regResult">
           <div class="reg-success">
-            <div class="reg-success-icon">✅</div>
+            <div class="reg-success-icon"><LineIcon name="check-circle" /></div>
             <p class="reg-success-msg">登録が完了しました！</p>
             <div class="shop-code-box">
               <div class="shop-code-label">あなたの店舗コード</div>

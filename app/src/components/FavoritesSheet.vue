@@ -3,13 +3,14 @@
  * ★ お気に入りの一覧（店で共有のひな形・User決定 2026-11-05・モック docs/mocks/task-create.html 2-3）。
  * 種類で絞る・「使う」で追加の画面を中身入りで開く・名前を直す・並べ替え・外す（作った人と管理者）
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed, onUnmounted } from 'vue'
 import { templates, canEditTemplate, renameTemplate, removeTemplate, moveTemplate, KIND_ICON, templateSummary } from '../composables/useTemplates.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 
 const emit = defineEmits(['close', 'use'])
 const filter = ref('')   // '' | kind
-const FILTERS = [['', 'すべて'], ['checklist', '📋'], ['routine', '🔁'], ['task', '📅'], ['progress', '⏳'], ['someday', '📥']]
+const FILTERS = [['', 'すべて'], ['checklist', 'チェック表'], ['routine', 'ルーティン'], ['task', 'やること'], ['progress', '進行中'], ['someday', 'いつか']]
 const list = computed(() => templates.value.filter(t => !filter.value || t.kind === filter.value))
 const editing = ref(''), draft = ref(''), err = ref(''), msg = ref('')
 let _msgT = null
@@ -30,7 +31,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
   <Teleport to="body">
     <div class="fv-bg" @click.self="emit('close')">
       <section class="fv" role="dialog" aria-label="お気に入り">
-        <div class="fv-h"><b>★ お気に入り</b><button type="button" class="fv-x" @click="emit('close')">閉じる</button></div>
+        <div class="fv-h"><b><LineIcon name="star" /> お気に入り</b><button type="button" class="fv-x" @click="emit('close')">閉じる</button></div>
         <p class="fv-lead">店のみんなで使うひな形です。「使う」で中身の入った追加の画面が開きます（日付だけ選びます）。</p>
         <div class="fv-seg" role="radiogroup" aria-label="種類で絞る">
           <button v-for="f in FILTERS" :key="f[0]" type="button" role="radio" :aria-checked="filter === f[0]" :class="{ on: filter === f[0] }" @click="filter = f[0]">{{ f[1] }}</button>
@@ -39,7 +40,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
         <p v-if="msg" class="fv-msg" role="status">{{ msg }}</p>
         <ul class="fv-list">
           <li v-for="(t, i) in list" :key="t.id" class="fv-i">
-            <span class="fv-ic" :class="t.kind" aria-hidden="true">{{ KIND_ICON[t.kind] }}</span>
+            <span class="fv-ic" :class="t.kind" aria-hidden="true"><LineIcon :name="KIND_ICON[t.kind]" /></span>
             <span class="fv-t">
               <template v-if="editing === t.id">
                 <input v-model="draft" class="fv-in" aria-label="お気に入りの名前" maxlength="60" @keydown.enter.prevent="saveRename(t)" />

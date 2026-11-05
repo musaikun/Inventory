@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { can, denyMessage } from '../composables/useAuth.js'
 import { ref, computed } from 'vue'
 import { useConfig } from '../composables/useConfig.js'
@@ -47,7 +48,7 @@ function onClear() {
   <div :class="['mp', { embedded }]">
     <header v-if="!embedded" class="mp-header">
       <button class="mp-back" @click="emit('back')">‹ 戻る</button>
-      <span class="mp-title">🗂 データ管理</span>
+      <span class="mp-title"><LineIcon name="folders" /> データ管理</span>
       <span class="mp-count">{{ itemCount }}件</span>
     </header>
 

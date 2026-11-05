@@ -6,6 +6,7 @@
  * 月を送るときは横に滑らせる（User決定 2026-10-26。次の月は右から、前の月は左から）
  * info(date) → { st: 'y'|'p'|'x'|'', tags: [{ label, kind: 'stock'|'order'|'plan', future }] }
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed, watch } from 'vue'
 import { localDateKey } from '../utils/localDate.js'
 import { isHoliday, holidayName } from '../services/jpHolidays.js'
@@ -63,7 +64,7 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し' }
       <button v-if="!isThisMonth" type="button" class="jm-today" @click="goToday">今日</button>
       <button type="button" class="jm-nav" aria-label="前の月" @click="step(-1)">‹</button>
       <button type="button" class="jm-nav" aria-label="次の月" @click="step(1)">›</button>
-      <button type="button" class="jm-nav" aria-label="ルーティンの設定" @click="emit('settings')">🔁</button>
+      <button type="button" class="jm-nav" aria-label="ルーティンの設定" @click="emit('settings')"><LineIcon name="repeat" /></button>
     </header>
     <div class="jm-w"><span v-for="(w, i) in WEEK" :key="w" :class="{ sun: i === 0, sat: i === 6 }">{{ w }}</span></div>
     <div :key="`${ym.y}-${ym.m}`" :class="['jm-grid', slide && `slide-${slide}`]" :style="{ gridTemplateRows: `repeat(${rowsN}, minmax(0, 1fr))` }">

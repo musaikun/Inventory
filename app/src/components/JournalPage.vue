@@ -16,6 +16,7 @@ export function openJournalDay(d) { journalDate.value = d; _openOnMount = true }
  *   丸を押すと済む、行を押すと中身。＋でその日に追加。前後の日へも送れる
  * 以前の「週の帯・担当者で絞る・伝票・申し送りの欄」（2026-10-25）はやめた
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import TaskRow from './TaskRow.vue'
 import JournalMonth from './JournalMonth.vue'
@@ -220,7 +221,7 @@ function copyTask(t) {
 }
 function copyChecklist(cl, d, slot) {
   clRun.value = null
-  copyOf.value = { kind: 'checklist', src: cl, slot, title: `${cl.items?.length ? '📋' : '🔁'} ${cl.name}`, sub: [cl.items?.length ? `${cl.items.length}項目` : '', slot, cl.assign === 'person' ? cl.assigneeName : ''].filter(Boolean).join(' ・ '), source: d, who: _whoOfCl(cl) }
+  copyOf.value = { kind: 'checklist', src: cl, slot, title: cl.name, sub: [cl.items?.length ? `${cl.items.length}項目` : '', slot, cl.assign === 'person' ? cl.assigneeName : ''].filter(Boolean).join(' ・ '), source: d, who: _whoOfCl(cl) }
 }
 async function doCopy({ dates, who }) {
   const c = copyOf.value
@@ -279,8 +280,8 @@ async function favChecklist(cl) {
           </template>
           <button v-else type="button" class="jp-mini" @click="picked = null">閉じる</button>
           <div v-if="canCreate && !picked.kind" class="jp-more">
-            <button v-if="picked.date && !picked.progress" type="button" @click="copyTask(picked)">📄 別の日にコピー</button>
-            <button v-if="canAddTemplate" type="button" @click="favTask(picked); picked = null">★ お気に入りに入れる</button>
+            <button v-if="picked.date && !picked.progress" type="button" @click="copyTask(picked)"><LineIcon name="file" /> 別の日にコピー</button>
+            <button v-if="canAddTemplate" type="button" @click="favTask(picked); picked = null"><LineIcon name="star" /> お気に入りに入れる</button>
           </div>
         </div>
       </div>

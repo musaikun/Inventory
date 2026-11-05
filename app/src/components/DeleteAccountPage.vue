@@ -2,6 +2,7 @@
 // 公開Web削除申請ページ（PLAY-002 Deliverable B）。
 // Play Console の Data deletion URL（`https://<app>/?delete-account`）から到達し、
 // アプリ未インストールでもブラウザからログイン→承認済みの削除フローを実行できる。
+import LineIcon from './LineIcon.vue'
 import { ref } from 'vue'
 import { isAuthenticated, storeName, login, logout } from '../composables/useAuth.js'
 import { shopCode } from '../composables/useStore.js'
@@ -79,7 +80,7 @@ function onDeleted() {
       </template>
 
       <template v-else>
-        <div class="dap-logo" aria-hidden="true">🏪</div>
+        <div class="dap-logo" aria-hidden="true"><LineIcon name="store" /></div>
         <h1 class="dap-title">アカウント削除の申請</h1>
         <p class="dap-app">{{ APP_NAME }}</p>
         <p class="dap-text">

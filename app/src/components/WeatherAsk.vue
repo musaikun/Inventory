@@ -4,6 +4,7 @@
  * 許可してもしなくても、そのあと「各種設定から変更できます」と伝え、以降は訊かない。
  * カレンダーの上には、現在地の取得ボタンを出さない（変更は各種設定の「カレンダーの天気」）。
  */
+import LineIcon from './LineIcon.vue'
 import { ref } from 'vue'
 import { useWeather, weatherAsk, markWeatherAsked } from '../composables/useWeather.js'
 
@@ -27,7 +28,7 @@ function close() { step.value = 'closed' }
     <div class="modal-sheet wa" role="dialog" aria-modal="true" aria-label="カレンダーの天気">
       <div class="sheet-handle"></div>
       <template v-if="step === 'ask'">
-        <div class="wa-ico" aria-hidden="true">🌤</div>
+        <div class="wa-ico" aria-hidden="true"><LineIcon name="cloud-sun" /></div>
         <div class="wa-t">現在地の天気をカレンダーに表示できます</div>
         <p class="wa-p">日ごとの天気・気温・降水確率が出て、売れ行きや発注の振り返りに使えます。位置情報を許可しますか？</p>
         <button type="button" class="wa-btn pri" :disabled="busy" @click="allow">{{ busy ? '取得しています…' : '許可して表示する' }}</button>

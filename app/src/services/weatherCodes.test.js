@@ -22,7 +22,7 @@ describe('mapDailyToWeather', () => {
       weather_code: [1, 95],
     }
     const out = mapDailyToWeather(daily)
-    expect(out['2026-07-20']).toEqual({ icon: '🌤️', label: '晴れ', tempHi: 34.6, tempLo: 24.3, pop: 4 })
+    expect(out['2026-07-20']).toEqual({ icon: 'cloud-sun', label: '晴れ', tempHi: 34.6, tempLo: 24.3, pop: 4 })
     expect(out['2026-07-21'].label).toBe('雷雨')
     expect(out['2026-07-21'].pop).toBe(100)
   })

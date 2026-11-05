@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { useSync, broadcastMessage, broadcastMessageDelete } from '../composables/useSync.js'
 import { deviceId } from '../composables/useDeviceId.js'
@@ -185,7 +186,7 @@ function needsDateSep(idx) {
     <div class="chat-sheet">
       <!-- ヘッダー -->
       <div class="chat-header">
-        <span class="chat-title">💬 チャット</span>
+        <span class="chat-title"><LineIcon name="chat" /> チャット</span>
         <span class="chat-room">ルーム {{ state.roomCode }}</span>
         <button class="chat-close-btn" @click="$emit('close')">×</button>
       </div>
@@ -193,7 +194,7 @@ function needsDateSep(idx) {
       <!-- メッセージリスト -->
       <div ref="listRef" class="chat-messages">
         <div v-if="messages.length === 0" class="chat-empty">
-          <div class="chat-empty-icon">💬</div>
+          <div class="chat-empty-icon"><LineIcon name="chat" /></div>
           <div>まだメッセージはありません</div>
           <div class="chat-empty-hint">「牛乳の数あってますか？」など<br>気軽に送りましょう</div>
         </div>
@@ -260,7 +261,7 @@ function needsDateSep(idx) {
             v-if="actionMsg.senderId === deviceId"
             class="action-item danger"
             @click="actionUnsend"
-          >🗑 送信を取り消す</button>
+          ><LineIcon name="trash" /> 送信を取り消す</button>
           <button class="action-item cancel" @click="closeActions">キャンセル</button>
         </div>
       </div>

@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { computed } from 'vue'
 import { shopCode } from '../composables/useStore.js'
 import { settingsSection } from '../composables/appMenuState.js'
@@ -28,14 +29,14 @@ const items = computed(() => {
   if (props.hasLiveSession || props.currentView === 'session') {
     list.push({
       view: 'session',
-      icon: '📝',
+      icon: 'note',
       label: props.practiceMode ? '練習中の棚卸' : `${actNoun.value}中`,
       sub: props.practiceMode ? '履歴に残りません' : '入力を続ける',
     })
   }
   // 並びは棚卸の順路に合わせる（棚卸 → 準備）。入出庫の記録の画面は入口を外した（User 2026-10-04。入出庫は品目シートで）
-  list.push({ view: 'sessions', icon: '🏠', label: 'ホーム',     sub: '在庫・履歴・管理' })
-  list.push({ view: 'master',   icon: '📚', label: '品目マスタ', sub: '棚卸の準備・リスト管理' })
+  list.push({ view: 'sessions', icon: 'home', label: 'ホーム',     sub: '在庫・履歴・管理' })
+  list.push({ view: 'master',   icon: 'library', label: '品目マスタ', sub: '棚卸の準備・リスト管理' })
   return list
 })
 
@@ -48,7 +49,7 @@ const activeView = computed(() =>
 <template>
   <nav class="dt-nav" aria-label="メインナビゲーション">
     <div class="dt-nav-brand">
-      <span class="dt-nav-logo" aria-hidden="true">📋</span>
+      <span class="dt-nav-logo" aria-hidden="true"><LineIcon name="clipboard" /></span>
       <span class="dt-nav-brand-text">
         <span class="dt-nav-name">タナオロ</span>
         <span v-if="shopCode" class="dt-nav-shop">店舗 {{ shopCode }}</span>
@@ -64,7 +65,7 @@ const activeView = computed(() =>
           :disabled="isGuest && item.view !== 'session'"
           @click="emit('navigate', item.view)"
         >
-          <span class="dt-nav-ico" aria-hidden="true">{{ item.icon }}</span>
+          <span class="dt-nav-ico" aria-hidden="true"><LineIcon :name="item.icon" /></span>
           <span class="dt-nav-body">
             <span class="dt-nav-label">{{ item.label }}</span>
             <span class="dt-nav-sub">{{ item.sub }}</span>
@@ -90,10 +91,10 @@ const activeView = computed(() =>
       </button>
 
       <button class="dt-nav-mini" :disabled="isGuest" @click="settingsSection = 'all'">
-        <span aria-hidden="true">⚙️</span> 設定
+        <span aria-hidden="true"><LineIcon name="settings" /></span> 設定
       </button>
       <button class="dt-nav-mini" @click="emit('open-feedback')">
-        <span aria-hidden="true">💬</span> フィードバック
+        <span aria-hidden="true"><LineIcon name="chat" /></span> フィードバック
       </button>
     </div>
   </nav>

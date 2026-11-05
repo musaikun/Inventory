@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { useWeather, markWeatherAsked, disableWeather } from '../composables/useWeather.js'
 import { ref, computed, onMounted } from 'vue'
 import { hiddenHintCount, restoreHints } from '../composables/useHints.js'
@@ -400,7 +401,7 @@ function onDownloadTemplate() {
 
       <!-- 現在の状態 -->
       <div v-if="_show('import')" class="status-bar" :class="config.isCustom ? 'custom' : 'default'">
-        <span class="status-icon">{{ config.isCustom ? '📝' : '📋' }}</span>
+        <span class="status-icon"><LineIcon :name="config.isCustom ? 'note' : 'clipboard'" /></span>
         <span>
           {{ config.isCustom ? 'カスタム設定' : 'デフォルト設定' }}
           ／ {{ itemCount }}件
@@ -424,7 +425,7 @@ function onDownloadTemplate() {
           @drop.prevent="onDrop"
           @click="fileInput.click()"
         >
-          <div class="drop-icon">📂</div>
+          <div class="drop-icon"><LineIcon name="folder" /></div>
           <div class="drop-label">はじめて取り込む形</div>
           <div class="drop-hint">ドラッグ or タップして選ぶ ・ CSV / Excel ・ PDF はβ</div>
           <div class="drop-sub">どの列が何かを1つずつ決めます。決めた読み方は、取り込んだ後に保存できます</div>
@@ -449,7 +450,7 @@ function onDownloadTemplate() {
           @drop.prevent="onRecipeDrop"
           @click="recipeInput.click()"
         >
-          <div class="drop-icon">📗</div>
+          <div class="drop-icon"><LineIcon name="book" /></div>
           <div class="drop-label">保存した読み方で取り込む</div>
           <div class="drop-hint">{{ recipeNames }}</div>
           <div class="drop-sub">前と同じ形のファイルなら、問いは1つも出ません</div>
@@ -462,7 +463,7 @@ function onDownloadTemplate() {
 
         <!-- ステータスメッセージ -->
         <div v-if="status" class="msg" :class="status.type">
-          {{ status.type === 'success' ? '✓' : status.type === 'warning' ? '⚠' : '✗' }} {{ status.msg }}
+          <LineIcon :name="status.type === 'success' ? 'check' : status.type === 'warning' ? 'alert' : 'stop'" /> {{ status.msg }}
           <button v-if="importUndoAvailable" class="undo-btn" @click="onUndoImport">取込前に戻す</button>
         </div>
 
@@ -487,8 +488,8 @@ function onDownloadTemplate() {
 
       <!-- 保存したレシピ。取込の入口は上の📗なので、ここは持ち物の管理だけ -->
       <details v-if="!props.isGuest && recipes.length" class="recipe-list">
-        <summary>📗 保存した読み方の管理（{{ recipes.length }}）</summary>
-        <p class="recipe-list-b">上の📗から取り込むと、同じ形のファイルには自動で当たります。</p>
+        <summary><LineIcon name="book" /> 保存した読み方の管理（{{ recipes.length }}）</summary>
+        <p class="recipe-list-b">上の<LineIcon name="book" />から取り込むと、同じ形のファイルには自動で当たります。</p>
         <div v-for="r in recipes" :key="r.id" class="recipe-row">
           <div class="recipe-row-b">
             <div class="recipe-row-t">{{ r.name }}</div>
@@ -503,7 +504,7 @@ function onDownloadTemplate() {
       <!-- 棚卸結果CSVから入力を復元（進行中セッション中のみ・ゲスト非表示）-->
       <div v-if="!props.isGuest && canRestore" class="mapper-row">
         <button class="mapper-trigger" @click="restoreInput.click()">
-          🔧 棚卸結果CSV/Excelから入力を復元
+          <LineIcon name="wrench" /> 棚卸結果CSV/Excelから入力を復元
         </button>
         <input ref="restoreInput" type="file" accept=".csv,.txt,.xlsx,.xls,text/csv,text/comma-separated-values,application/vnd.ms-excel,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden-input restore-file" @change="e => { if (e.target.files[0]) onRestoreFile(e.target.files[0]) }" />
         <p class="mapper-hint">ダウンロードした棚卸結果CSVを読み込み、同名の品目に数量を復元します（棚卸中に実行してください）。</p>

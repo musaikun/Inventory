@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { computed, ref, watch } from 'vue'
 import { isOnline } from '../composables/useConnectivity.js'
 import {
@@ -68,7 +69,7 @@ const rejectedLabel = computed(() => {
     <transition name="cb-slide">
       <div v-if="mode" ref="bar" :class="['cb', mode, { tappable: canOpen }]" @click.self="toggle">
         <template v-if="mode === 'unpersisted'">
-          <span class="cb-dot">🛑</span>
+          <span class="cb-dot"><LineIcon name="stop" /></span>
           <span class="cb-text" @click="toggle">
             保存できていない変更が {{ pendingCount }}件あり、うち {{ unpersistedCount }}件はこの端末にも保持できていません。<b>アプリを閉じると失われます。</b>接続を確認して再送してください。
           </span>
@@ -76,7 +77,7 @@ const rejectedLabel = computed(() => {
         </template>
 
         <template v-else-if="mode === 'failed'">
-          <span class="cb-dot">⚠️</span>
+          <span class="cb-dot"><LineIcon name="alert" /></span>
           <span class="cb-text" @click="toggle">
             サーバーへ保存できていません（{{ countLabel }}）。端末には保存済みで、再送を続けます。
           </span>
@@ -84,7 +85,7 @@ const rejectedLabel = computed(() => {
         </template>
 
         <template v-else-if="mode === 'pending'">
-          <span class="cb-dot spin">🔄</span>
+          <span class="cb-dot spin"><LineIcon name="refresh" /></span>
           <span class="cb-text" @click="toggle">
             <template v-if="!isOnline">オフラインです。{{ countLabel }}の変更は端末に保存済みで、接続が戻ると自動で送信します。</template>
             <template v-else>未送信の変更があります（{{ countLabel }}）。再送しています…</template>
@@ -93,12 +94,12 @@ const rejectedLabel = computed(() => {
         </template>
 
         <template v-else-if="mode === 'offline'">
-          <span class="cb-dot">📴</span>
+          <span class="cb-dot"><LineIcon name="offline" /></span>
           <span class="cb-text">オフライン — 変更は端末に保存済み。接続が戻ると自動で同期します。</span>
         </template>
 
         <template v-else>
-          <span class="cb-dot">🛑</span>
+          <span class="cb-dot"><LineIcon name="stop" /></span>
           <span class="cb-text">
             {{ rejectedLabel }}の保存がサーバーに拒否されました（{{ rejectedSaves.length }}件）。内容を確認して入力し直してください。
           </span>

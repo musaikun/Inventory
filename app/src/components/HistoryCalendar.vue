@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { canSeeMoney } from '../composables/useAuth.js'
 import { taskDayStats } from '../composables/useTasks.js'
 import { ref, computed, onMounted } from 'vue'
@@ -362,7 +363,7 @@ onMounted(() => {
           <div v-if="r.head" class="hc-list-month">{{ r.head }}</div>
           <button v-else type="button" class="hc-list-row" @click="onListTap(r)">
             <span class="hc-list-date">{{ listDateLabel(r.key) }}</span>
-            <span class="hc-list-kind"><span v-if="KIND_META[r.kind].dot" :class="['dot', KIND_META[r.kind].dot]"></span>{{ r.kind === 'memo' ? '📝 メモ' : KIND_META[r.kind].label }}</span>
+            <span class="hc-list-kind"><span v-if="KIND_META[r.kind].dot" :class="['dot', KIND_META[r.kind].dot]"></span><LineIcon v-if="r.kind === 'memo'" name="note" />{{ r.kind === 'memo' ? ' メモ' : KIND_META[r.kind].label }}</span>
             <span class="hc-list-info">{{ r.info }}</span>
             <span v-if="canSeeMoney && r.amount != null" class="hc-list-amt">{{ fmtYen(r.amount) }}</span>
             <span class="hc-list-arrow">›</span>
@@ -419,9 +420,9 @@ onMounted(() => {
           <template v-if="cell">
             <span :class="['hc-day', { sun: cell.dow === 0, sat: cell.dow === 6, hol: cell.factors.holiday }]">{{ cell.d }}</span>
             <span v-if="taskMark(cell.key)" :class="['hc-task-mark', taskMark(cell.key).state]" :title="taskMark(cell.key).title">{{ taskMark(cell.key).n }}</span>
-            <span v-if="hasNote(cell.key)" class="hc-note-mark" title="メモあり">📝</span>
+            <span v-if="hasNote(cell.key)" class="hc-note-mark" title="メモあり"><LineIcon name="note" /></span>
             <span v-if="cell.run" class="hc-run" :class="{ capL: cell.run.capL, capR: cell.run.capR }" :title="`${cell.run.len}連休`"></span>
-            <span v-if="cell.wx" class="hc-wx">{{ cell.wx.icon }}</span>
+            <span v-if="cell.wx" class="hc-wx"><LineIcon :name="cell.wx.icon" size="1em" /></span>
             <span v-if="cell.factors.holidayName" class="hc-hol-name">{{ cell.factors.holidayName }}</span>
             <span v-if="dotCount(cell)" :class="['hc-dots', { 'dots-4': dotCount(cell) === 4 }]">
               <span v-if="cell.stock.length" class="dot dot-stock" title="棚卸"></span>

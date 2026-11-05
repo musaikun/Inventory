@@ -7,6 +7,7 @@
  * かぶった業務には「棚卸の最中／棚卸の中断中」の札
  * 見せるだけの部品。行の組み立ては services/dayTimeline.js、押したあとは親（JournalPage）
  */
+import LineIcon from './LineIcon.vue'
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { fmtDuration } from '../services/journalRecords.js'
@@ -118,7 +119,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
         <div v-for="x in tl.allDay" :key="x.key" :class="['dt-ad', x.state, x.ref.type]">
           <button type="button" class="dt-dot" :class="x.state" :disabled="!canCheck(x)" :aria-label="`${x.title}${x.state === 'done' ? ' 済み' : ''}`" @click="emit('check', x)">{{ DOT[x.state] }}</button>
           <button type="button" class="dt-ct" @click="emit('open', x)">
-            <b>{{ x.title }}</b><small v-if="x.sub">{{ x.sub }}</small><small v-if="x.note" class="dt-note">📝 {{ x.note }}</small>
+            <b>{{ x.title }}</b><small v-if="x.sub">{{ x.sub }}</small><small v-if="x.note" class="dt-note"><LineIcon name="note" /> {{ x.note }}</small>
           </button>
           <span :class="['dt-k', x.kind]">{{ x.kind }}</span>
         </div>
@@ -137,7 +138,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
           <button v-else type="button" :class="['dt-card', x.state]" @click="emit('open', x)">
             <span class="dt-l1"><span :class="['dt-k', x.kind]">{{ x.kind }}</span><b>{{ x.title }}</b></span>
             <small v-if="x.sub">{{ x.sub }}</small>
-            <small v-if="x.note" class="dt-note">📝 {{ x.note }}</small>
+            <small v-if="x.note" class="dt-note"><LineIcon name="note" /> {{ x.note }}</small>
             <span v-if="x.during" class="dt-during">{{ x.during }}</span>
           </button>
         </div>
