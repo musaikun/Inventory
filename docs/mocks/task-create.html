@@ -1,0 +1,203 @@
+<title>やることの作り方</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* 作る入口を1つに・チェック表は種類の1つ・お気に入り（ひな形）と複製。アプリの明るい見た目の1テーマ */
+  :root {
+    color-scheme: light;
+    --page:#d3dfe3; --paper:#ffffff; --ink:#12303a; --muted:#4c6a72; --faint:#94a3b8; --line:#e2ecef; --line2:#cfdde2;
+    --pri:#0e7490; --priw:#ecfeff; --off:#f3f6f8; --star:#d97706; --starw:#fffbeb; --rt:#0d9488; --rtw:#f0fdfa; --pg:#b45309; --pgw:#fffbeb; --cl:#7c3aed; --clw:#f5f3ff;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:var(--page); color:var(--ink);
+    padding-block:24px 40px; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px)); }
+  .wrap { max-width:1320px; margin:0 auto; display:grid; gap:10px; }
+  h1 { font-size:21px; text-wrap:balance; } h2 { font-size:16px; margin-top:22px; text-wrap:balance; }
+  h2 .n { font-size:11px; font-weight:800; color:#fff; background:var(--pri); border-radius:6px; padding:2px 8px; margin-right:6px; vertical-align:2px; }
+  .lead { font-size:13px; color:var(--muted); line-height:1.75; max-width:72ch; } .lead b { color:var(--ink); }
+  .row { display:flex; gap:20px; flex-wrap:wrap; align-items:flex-start; }
+  .col { display:grid; gap:8px; width:300px; max-width:100%; }
+  .cap { font-size:13.5px; font-weight:800; } .cap small { display:block; font-weight:400; color:var(--muted); font-size:12px; line-height:1.6; margin-top:2px; }
+  .phone { width:300px; max-width:100%; height:620px; background:var(--off); border-radius:28px; overflow:hidden; position:relative; box-shadow:0 12px 30px rgba(0,0,0,.18); border:6px solid #0b1f26; }
+  .dim { position:absolute; inset:0; background:rgba(6,34,43,.35); }
+  .sheet { position:absolute; left:0; right:0; bottom:0; top:40px; background:var(--paper); border-radius:20px 20px 0 0; padding:14px 12px; display:flex; flex-direction:column; gap:9px; overflow:hidden; }
+  .sheet.full { top:0; border-radius:0; }
+  .sh-h { display:flex; align-items:center; justify-content:space-between; font-size:15px; font-weight:900; } .sh-h i { font-style:normal; color:var(--muted); font-size:13px; font-weight:700; }
+  .in { border:1.5px solid var(--line2); border-radius:10px; padding:9px 11px; font-size:14.5px; font-weight:700; color:var(--ink); }
+  .in.ph { color:var(--faint); font-weight:600; }
+  .lbl { font-size:10.5px; font-weight:800; color:var(--muted); letter-spacing:.04em; }
+  .favs { display:flex; gap:6px; overflow:hidden; flex-wrap:wrap; }
+  .fav { display:inline-flex; align-items:center; gap:4px; border:1.5px solid #fcd34d; background:var(--starw); color:#78350f; border-radius:999px; padding:5px 10px; font-size:11.5px; font-weight:800; white-space:nowrap; }
+  .fav i { font-style:normal; font-size:10px; color:var(--star); }
+  .fav.cl { border-color:#c4b5fd; background:var(--clw); color:#4c1d95; } .fav.rt { border-color:#99f6e4; background:var(--rtw); color:#134e4a; }
+  .kinds { display:grid; grid-template-columns:repeat(4,1fr); gap:5px; }
+  .kinds span { border:1.5px solid var(--line2); border-radius:10px; padding:7px 2px; text-align:center; font-size:10.5px; font-weight:900; display:grid; gap:2px; color:var(--muted); }
+  .kinds span em { font-style:normal; font-size:16px; }
+  .kinds span.on { border-color:var(--pri); background:var(--priw); color:var(--pri); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .field { border:1.5px solid var(--line2); border-radius:10px; padding:6px 9px; font-size:12.5px; font-weight:800; display:grid; gap:1px; }
+  .field small { font-size:9.5px; color:var(--muted); font-weight:800; }
+  .tog { display:flex; align-items:center; gap:8px; border:1.5px solid var(--line2); border-radius:12px; padding:8px 10px; font-size:12.5px; font-weight:800; }
+  .tog .sw { margin-left:auto; width:36px; height:20px; border-radius:999px; background:#cbd5e1; position:relative; flex:none; }
+  .tog .sw::after { content:''; position:absolute; left:2px; top:2px; width:16px; height:16px; border-radius:50%; background:#fff; }
+  .tog.on { border-color:var(--cl); background:var(--clw); color:#4c1d95; } .tog.on .sw { background:var(--cl); } .tog.on .sw::after { left:18px; }
+  .tog small { display:block; font-size:10.5px; font-weight:600; color:var(--muted); }
+  .items { display:grid; gap:4px; } .items div { display:flex; gap:7px; align-items:center; border:1px solid var(--line); border-radius:9px; padding:6px 9px; font-size:12px; font-weight:700; }
+  .items div::before { content:'☐'; color:var(--cl); } .items .add { border-style:dashed; color:var(--cl); } .items .add::before { content:'＋'; }
+  .rep { display:flex; gap:5px; flex-wrap:wrap; } .rep span { border:1.5px solid var(--line2); border-radius:999px; padding:5px 10px; font-size:11.5px; font-weight:800; color:var(--muted); }
+  .rep span.on { border-color:var(--rt); color:var(--rt); background:var(--rtw); }
+  .sent { font-size:12px; font-weight:800; color:var(--pri); background:var(--priw); border-radius:10px; padding:8px 10px; line-height:1.55; }
+  .foot { margin-top:auto; display:grid; gap:6px; }
+  .btn { border-radius:12px; padding:11px; text-align:center; font-weight:900; font-size:13.5px; background:var(--pri); color:#fff; }
+  .btn.sub { background:var(--off); color:var(--ink); } .btn.star { background:var(--starw); color:#78350f; border:1.5px solid #fcd34d; }
+  .chk { display:flex; align-items:center; gap:6px; font-size:11.5px; font-weight:800; color:#78350f; }
+  .chk b { width:16px; height:16px; border-radius:4px; background:var(--star); color:#fff; font-size:11px; display:flex; align-items:center; justify-content:center; }
+  /* 一覧の行（詳細から複製） */
+  .card { background:var(--paper); border-radius:14px; padding:12px; display:grid; gap:6px; }
+  .card b { font-size:14.5px; } .card small { font-size:11.5px; color:var(--muted); font-weight:700; line-height:1.5; }
+  .tag { display:inline-flex; font-size:10px; font-weight:900; border-radius:6px; padding:1px 7px; }
+  .t-cl { background:var(--clw); color:var(--cl); } .t-rt { background:var(--rtw); color:var(--rt); } .t-pg { background:var(--pgw); color:var(--pg); } .t-1 { background:var(--priw); color:var(--pri); }
+  .menu { display:grid; gap:0; background:var(--paper); border-radius:14px; overflow:hidden; }
+  .menu div { padding:11px 12px; border-top:1px solid var(--line); font-size:13px; font-weight:800; display:flex; align-items:center; gap:8px; }
+  .menu div:first-child { border-top:none; } .menu small { margin-left:auto; font-size:10.5px; color:var(--muted); font-weight:700; }
+  .menu .ng { color:#b91c1c; }
+  /* 日を選ぶ（複製） */
+  .cal { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; }
+  .cal span { aspect-ratio:1; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:11.5px; font-weight:800; background:var(--off); color:var(--ink); }
+  .cal span.h { background:none; color:var(--muted); font-size:10px; aspect-ratio:auto; }
+  .cal span.on { background:var(--pri); color:#fff; } .cal span.src { box-shadow:inset 0 0 0 2px var(--pri); background:var(--paper); }
+  .cal span.past { color:#cbd5e1; background:none; }
+  /* お気に入りの一覧 */
+  .fl { display:grid; gap:6px; }
+  .fi { display:grid; grid-template-columns:26px 1fr auto; gap:8px; align-items:center; background:var(--paper); border-radius:12px; padding:9px 10px; }
+  .fi .ic { width:26px; height:26px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:14px; }
+  .fi b { font-size:13px; } .fi small { display:block; font-size:10.5px; color:var(--muted); font-weight:700; }
+  .fi .use { font-size:11.5px; font-weight:900; color:var(--pri); border:1.5px solid var(--pri); border-radius:8px; padding:5px 9px; }
+  .seg { display:flex; background:var(--paper); border-radius:10px; padding:3px; gap:3px; }
+  .seg span { flex:1; text-align:center; font-size:11.5px; font-weight:900; padding:6px; border-radius:8px; color:var(--muted); } .seg span.on { background:var(--pri); color:#fff; }
+  table.map { border-collapse:collapse; background:var(--paper); border-radius:12px; overflow:hidden; font-size:12.5px; width:100%; max-width:960px; }
+  table.map th, table.map td { padding:8px 12px; border-top:1px solid var(--line); text-align:left; vertical-align:top; line-height:1.6; } table.map th { background:#f6fafb; font-size:12px; }
+  .tablewrap { overflow-x:auto; }
+</style>
+
+<div class="wrap">
+  <h1>やることの作り方：入口を1つに、チェック表は種類の1つ、お気に入りと複製</h1>
+  <p class="lead">
+    作る入口は<b>「＋ 追加」の1つだけ</b>（日誌・ボード・ホームのやること、どこから押しても同じ画面）。
+    まず「何を」を書き、次に<b>いつ</b>（1回・いつか・進行中・繰り返す）を選ぶ。<b>📋 項目を付ける</b>を入れるとチェック表になる。
+    よく使うものは<b>★ お気に入り</b>にしておけば、次から押すだけ。作ったものは<b>別の日にコピー</b>できる。スタッフも作れる。画面の内容は見本。
+  </p>
+
+  <h2><span class="n">1</span>1つの追加画面</h2>
+  <div class="row">
+    <div class="col">
+      <div class="cap">1-1 開いたところ<small>いちばん上に名前。その下に ★ お気に入り（押すと中身が全部入る）。いつは4つから1つ。時刻・担当は今と同じ</small></div>
+      <div class="phone"><div class="dim"></div><div class="sheet">
+        <div class="sh-h">追加<i>やめる</i></div>
+        <div class="in ph">何をする？（例：製氷機のフィルター交換）</div>
+        <div class="lbl">★ お気に入りから</div>
+        <div class="favs"><span class="fav cl"><i>★</i>📋 閉店チェック</span><span class="fav rt"><i>★</i>🔁 冷蔵庫の温度</span><span class="fav"><i>★</i>揚げ油の交換</span><span class="fav cl"><i>★</i>📋 開店準備</span></div>
+        <div class="lbl">いつ</div>
+        <div class="kinds"><span class="on"><em>📅</em>1回</span><span><em>📥</em>いつか</span><span><em>⏳</em>進行中</span><span><em>🔁</em>繰り返す</span></div>
+        <div class="grid2"><div class="field"><small>日付</small>11月5日（木）</div><div class="field"><small>時刻（任意）</small>—</div></div>
+        <div class="field"><small>担当</small>自分（高木）</div>
+        <div class="tog"><span>📋 項目を付ける<small>チェック表にする（閉店チェックなど）</small></span><span class="sw"></span></div>
+        <div class="foot"><div class="btn">追加</div></div>
+      </div></div>
+    </div>
+
+    <div class="col">
+      <div class="cap">1-2 📋 項目を付けた（チェック表）<small>項目を並べる。1回でも繰り返すでも付けられる。下の ☆ に入れると、追加と同時にお気に入りにも入る</small></div>
+      <div class="phone"><div class="dim"></div><div class="sheet">
+        <div class="sh-h">追加<i>やめる</i></div>
+        <div class="in">ケータリングの準備</div>
+        <div class="lbl">いつ</div>
+        <div class="kinds"><span class="on"><em>📅</em>1回</span><span><em>📥</em>いつか</span><span><em>⏳</em>進行中</span><span><em>🔁</em>繰り返す</span></div>
+        <div class="grid2"><div class="field"><small>日付</small>11月8日（日）</div><div class="field"><small>時刻（任意）</small>9:00</div></div>
+        <div class="tog on"><span>📋 項目を付ける<small>6項目</small></span><span class="sw"></span></div>
+        <div class="items"><div>保冷バッグ 3つ</div><div>ラベルを印刷</div><div>受け取りの電話</div><div>領収書</div><div class="add">項目を足す</div></div>
+        <label class="chk"><b>★</b>お気に入りにも入れる</label>
+        <div class="foot"><div class="btn">追加（チェック表）</div></div>
+      </div></div>
+    </div>
+
+    <div class="col">
+      <div class="cap">1-3 🔁 繰り返す<small>今のルーティンと同じ選び方（毎日・曜日・毎月・月末）。時刻はいくつでも。文で言い直す。チェック表と組み合わせられる</small></div>
+      <div class="phone"><div class="dim"></div><div class="sheet">
+        <div class="sh-h">追加<i>やめる</i></div>
+        <div class="in">閉店チェック</div>
+        <div class="lbl">いつ</div>
+        <div class="kinds"><span><em>📅</em>1回</span><span><em>📥</em>いつか</span><span><em>⏳</em>進行中</span><span class="on"><em>🔁</em>繰り返す</span></div>
+        <div class="rep"><span class="on">毎日</span><span>曜日</span><span>毎月</span></div>
+        <div class="grid2"><div class="field"><small>時刻</small>22:30</div><div class="field"><small>担当</small>山田</div></div>
+        <div class="tog on"><span>📋 項目を付ける<small>6項目</small></span><span class="sw"></span></div>
+        <div class="sent">🔁 毎日 22:30 に、山田が「閉店チェック」（6項目）をする</div>
+        <div class="foot"><div class="btn">追加（ルーティン）</div></div>
+      </div></div>
+    </div>
+  </div>
+
+  <h2><span class="n">2</span>作ったものを別の日にコピー・お気に入りにする</h2>
+  <div class="row">
+    <div class="col">
+      <div class="cap">2-1 やることを押すと<small>どの種類でも同じメニュー。「別の日にコピー」「★ お気に入りに入れる」を足す。ルーティンは「1回だけ別の日にも」もできる</small></div>
+      <div class="phone">
+        <div style="padding:14px 12px;display:grid;gap:8px">
+          <div class="card"><span class="tag t-cl">📋 チェック表・1回</span><b>ケータリングの準備</b><small>11月8日（日）9:00 ・ 高木 ・ 0 / 6 項目</small></div>
+          <div class="menu">
+            <div>✓ 済みにする</div>
+            <div>✎ 直す</div>
+            <div>📄 別の日にコピー<small>日を選ぶ</small></div>
+            <div>★ お気に入りに入れる<small>次から押すだけ</small></div>
+            <div class="ng">消す</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">2-2 コピーする日を選ぶ<small>何日でも選べる（押すたびに選ぶ・外す）。元の日は枠。中身（項目・時刻・担当）はそのまま。担当だけ変えることもできる</small></div>
+      <div class="phone"><div class="dim"></div><div class="sheet">
+        <div class="sh-h">別の日にコピー<i>やめる</i></div>
+        <div class="card" style="background:var(--off)"><b>📋 ケータリングの準備</b><small>9:00 ・ 高木 ・ 6項目</small></div>
+        <div class="lbl">11月 ‹ ›</div>
+        <div class="cal">
+          <span class="h">日</span><span class="h">月</span><span class="h">火</span><span class="h">水</span><span class="h">木</span><span class="h">金</span><span class="h">土</span>
+          <span class="past">1</span><span class="past">2</span><span class="past">3</span><span class="past">4</span><span>5</span><span>6</span><span>7</span>
+          <span class="src">8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span>
+          <span class="on">15</span><span>16</span><span>17</span><span>18</span><span>19</span><span>20</span><span>21</span>
+          <span class="on">22</span><span>23</span><span>24</span><span>25</span><span>26</span><span>27</span><span>28</span>
+        </div>
+        <div class="field"><small>担当</small>そのまま（高木）</div>
+        <div class="foot"><div class="btn">2日にコピー（11/15・11/22）</div></div>
+      </div></div>
+    </div>
+
+    <div class="col">
+      <div class="cap">2-3 ★ お気に入りの一覧<small>店のみんなで使う。並べ替え・名前を直す・外す。「使う」で追加の画面が中身入りで開く（日付だけ選ぶ）。増えたら種類で絞る</small></div>
+      <div class="phone"><div class="sheet full">
+        <div class="sh-h">★ お気に入り<i>閉じる</i></div>
+        <div class="seg"><span class="on">すべて</span><span>📋</span><span>🔁</span><span>やること</span></div>
+        <div class="fl">
+          <div class="fi"><span class="ic" style="background:var(--clw)">📋</span><span><b>閉店チェック</b><small>6項目 ・ 22:30 ・ よく使う</small></span><span class="use">使う</span></div>
+          <div class="fi"><span class="ic" style="background:var(--clw)">📋</span><span><b>開店準備</b><small>8項目 ・ 10:00</small></span><span class="use">使う</span></div>
+          <div class="fi"><span class="ic" style="background:var(--clw)">📋</span><span><b>ケータリングの準備</b><small>6項目 ・ 9:00</small></span><span class="use">使う</span></div>
+          <div class="fi"><span class="ic" style="background:var(--rtw)">🔁</span><span><b>冷蔵庫の温度</b><small>毎日 10:00・15:00・20:00</small></span><span class="use">使う</span></div>
+          <div class="fi"><span class="ic" style="background:var(--priw)">✓</span><span><b>揚げ油の交換</b><small>やること ・ 15:00</small></span><span class="use">使う</span></div>
+          <div class="fi"><span class="ic" style="background:var(--pgw)">⏳</span><span><b>業者の見積もり集め</b><small>進行中 ・ 期限は使うときに</small></span><span class="use">使う</span></div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+
+  <h2>今の作りからの変更</h2>
+  <div class="tablewrap">
+  <table class="map">
+    <tr><th>こと</th><th>今</th><th>変えた後</th><th>サーバー</th></tr>
+    <tr><td>作る入口</td><td>日誌の＋（やること）と、ルーティンの画面（🔁）が別</td><td>「＋ 追加」の1つ。どこから押しても同じ画面</td><td>要らない</td></tr>
+    <tr><td>チェック表</td><td>ルーティンの中身として作る（管理者だけ）</td><td>「📋 項目を付ける」で、1回でも繰り返すでも。スタッフも作れる</td><td>作る権限を変える</td></tr>
+    <tr><td>いつか・進行中にチェック表</td><td>付けられない</td><td>付けられる（手順の✓）。後の版</td><td>やることに項目を持たせる（migration）</td></tr>
+    <tr><td>別の日にコピー</td><td>無い</td><td>どの種類でも。日を何日でも選ぶ</td><td>要らない（作るのと同じ）</td></tr>
+    <tr><td>★ お気に入り</td><td>無い（見本のルーティンだけ）</td><td>店で共有のひな形。押すと中身入りで追加</td><td>ひな形の表を足す（migration）</td></tr>
+  </table>
+  </div>
+</div>
