@@ -56,6 +56,20 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     if (sameMonth) expect(host.querySelector(`.jm-c[aria-label^="${yday}"] .st.x`)).not.toBeNull()
   })
 
+  it('日誌を開くと、前に日を開いていても月のカレンダーから。外から「この日」と頼んだときだけその日を開く（2026-11-05）', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
+    const { default: JournalPage, openJournalDay } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    await openDay(localDateKey())
+    app.unmount(); host.remove()
+    await mount(JournalPage)
+    expect(host.querySelector('.dt'), '開き直したら月から').toBeNull()
+    app.unmount(); host.remove()
+    openJournalDay(localDateKey())
+    await mount(JournalPage)
+    expect(host.querySelector('.dt')).not.toBeNull()
+  })
+
   it('日を押すとタイムライン。終日（期限切れ）→ 時刻の順。丸を押すと済む。月にもどる・前後の日', async () => {
     const { localDateKey } = await import('../utils/localDate.js')
     const { STORAGE_KEYS } = await import('../utils/storageKeys.js')

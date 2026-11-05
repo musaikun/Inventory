@@ -55,8 +55,8 @@ afterEach(() => {
 
 describe('日別メモ（日誌のその日のタイムラインで書く。以前は「1日」・その前は月の日の詳細）', () => {
   async function mountDay(date) {
-    const { default: JournalPage, journalDate } = await import('./JournalPage.vue')
-    journalDate.value = date
+    const { default: JournalPage, openJournalDay } = await import('./JournalPage.vue')
+    openJournalDay(date)   // 外から「この日」と頼んだときだけ、その日を開いて始まる
     host = document.createElement('div')
     document.body.appendChild(host)
     app = createApp(JournalPage)

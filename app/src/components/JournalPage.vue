@@ -2,6 +2,9 @@
 import { ref } from 'vue'
 // 日誌で見ている日（外＝ホームや棚卸の詳細からもこの日を指定して開く）。'' は今日
 export const journalDate = ref('')
+// 日誌を開いたときは月のカレンダー（User決定 2026-11-05）。外から「この日を開いて」と頼まれたときだけ、その日を開いて始める
+let _openOnMount = false
+export function openJournalDay(d) { journalDate.value = d; _openOnMount = true }
 </script>
 
 <script setup>
@@ -51,7 +54,8 @@ const emit = defineEmits(['viewSession', 'openUpgrade', 'resume'])
 const today = localDateKey()
 // 外（ホーム・履歴の画面）からこの日を指定して開く。'' は月だけ
 const date = journalDate
-const open = ref(!!date.value)
+const open = ref(_openOnMount && !!date.value)
+_openOnMount = false
 const origin = ref(null)
 watch(date, v => { if (v) open.value = true })
 function pick(d, o) { origin.value = o; date.value = d; open.value = true }

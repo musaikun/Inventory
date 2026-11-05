@@ -16,7 +16,7 @@ import { STORAGE_KEYS } from '../utils/storageKeys.js'
 const props = defineProps({
   date: { type: String, required: true },
   today: { type: String, required: true },
-  origin: { type: Object, default: null },   // { col, row, rows } 広がり始めるマス
+  origin: { type: Object, default: null },   // 以前は広がり始めるマス（拡大はやめた・2026-11-05）。親が渡すので受けるだけ
   timeline: { type: Object, required: true },
   canAdd: { type: Boolean, default: false },
   closed: { type: Boolean, default: false },
@@ -41,10 +41,6 @@ const sub = computed(() => {
 })
 const pct = computed(() => (tl.value.count ? Math.round(tl.value.done / tl.value.count * 100) : 0))
 const ringColor = computed(() => (tl.value.done === tl.value.count ? '#22a55a' : future.value ? '#9fb3ba' : '#e89b0c'))
-const origin = computed(() => {
-  const o = props.origin
-  return o ? `${((o.col + 0.5) / 7 * 100).toFixed(1)}% ${((o.row + 0.5) / o.rows * 100).toFixed(1)}%` : '50% 30%'
-})
 const nowHm = ref('')
 let timer = null
 const _tick = () => { const n = new Date(); nowHm.value = `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}` }
@@ -84,7 +80,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 </script>
 
 <template>
-  <section class="dt" :style="{ transformOrigin: origin }" :aria-label="`${d.getMonth() + 1}月${d.getDate()}日の中身`">
+  <section class="dt" :aria-label="`${d.getMonth() + 1}月${d.getDate()}日の中身`">
     <div class="dt-h">
       <button type="button" class="dt-b" aria-label="月にもどる" @click="emit('close')">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"></rect><path d="M4 10h16"></path></svg>
@@ -161,8 +157,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 .dt-view { display: flex; border: 1.5px solid var(--border); border-radius: 9px; overflow: hidden; flex: none; }
 .dt-view button { border: none; background: var(--surface); color: var(--primary, #0e7490); font: inherit; font-size: 11px; font-weight: 900; padding: 5px 8px; cursor: pointer; }
 .dt-view button.on { background: var(--primary, #0e7490); color: #fff; }
-.dt { position: absolute; inset: 0; z-index: 8; display: flex; flex-direction: column; background: #f4f7f8; box-shadow: 0 10px 30px rgba(16,38,46,.18); overflow: hidden; animation: dtGrow .28s cubic-bezier(.2,.8,.2,1) both; }
-@keyframes dtGrow { from { transform: scale(.14); opacity: .35; border-radius: 10px; } to { transform: scale(1); opacity: 1; border-radius: 0; } }
+.dt { position: absolute; inset: 0; z-index: 8; display: flex; flex-direction: column; background: #f4f7f8; box-shadow: 0 10px 30px rgba(16,38,46,.18); overflow: hidden; }  /* 日を開いても拡大しない（User決定 2026-11-05）。月の上にそのまま出す */
 @keyframes dtIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .dt, .dt-row { animation: none !important; } }
 .dt-h { display: flex; align-items: center; gap: 8px; padding: 12px 12px 10px; background: var(--surface); border-bottom: 1px solid #e3ecef; }
