@@ -29,6 +29,24 @@
   .allday > span { flex:none; font-size:10.5px; font-weight:800; color:var(--muted); width:44px; }
   .ad { flex:none; border-radius:8px; padding:5px 9px; font-size:11.5px; font-weight:800; background:var(--off); border:1px solid var(--line2); cursor:pointer; }
   .ad.done { color:var(--done); text-decoration:line-through; }
+  .prog { display:flex; flex-direction:column; gap:4px; padding:6px 12px; border-bottom:1px solid var(--line); }
+  .prog > span { font-size:10.5px; font-weight:800; color:var(--muted); }
+  .pbar { position:relative; display:flex; align-items:center; gap:6px; border-radius:8px; padding:5px 9px; font-size:11.5px; font-weight:800; cursor:pointer; border:1.5px solid #fcd34d;
+    background:linear-gradient(90deg, #fef3c7 var(--p), #fffbeb var(--p)); color:#78350f; text-align:left; }
+  .pbar small { margin-left:auto; font-size:10px; font-weight:700; color:var(--warn, #b45309); white-space:nowrap; }
+  .pbar .who { width:18px; height:18px; border-radius:50%; background:#fff; font-size:10px; display:flex; align-items:center; justify-content:center; flex:none; }
+  .pbar.late { border-color:#fca5a5; background:linear-gradient(90deg, #fee2e2 var(--p), #fef2f2 var(--p)); color:#7f1d1d; }
+  .ad.rt { border-style:dashed; }
+  .blk.k-routine { background:#f0fdfa; border-color:#0d9488; color:#134e4a; border-style:dashed; }
+  .someday { position:absolute; left:14px; bottom:48px; border:none; border-radius:999px; background:var(--paper); color:var(--ink); font-size:12.5px; font-weight:900; padding:9px 13px; box-shadow:0 4px 12px rgba(0,0,0,.16); cursor:pointer; z-index:10; border:1.5px solid var(--line2); }
+  .someday b { background:var(--pri); color:#fff; border-radius:999px; padding:0 7px; margin-left:4px; font-size:11px; }
+  .placing { position:absolute; left:12px; right:12px; bottom:100px; background:var(--pri); color:#fff; border-radius:12px; padding:9px 12px; font-size:12.5px; font-weight:800; display:flex; align-items:center; gap:8px; z-index:12; box-shadow:0 6px 16px rgba(14,116,144,.4); }
+  .placing[hidden] { display:none; }
+  .placing button { margin-left:auto; border:none; background:rgba(255,255,255,.2); color:#fff; border-radius:8px; padding:5px 9px; font-weight:800; cursor:pointer; }
+  .sd-list { display:grid; gap:6px; max-height:260px; overflow-y:auto; }
+  .sd { display:flex; align-items:center; gap:8px; border:1.5px solid var(--line2); border-radius:12px; padding:10px 11px; font-size:13px; font-weight:800; background:var(--paper); cursor:pointer; text-align:left; }
+  .sd small { margin-left:auto; color:var(--pri); font-size:11px; font-weight:800; white-space:nowrap; }
+  .sub { font-size:12px; color:var(--muted); line-height:1.6; }
   .board { flex:1; min-height:0; display:grid; grid-template-columns:58px 1fr; overflow:hidden; position:relative; }
   .rows { border-right:1px solid var(--line2); background:var(--paper); z-index:3; }
   .rows .rh { height:22px; border-bottom:1px solid var(--line2); }
@@ -99,6 +117,9 @@
     <li>予定を<b>押す</b> → 済み・名前を直す・消す（元に戻せる）</li>
     <li>右上の <b>3時間／1日</b> で縮尺を切り替え（1日では細い予定は色だけ）。斜線は営業時間の外</li>
     <li>点線の帯は<b>棚卸の記録</b>（動かせない）。丸い形は終わりの無い「◯時までに」</li>
+    <li><b>🔁 ルーティン</b>：時刻があればボードに緑の点線で（1日に何回もなら回数分）。ずらすと「今日だけ／これから毎回」を訊く。時刻が無ければ「終日」に</li>
+    <li><b>⏳ 進行中</b>（何日もかかる）：ボードの上の段に、日数と期限を帯で。押すと経過を書く・済み</li>
+    <li><b>📥 いつか</b>（期限なし）：左下の箱にしまっておき、押してからマスを押すと、その時間に入る</li>
   </ul>
 </div>
 
@@ -110,6 +131,7 @@
     <div class="zoom" role="radiogroup" aria-label="縮尺"><button id="z4" class="on" role="radio" aria-checked="true">3時間</button><button id="z24" role="radio" aria-checked="false">1日</button></div>
   </div>
   <div class="allday" id="allday"></div>
+  <div class="prog" id="prog"></div>
   <div class="board">
     <div class="rows" id="rows"></div>
     <div class="scroll" id="scroll"><div class="canvas" id="canvas"></div></div>
@@ -121,6 +143,8 @@
     <span><i style="background:var(--orderw);border-color:var(--order)"></i>発注・納品</span>
   </div>
   <button class="fab" id="fab" aria-label="予定を足す">＋</button>
+  <button class="someday" id="sdBtn">📥 いつか<b id="sdN">0</b></button>
+  <div class="placing" id="placing" hidden><span id="plMsg"></span><button id="plX">やめる</button></div>
   <div class="toast" id="toast" role="status"><span id="tmsg"></span><button id="undo">元に戻す</button></div>
   <div class="sheet-bg" id="sbg" hidden><div class="sheet" id="sheet"></div></div>
 </div>
@@ -129,9 +153,15 @@
 const START = 8, END = 24, OPEN = 11, CLOSE = 22, SNAP = 15
 const ROWS = [{ id: 'all', name: '全員', sub: 'みんな' }, { id: 'sato', name: '佐藤', sub: '店長' }, { id: 'takagi', name: '高木', sub: 'キッチン' }, { id: 'yamada', name: '山田', sub: 'ホール' }]
 const ROW_H = 74
-const KINDS = { task: 'やること', prep: '仕込み', clean: '清掃', order: '発注・納品' }
+const KINDS = { task: 'やること', prep: '仕込み', clean: '清掃', order: '発注・納品', routine: 'ルーティン' }
+let placing = null   // いつかの箱から置こうとしている品目
 let S = {
-  allday: [{ id: 'a1', text: '月末の棚卸の準備', done: false }, { id: 'a2', text: '冷蔵庫の温度を記録', done: true }],
+  allday: [{ id: 'a1', text: '月末の棚卸の準備', done: false }, { id: 'a2', text: 'トイレ掃除', done: false, routine: '毎日', prog: '1/3' }],
+  progress: [
+    { id: 'p1', text: '製氷機の修理の手配', row: 'sato', day: 3, of: 5, deadline: '11/7まで', note: '業者から見積もり待ち' },
+    { id: 'p2', text: '新メニューの試作', row: 'takagi', day: 6, of: 4, deadline: '期限を2日過ぎ', late: true, note: '' },
+  ],
+  someday: [{ id: 's1', text: '換気扇のフィルター交換' }, { id: 's2', text: '倉庫の棚の整理' }, { id: 's3', text: 'メニュー表の写真を撮り直す' }, { id: 's4', text: '包丁を研ぎに出す' }],
   items: [
     { id: 'i1', row: 'takagi', start: 9 * 60, end: 10 * 60 + 30, text: 'ランチの仕込み', kind: 'prep' },
     { id: 'i2', row: 'sato', start: 10 * 60, end: null, text: '野菜の発注（締切）', kind: 'order' },
@@ -140,6 +170,10 @@ let S = {
     { id: 'i5', row: 'takagi', start: 15 * 60, end: 17 * 60, text: 'ディナーの仕込み', kind: 'prep' },
     { id: 'i6', row: 'sato', start: 15 * 60 + 30, end: 16 * 60, text: '納品の検品', kind: 'order' },
     { id: 'i7', row: 'yamada', start: 22 * 60, end: 22 * 60 + 45, text: '閉店後の清掃', kind: 'clean' },
+    { id: 'r1a', row: 'all', start: 10 * 60, end: null, text: '冷蔵庫の温度', kind: 'routine', routine: '毎日 10:00・15:00・20:00', done: true },
+    { id: 'r1b', row: 'all', start: 15 * 60 + 30, end: null, text: '冷蔵庫の温度', kind: 'routine', routine: '毎日 10:00・15:00・20:00' },
+    { id: 'r1c', row: 'all', start: 20 * 60, end: null, text: '冷蔵庫の温度', kind: 'routine', routine: '毎日 10:00・15:00・20:00' },
+    { id: 'r2', row: 'yamada', start: 23 * 60, end: 23 * 60 + 30, text: '閉店チェック表', kind: 'routine', routine: '毎日 23:00', prog: '0/6' },
   ],
   rec: [{ row: 'sato', start: 7 * 60 + 40, end: 8 * 60 + 50, text: '棚卸（記録）' }],
 }
@@ -177,12 +211,15 @@ function render() {
     const pin = it.end == null
     const w = pin ? Math.max(92, hourW * 1.3) : Math.max(28, xOf(it.end) - xOf(it.start))
     h += `<div class="blk k-${it.kind}${pin ? ' pin' : ''}${it.done ? ' done' : ''}${w < 44 ? ' thin' : ''}" data-id="${it.id}" style="left:${xOf(it.start)}px;top:${rowIdx(it.row) * ROW_H + 8}px;width:${w}px;height:${ROW_H - 16}px">`
-      + `<span class="t">${it.done ? '✓ ' : ''}${it.text}</span><small>${pin ? `${hm(it.start)}までに` : `${hm(it.start)}〜${hm(it.end)}`}</small>${pin ? '' : '<span class="grip" data-grip="1"></span>'}</div>`
+      + `<span class="t">${it.done ? '✓ ' : ''}${it.routine ? '🔁 ' : ''}${it.text}${it.prog ? ` ${it.prog}` : ''}</span><small>${pin ? `${hm(it.start)}${it.routine ? '' : 'までに'}` : `${hm(it.start)}〜${hm(it.end)}`}</small>${pin ? '' : '<span class="grip" data-grip="1"></span>'}</div>`
   }
   h += '</div>'
   canvas.innerHTML = h
-  $('allday').innerHTML = '<span>終日</span>' + S.allday.map(a => `<button class="ad${a.done ? ' done' : ''}" data-ad="${a.id}">${a.done ? '✓ ' : ''}${a.text}</button>`).join('')
-  $('ds').textContent = `今日・予定 ${S.items.length + S.allday.length}件`
+  $('allday').innerHTML = '<span>終日</span>' + S.allday.map(a => `<button class="ad${a.done ? ' done' : ''}${a.routine ? ' rt' : ''}" data-ad="${a.id}">${a.done ? '✓ ' : ''}${a.routine ? '🔁 ' : ''}${a.text}${a.prog ? ` ${a.prog}` : ''}</button>`).join('')
+  $('prog').hidden = !S.progress.length
+  $('prog').innerHTML = '<span>⏳ 進行中（済むまで毎日出る）</span>' + S.progress.map(p => `<button class="pbar${p.late ? ' late' : ''}" data-pg="${p.id}" style="--p:${Math.min(100, p.day / p.of * 100)}%"><span class="who">${ROWS[rowIdx(p.row)].name[0]}</span>${p.text}<small>${p.day}日目・${p.deadline}</small></button>`).join('')
+  $('sdN').textContent = S.someday.length
+  $('ds').textContent = `今日・予定 ${S.items.length + S.allday.length}件・進行中 ${S.progress.length}`
 }
 
 function toast(msg) {
@@ -245,13 +282,23 @@ function end(e) {
   if (a.kind === 'tap') {
     if (Math.hypot(e.clientX - a.x0, e.clientY - a.y0) > 8) return   // 横にスクロールしただけ
     const ri = Math.floor(a.p.y / ROW_H); if (ri < 0 || ri >= ROWS.length) return
-    openAdd(ROWS[ri].id, Math.floor(mOf(a.p.x) / 30) * 30)
+    const at = Math.floor(mOf(a.p.x) / 30) * 30
+    if (placing) {
+      save()
+      S.someday = S.someday.filter(x => x !== placing)
+      S.items.push({ id: 'n' + Date.now(), row: ROWS[ri].id, start: at, end: at + 30, text: placing.text, kind: 'task' })
+      toast(`「${placing.text}」を ${ROWS[ri].name}・${hm(at)} に入れました`)
+      placing = null; $('placing').hidden = true; render()
+      return
+    }
+    openAdd(ROWS[ri].id, at)
     return
   }
   if (!a.moved) { openDetail(a.it); return }
   try { navigator.vibrate && navigator.vibrate(10) } catch (_) {}
   render()
   const it = a.it
+  if (it.routine) { askRoutine(it, a); return }
   if (a.kind === 'resize') toast(`「${it.text}」を ${hm(it.start)}〜${hm(it.end)} にしました`)
   else if (it.row !== a.r0) toast(`「${it.text}」を${ROWS[rowIdx(it.row)].name}の担当にしました（${hm(it.start)}）`)
   else toast(`「${it.text}」を ${hm(it.start)} からにしました`)
@@ -290,6 +337,38 @@ function openAdd(row, start) {
   draw()
 }
 $('fab').onclick = () => openAdd('all', Math.ceil(nowM / 30) * 30)
+// ルーティンをずらしたら、今日だけか・これからも毎回かを訊く（カレンダーの繰り返しの予定と同じ）
+function askRoutine(it, a) {
+  openSheet(`<div class="sh-h">🔁 ${it.text}<button id="cx" aria-label="閉じる">✕</button></div>
+    <p class="sub">ルーティン（${it.routine}）を ${hm(it.start)}${it.end ? '〜' + hm(it.end) : ''}・${ROWS[rowIdx(it.row)].name} にしました。</p>
+    <button class="btn p" id="once">今日だけ</button><button class="btn" id="every">これからも毎回</button><button class="btn" id="back">戻す</button>`)
+  $('cx').onclick = $('once').onclick = () => { closeSheet(); toast(`「${it.text}」を今日だけ ${hm(it.start)} にしました`) }
+  $('every').onclick = () => { closeSheet(); toast(`「${it.text}」をこれからも毎回 ${hm(it.start)} にしました`) }
+  $('back').onclick = () => { closeSheet(); $('undo').click() }
+}
+$('prog').addEventListener('click', e => {
+  const b = e.target.closest('[data-pg]'); if (!b) return
+  const p = S.progress.find(x => x.id === b.dataset.pg)
+  openSheet(`<div class="sh-h">⏳ ${p.text}<button id="cx" aria-label="閉じる">✕</button></div>
+    <div class="meta">${ROWS[rowIdx(p.row)].name} ・ ${p.day}日目 ・ ${p.deadline}</div>
+    ${p.note ? `<p class="sub">いちばん新しい経過：${p.note}</p>` : '<p class="sub">経過はまだありません</p>'}
+    <label class="lbl" for="pn">経過を書く</label><input class="in" id="pn" placeholder="例：部品の取り寄せ待ち" />
+    <div class="acts"><button class="btn" id="pw">経過を残す</button><button class="btn p" id="pd">✓ 済み</button></div>`)
+  $('cx').onclick = closeSheet
+  $('pw').onclick = () => { const t = $('pn').value.trim(); if (!t) return; save(); p.note = t; closeSheet(); render(); toast('経過を残しました') }
+  $('pd').onclick = () => { save(); S.progress = S.progress.filter(x => x !== p); closeSheet(); render(); toast(`「${p.text}」を済みにしました`) }
+})
+$('sdBtn').onclick = () => {
+  openSheet(`<div class="sh-h">📥 いつか（期限なし）<button id="cx" aria-label="閉じる">✕</button></div>
+    <p class="sub">押してからボードのマスを押すと、その時間・その人に入ります。</p>
+    <div class="sd-list">${S.someday.map(x => `<button class="sd" data-sd="${x.id}">${x.text}<small>置く ›</small></button>`).join('') || '<p class="sub">いつかの予定はありません</p>'}</div>`)
+  $('cx').onclick = closeSheet
+  $('sheet').querySelectorAll('[data-sd]').forEach(b => b.onclick = () => {
+    placing = S.someday.find(x => x.id === b.dataset.sd)
+    closeSheet(); $('plMsg').textContent = `「${placing.text}」を置くマスを押してください`; $('placing').hidden = false
+  })
+}
+$('plX').onclick = () => { placing = null; $('placing').hidden = true }
 function openDetail(it) {
   openSheet(`<div class="sh-h">${KINDS[it.kind]}<button id="cx" aria-label="閉じる">✕</button></div>
     <label class="lbl" for="et">やること</label><input class="in" id="et" value="${it.text.replace(/"/g, '&quot;')}" />
