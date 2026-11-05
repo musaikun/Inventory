@@ -107,7 +107,7 @@ function seedActiveSession() {
 
 describe('App — 401（別端末ログイン）で作業を消さない', () => {
   beforeEach(() => {
-    localStorage.clear(); sessionStorage.clear()
+    localStorage.clear(); localStorage.setItem('_journal_view_v1', 'list'); sessionStorage.clear()
     vi.clearAllMocks()
     authInvalidatedHandler = null
     linesCalls = []
@@ -174,7 +174,7 @@ describe('App — 401（別端末ログイン）で作業を消さない', () =>
 
 describe('App — 中身の無いスナップショットで詳細を騙らない', () => {
   beforeEach(() => {
-    localStorage.clear()
+    localStorage.clear(); localStorage.setItem('_journal_view_v1', 'list')
     vi.clearAllMocks()
     authInvalidatedHandler = null
     linesCalls = []
@@ -244,7 +244,7 @@ describe('App — 中身の無いスナップショットで詳細を騙らな�
 // 消す前に、失効時点の店舗の未送信キューへ確定させる（送信はしない）。
 describe('App — 失効直前のデバウンス保存をキューへ残す', () => {
   beforeEach(() => {
-    localStorage.clear()
+    localStorage.clear(); localStorage.setItem('_journal_view_v1', 'list')
     vi.clearAllMocks()
     authInvalidatedHandler = null
     linesCalls = []

@@ -152,7 +152,8 @@ function _assignFields(a) {
 
 /** @param {{ mode: string, id?: string, name?: string }} [assign] 担当（省略は「誰でも」） */
 /** @param {{ visibility?: 'admins'|null }} [opts] 'admins' ＝ 管理者だけに見せる（管理者だけが付けられる・2026-10-15） */
-export function addTask(date, text, assign = null, dueTime = null, { visibility = null, progress = null, deadline = null, note = null } = {}) {
+export const TASK_CATEGORIES = ['prep', 'clean', 'order']   // 予定ボードの色（null＝やること・migration 0036）
+export function addTask(date, text, assign = null, dueTime = null, { visibility = null, progress = null, deadline = null, note = null, endTime = null, category = null } = {}) {
   const body = String(text ?? '').trim().slice(0, TASK_TEXT_MAX)
   if (!body || !_dateOk(date)) return null
   const now = _now()
@@ -161,6 +162,8 @@ export function addTask(date, text, assign = null, dueTime = null, { visibility 
     createdBy: deviceName.value || '', createdById: actorId(), createdAt: now,
     doneAt: null, doneBy: null, deletedAt: null, updatedAt: now,
     ..._assignFields(assign), doneList: [], dueTime: date ? _time(dueTime) : null,
+    // 予定ボード（2026-11-05）: 終わりの時刻（始まりより後のときだけ）と中身の種類
+    endTime: null, category: TASK_CATEGORIES.includes(category) ? category : null,
     visibility: visibility === 'admins' && isAdmin.value ? 'admins' : null,
     ...(PROGRESS.includes(progress) ? { progress, waitNote: null, steps: [], lastNote: null } : {}),
     // 期限（進行中の本当の期限・期限つきのやること）
@@ -168,6 +171,8 @@ export function addTask(date, text, assign = null, dueTime = null, { visibility 
     // 備考（2026-10-26）
     ...(String(note ?? '').trim() ? { note: String(note).trim().slice(0, TASK_NOTE_MAX) } : {}),
   }
+  const end = _time(endTime)
+  if (t.dueTime && end && end > t.dueTime) t.endTime = end
   _data.list.push(t)
   _persist()
   _send(t)
@@ -234,7 +239,7 @@ async function markTask(t) {
 }
 
 /** 文面・日付・時刻を直す（作る権限のある人。TODO 本格化 A）。日付を変えると別の日へ移る */
-export function editTask(id, { text, date, dueTime, visibility } = {}) {
+export function editTask(id, { text, date, dueTime, visibility, endTime, category } = {}) {
   const t = _data.list.find(x => x.id === id)
   if (!t || !canEditTask(t)) return null
   const fields = {}
@@ -250,6 +255,11 @@ export function editTask(id, { text, date, dueTime, visibility } = {}) {
   }
   if (dueTime !== undefined && fields.date !== '') fields.dueTime = _time(dueTime)
   if (visibility !== undefined && isAdmin.value) fields.visibility = visibility === 'admins' ? 'admins' : null
+  if (category !== undefined) fields.category = TASK_CATEGORIES.includes(category) ? category : null
+  // 終わりの時刻は始まりより後のときだけ。時刻を外したら終わりも外す
+  const start = 'dueTime' in fields ? fields.dueTime : t.dueTime
+  const end = endTime !== undefined ? _time(endTime) : (t.endTime ?? null)
+  fields.endTime = start && end && end > start ? end : null
   return _patch(id, fields)
 }
 

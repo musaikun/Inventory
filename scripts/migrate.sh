@@ -65,3 +65,4 @@ apply_if_missing 0032_handoffs.sql           idx_handoffs_created
 apply_if_missing 0033_task_note.sql          idx_tasks_note
 apply_if_missing 0034_movement_lot_date.sql   idx_movement_lines_lot
 apply_if_missing 0035_task_templates.sql      idx_task_templates_shop
+apply_if_missing 0036_task_board.sql          idx_tasks_end_time

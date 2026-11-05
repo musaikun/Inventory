@@ -42,7 +42,7 @@ function cellOf(root, dateKey) {
 
 
 beforeEach(() => {
-  localStorage.clear()
+  localStorage.clear(); localStorage.setItem('_journal_view_v1', 'list')
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
 })

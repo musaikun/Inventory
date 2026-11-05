@@ -17,7 +17,7 @@ async function mount(comp, props = {}) {
   host = document.createElement('div'); document.body.appendChild(host)
   app = createApp({ render: () => h(comp, props) }); app.mount(host); await tick()
 }
-beforeEach(() => { localStorage.clear(); sessionStorage.clear(); vi.resetModules(); localStorage.setItem('_device_name', '高木') })
+beforeEach(() => { localStorage.clear(); sessionStorage.clear(); vi.resetModules(); localStorage.setItem('_device_name', '高木'); localStorage.setItem('_journal_view_v1', 'list') })
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null; document.body.innerHTML = '' })
 
 

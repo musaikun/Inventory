@@ -67,7 +67,7 @@ const sheet = () => host.querySelector('.sh')
 const shortcut = label => [...host.querySelectorAll('.ht-grid .ht-sc')].find(b => b.querySelector('b')?.textContent === label)
 
 beforeEach(() => {
-  localStorage.clear(); sessionStorage.clear()
+  localStorage.clear(); localStorage.setItem('_journal_view_v1', 'list'); sessionStorage.clear()
   vi.resetModules()
   sessionList = []
   createSession.mockClear(); deleteSession.mockClear()

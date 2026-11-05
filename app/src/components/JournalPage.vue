@@ -27,7 +27,7 @@ import CopyDatesSheet from './CopyDatesSheet.vue'
 import { addTemplate, canAddTemplate, pullTemplates } from '../composables/useTemplates.js'
 import { pullChecklists, checklistsForDay, saveChecklist, newItemId, markChecklistItem, canMarkChecklist, canUnmark } from '../composables/useChecklists.js'
 import { monthDaysLabel, isSimple, WHOLE } from '../services/checklistSchedule.js'
-import { tasksOn, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, TASK_TEXT_MAX, TASK_NOTE_MAX, dueProgress, toggleTask, canToggleTask, canEditTask, canNoteTask, setTaskNote } from '../composables/useTasks.js'
+import { tasksOn, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, editTask, setTaskAssign, TASK_TEXT_MAX, TASK_NOTE_MAX, dueProgress, toggleTask, canToggleTask, canEditTask, canNoteTask, setTaskNote } from '../composables/useTasks.js'
 import { can, staffNames, loadStaffNames, getSessions, isAdmin } from '../composables/useAuth.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
@@ -175,6 +175,36 @@ function say(m) { okMsg.value = m; clearTimeout(_okT); _okT = setTimeout(() => {
 onUnmounted(() => clearTimeout(_okT))
 function onAdded({ name }) { say(`「${name}」を足しました`) }
 
+// ── 予定ボード（予約台帳の形・2026-11-05）──
+// 空いているマス → その時間・その人で「やること」を足す
+function addAt({ row, start }) {
+  if (!canCreate.value) return
+  addSheet.value = { startKind: 'task', date: date.value || today, time: start, who: row === 'all' ? 'all' : `p:${row}` }
+}
+const _assignOfRow = row => (row === 'all'
+  ? { mode: people.value.some(p => !p.owner) ? 'all' : 'anyone' }
+  : { mode: 'person', id: row, name: people.value.find(p => p.id === row)?.name || '' })
+const _rowOfTask = t => (t.assign === 'person' && people.value.some(p => p.id === t.assigneeId) ? t.assigneeId : 'all')
+// 掴んでずらした（時間・終わり・担当）
+function moveTask(t, { start, end, row }) {
+  if (!canEditTask(t)) return
+  editTask(t.id, { dueTime: start, endTime: end })
+  if (row !== _rowOfTask(t)) setTaskAssign(t.id, _assignOfRow(row))
+  const who = row === 'all' ? '全員' : (people.value.find(p => p.id === row)?.name || '')
+  say(`「${t.text}」を ${start.replace(/^0/, '')}${end ? `〜${end.replace(/^0/, '')}` : ''}${row !== _rowOfTask(t) ? `・${who}` : ''} にしました`)
+}
+// いつかの箱から、押したマスへ（その日・その時間から30分・その人）
+function placeSomeday(x, { row, start }) {
+  const t = x.ref?.task
+  if (!t || !canEditTask(t)) { err.value = 'このやることを動かせるのは、作った人と管理者だけです'; return }
+  const [h, m] = start.split(':').map(Number)
+  const e = h * 60 + m + 30
+  const end = e < 24 * 60 ? `${String(Math.floor(e / 60)).padStart(2, '0')}:${String(e % 60).padStart(2, '0')}` : null
+  editTask(t.id, { date: date.value || today, dueTime: start, endTime: end })
+  setTaskAssign(t.id, _assignOfRow(row))
+  say(`「${t.text}」を ${start.replace(/^0/, '')} に入れました`)
+}
+
 // ── 別の日にコピー・★ お気に入りに入れる（やること・チェック表）──
 const copyOf = ref(null)     // { kind: 'task'|'checklist', src, title, sub, source, who, slot? }
 const _whoOfTask = t => (t.assign === 'person' && t.assigneeId ? `p:${t.assigneeId}` : 'all')
@@ -232,6 +262,7 @@ async function favChecklist(cl) {
     <DayTimeline
       v-if="open && date" :key="date" :date="date" :today="today" :origin="origin" :timeline="timeline" :can-add="canCreate"
       @close="closeDay" @step="stepDay" @add="openAdd()" @check="check" @open="openItem" @memo="openMemo"
+      @add-at="addAt" @move="moveTask" @place="placeSomeday"
     />
     <p v-if="err" class="jp-err jp-toast" role="alert">{{ err }}</p>
     <Teleport to="body">
@@ -266,7 +297,8 @@ async function favChecklist(cl) {
       @close="clRun = null" @history="openClHistory" @copy="copyChecklist(clRun.cl, clRun.date, clRun.slot || '')" @fav="favChecklist(clRun.cl)"
     />
     <TaskAddSheet
-      v-if="addSheet" :date="date || today" :start-kind="addSheet.startKind || ''" :template="addSheet.template || null"
+      v-if="addSheet" :date="addSheet.date || date || today" :start-kind="addSheet.startKind || ''" :template="addSheet.template || null"
+      :preset-time="addSheet.time || ''" :preset-who="addSheet.who || ''"
       @close="addSheet = null" @added="onAdded" @favorites="addSheet = null; favOpen = true"
     />
     <FavoritesSheet v-if="favOpen" @close="favOpen = null" @use="t => { favOpen = null; addSheet = { template: t } }" />

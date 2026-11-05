@@ -18,7 +18,7 @@ async function mount(comp, props = {}) {
   events = []
   app = createApp({ render: () => h(comp, { ...props, onClose: () => events.push('close'), onAdded: e => events.push(e) }) }); app.mount(host); await tick()
 }
-beforeEach(() => { localStorage.clear(); sessionStorage.clear(); vi.resetModules(); localStorage.setItem('_device_name', '高木') })
+beforeEach(() => { localStorage.clear(); sessionStorage.clear(); vi.resetModules(); localStorage.setItem('_device_name', '高木'); localStorage.setItem('_journal_view_v1', 'list') })
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null; document.body.innerHTML = '' })
 const sheet = () => document.body.querySelector('.ta')
 
@@ -116,5 +116,31 @@ describe('別の日にコピー・お気に入りに入れる（日誌のやる�
     await click(btn('2日にコピー'))
     const copies = T.aliveTasks.value.filter(t => t.text === '揚げ油の交換').map(t => [t.date, t.dueTime, t.note]).sort()
     expect(copies).toEqual([[today, '15:00', '2缶'], [localDateKey(d), '15:00', '2缶'], [localDateKey(d2), '15:00', '2缶']].sort())
+  })
+})
+
+describe('予定ボードから（日誌・2026-11-05）', () => {
+  const ptr = (el, type, x, y) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y }))
+  const xAt = hm => { const [hh, mm] = hm.split(':').map(Number); return ((hh * 60 + mm) / 60 - 7) * 96 }
+  it('マスを押すと「やること」がその時間・30分で開き、終わりと種類（色）も保存する。掴んでずらすと時間が変わる', async () => {
+    localStorage.setItem('_journal_view_v1', 'board')
+    const { localDateKey } = await import('../utils/localDate.js')
+    const T = await import('../composables/useTasks.js')
+    const today = localDateKey()
+    const { default: JournalPage } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    await click(host.querySelector(`.jm-c[aria-label^="${today}"]`))
+    const canvas = host.querySelector('.db-canvas')
+    ptr(canvas, 'pointerdown', xAt('15:10'), 22 + 34); ptr(canvas, 'pointerup', xAt('15:10'), 22 + 34); await tick()
+    expect(sheet().querySelector('input[type=time]').value).toBe('15:00')
+    expect(sheet().querySelector('input[aria-label="終わりの時刻"]').value).toBe('15:30')
+    await type(sheet().querySelector('input[aria-label="やること"]'), '揚げ油の交換')
+    await click(btn('清掃', sheet()))
+    await click(btn('みんなに見せて追加'))
+    const t = T.aliveTasks.value.find(x => x.text === '揚げ油の交換')
+    expect(t).toMatchObject({ date: today, dueTime: '15:00', endTime: '15:30', category: 'clean' })
+    const b = host.querySelector(`[data-block="${t.id}"]`)
+    ptr(b, 'pointerdown', xAt('15:10'), 22 + 34); ptr(b, 'pointermove', xAt('15:10') + 48, 22 + 34); ptr(b, 'pointerup', xAt('15:10') + 48, 22 + 34); await tick()
+    expect(T.aliveTasks.value.find(x => x.id === t.id)).toMatchObject({ dueTime: '15:30', endTime: '16:00' })
   })
 })

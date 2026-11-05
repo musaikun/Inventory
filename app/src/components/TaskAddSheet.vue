@@ -21,6 +21,8 @@ const props = defineProps({
   date: { type: String, default: '' },        // 1回のものの既定の日（空なら今日）
   startKind: { type: String, default: '' },   // 種類を決めて開く（'progress' など）
   template: { type: Object, default: null },  // お気に入りから開く
+  presetTime: { type: String, default: '' },  // 予定ボードのマスから（始まりの時刻）
+  presetWho: { type: String, default: '' },   // 予定ボードのマスから（'all' | 'p:<id>'）
 })
 const emit = defineEmits(['close', 'added', 'favorites'])
 
@@ -45,6 +47,10 @@ const once = ref(true)           // チェック表: 1回（true）／繰り返�
 const repeat = ref('daily'), weekdays = ref([]), monthDays = ref(['1']), dayDraft = ref('1')
 const times = ref([]), timeDraft = ref('')
 const fav = ref(false)
+// 予定ボード（2026-11-05）: 終わりの時刻（任意）と中身の種類（色）
+const endTime = ref('')
+const category = ref('')
+const CATS = [['', 'やること'], ['prep', '仕込み'], ['clean', '清掃'], ['order', '発注・納品']]
 const err = ref(''), busy = ref(false)
 
 const people = computed(() => staffNames.value)
@@ -56,6 +62,13 @@ function _defaultWho() {
   return me ? `p:${me.id}` : 'all'
 }
 who.value = _defaultWho()
+if (props.presetTime) {
+  time.value = props.presetTime
+  const [h, m] = props.presetTime.split(':').map(Number)
+  const e = h * 60 + m + 30
+  if (e < 24 * 60) endTime.value = `${String(Math.floor(e / 60)).padStart(2, '0')}:${String(e % 60).padStart(2, '0')}`
+}
+if (props.presetWho && (props.presetWho === 'all' || people.value.some(p => `p:${p.id}` === props.presetWho))) who.value = props.presetWho
 
 function choose(k) { kind.value = k; err.value = '' }
 function back() { kind.value = ''; err.value = '' }
@@ -163,7 +176,7 @@ async function submit(adminsOnly = false) {
   try {
     const visibility = adminsOnly ? 'admins' : null
     if (kind.value === 'task') {
-      if (!addTask(day.value, text, _assignTask(), time.value || null, { visibility, note: note.value })) throw new Error('足せませんでした')
+      if (!addTask(day.value, text, _assignTask(), time.value || null, { visibility, note: note.value, endTime: time.value && endTime.value > time.value ? endTime.value : null, category: category.value || null })) throw new Error('足せませんでした')
     } else if (kind.value === 'progress') {
       if (!addTask(today, text, _assignTask(), null, { visibility, progress: 'doing', deadline: deadline.value || null, note: note.value })) throw new Error('足せませんでした')
     } else if (kind.value === 'someday') {
@@ -249,6 +262,12 @@ onUnmounted(registerInnerLayerCloser(() => { if (kind.value && !props.startKind 
             <label>日付<input v-model="day" type="date" class="ta-in" :min="today" /></label>
             <label>時刻（任意）<input v-model="time" type="time" class="ta-in" /></label>
           </div>
+          <template v-if="kind === 'task'">
+            <label v-if="time" class="ta-lb">終わり（任意・予定ボードで帯になる）<input v-model="endTime" type="time" class="ta-in" :min="time" aria-label="終わりの時刻" /></label>
+            <div class="ta-seg" role="radiogroup" aria-label="種類（色）">
+              <button v-for="c in CATS" :key="c[0]" type="button" role="radio" :aria-checked="category === c[0]" :class="['cat', c[0] || 'task', { on: category === c[0] }]" @click="category = c[0]">{{ c[1] }}</button>
+            </div>
+          </template>
 
           <!-- 繰り返す -->
           <template v-if="repeating">
@@ -351,6 +370,10 @@ onUnmounted(registerInnerLayerCloser(() => { if (kind.value && !props.startKind 
 .ta-seg button { border: 1px solid var(--border); background: var(--surface); border-radius: 9px; padding: 7px 11px; font: inherit; font-size: 12.5px; font-weight: 800; color: var(--text-muted); cursor: pointer; }
 .ta-seg button.on { background: #4f46e5; border-color: #4f46e5; color: #fff; }
 .ta-seg button:disabled { opacity: .5; }
+.ta-seg button.cat.on.task { background: #0e7490; border-color: #0e7490; }
+.ta-seg button.cat.on.prep { background: #7c3aed; border-color: #7c3aed; }
+.ta-seg button.cat.on.clean { background: #15803d; border-color: #15803d; }
+.ta-seg button.cat.on.order { background: #c2410c; border-color: #c2410c; }
 .ta-note { margin: 0; font-size: 12.5px; font-weight: 800; color: var(--primary, #0e7490); background: var(--primary-weak, #ecfeff); border-radius: 10px; padding: 8px 10px; line-height: 1.55; }
 .ta-note.pg { color: #b45309; background: #fffbeb; }
 .ta-sub { margin: 0; font-size: 12px; color: var(--text-muted); }

@@ -10,6 +10,8 @@
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { fmtDuration } from '../services/journalRecords.js'
+import DayBoard from './DayBoard.vue'
+import { STORAGE_KEYS } from '../utils/storageKeys.js'
 
 const props = defineProps({
   date: { type: String, required: true },
@@ -19,7 +21,12 @@ const props = defineProps({
   canAdd: { type: Boolean, default: false },
   closed: { type: Boolean, default: false },
 })
-const emit = defineEmits(['close', 'step', 'add', 'open', 'check', 'memo'])
+const emit = defineEmits(['close', 'step', 'add', 'open', 'check', 'memo', 'add-at', 'move', 'place'])
+// 見せ方: 予定ボード（予約台帳の形・既定・User決定 2026-11-05）か、今までのタイムライン（一覧）。端末ごとに覚える
+const _view0 = (() => { try { return localStorage.getItem(STORAGE_KEYS.journalView) === 'list' ? 'list' : 'board' } catch (_) { return 'board' } })()
+const view = ref(_view0)
+function setView(v) { view.value = v; try { localStorage.setItem(STORAGE_KEYS.journalView, v) } catch (_) {} }
+const zoom = ref('3h')   // ボードの縮尺 '3h' | 'day'
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 const d = computed(() => new Date(props.date + 'T00:00:00'))
 const isToday = computed(() => props.date === props.today)
@@ -94,7 +101,22 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
       <button type="button" class="dt-b sm" aria-label="次の日" @click="emit('step', 1)">›</button>
     </div>
 
-    <div class="dt-body">
+    <div class="dt-bar">
+      <div class="dt-view" role="radiogroup" aria-label="見せ方">
+        <button type="button" role="radio" :aria-checked="view === 'board'" :class="{ on: view === 'board' }" @click="setView('board')">ボード</button>
+        <button type="button" role="radio" :aria-checked="view === 'list'" :class="{ on: view === 'list' }" @click="setView('list')">一覧</button>
+      </div>
+      <div v-if="view === 'board'" class="dt-view" role="radiogroup" aria-label="縮尺">
+        <button type="button" role="radio" :aria-checked="zoom === '3h'" :class="{ on: zoom === '3h' }" @click="zoom = '3h'">3時間</button>
+        <button type="button" role="radio" :aria-checked="zoom === 'day'" :class="{ on: zoom === 'day' }" @click="zoom = 'day'">1日</button>
+      </div>
+    </div>
+    <DayBoard
+      v-if="view === 'board'" :date="date" :today="today" :timeline="timeline" :can-add="canAdd" :zoom="zoom"
+      @open="x => emit('open', x)" @check="x => emit('check', x)"
+      @add-at="p => emit('add-at', p)" @move="(t, p) => emit('move', t, p)" @place="(x, p) => emit('place', x, p)"
+    />
+    <div v-else class="dt-body">
       <div v-if="tl.allDay.length" class="dt-all">
         <span class="dt-lab">終日</span>
         <div v-for="x in tl.allDay" :key="x.key" :class="['dt-ad', x.state, x.ref.type]">
@@ -135,6 +157,10 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 </template>
 
 <style scoped>
+.dt-bar { flex: none; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 12px; }
+.dt-view { display: flex; border: 1.5px solid var(--border); border-radius: 9px; overflow: hidden; flex: none; }
+.dt-view button { border: none; background: var(--surface); color: var(--primary, #0e7490); font: inherit; font-size: 11px; font-weight: 900; padding: 5px 8px; cursor: pointer; }
+.dt-view button.on { background: var(--primary, #0e7490); color: #fff; }
 .dt { position: absolute; inset: 0; z-index: 8; display: flex; flex-direction: column; background: #f4f7f8; box-shadow: 0 10px 30px rgba(16,38,46,.18); overflow: hidden; animation: dtGrow .28s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes dtGrow { from { transform: scale(.14); opacity: .35; border-radius: 10px; } to { transform: scale(1); opacity: 1; border-radius: 0; } }
 @keyframes dtIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
