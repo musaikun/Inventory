@@ -15,8 +15,9 @@ const props = defineProps({
   cl:   { type: Object, required: true },
   date: { type: String, required: true },
   slot: { type: String, default: '' },
+  canCopy: { type: Boolean, default: false },   // 別の日にコピー・お気に入りに入れる（やることを作れる人・2026-11-05）
 })
-const emit = defineEmits(['close', 'history'])
+const emit = defineEmits(['close', 'history', 'copy', 'fav'])
 
 const run = computed(() => runOf(props.cl, props.date, props.slot))
 const items = computed(() => run.value?.items ?? props.cl.items ?? [])
@@ -98,6 +99,10 @@ onUnmounted(registerInnerLayerCloser(() => {
         <div class="cr-row">
           <button type="button" class="cr-mini" @click="emit('history', cl)">記録を見る</button>
           <button type="button" class="cr-mini grow" @click="emit('close')">{{ left ? 'あとで続ける' : '閉じる' }}</button>
+        </div>
+        <div v-if="canCopy" class="cr-row">
+          <button type="button" class="cr-mini" @click="emit('copy', cl)">📄 別の日にコピー</button>
+          <button type="button" class="cr-mini" @click="emit('fav', cl)">★ お気に入りに入れる</button>
         </div>
       </div>
     </div>

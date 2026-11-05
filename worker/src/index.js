@@ -25,6 +25,7 @@ import { handlePresenceBeat, handlePresenceGet } from './presenceHandler.js'
 import { OWNER_ID, ensureOwnerUnified, setOwnerName, setStoreName } from './ownerHandler.js'
 import { taskWriteCheck } from './taskWrite.js'
 import { handleChecklistsGet, handleChecklistUpsert, handleChecklistMark } from './checklistHandler.js'
+import { handleTemplatesGet, handleTemplateUpsert } from './templateHandler.js'
 import { handleHandoffsGet, handleHandoffAdd, handleHandoffRead, handleHandoffTask, handleHandoffDelete } from './handoffHandler.js'
 import { handleStaffActivity } from './activityHandler.js'
 import { configChangePerms } from './configGuard.js'
@@ -713,7 +714,8 @@ export default {
           return resultResponse(await handleTaskMark(env.DB, code, taskMark[1], who, !!body?.done, { admin: !!who.admin || !who.ctx }), origin, allowedOrigin)
         }
 
-        // ルーティン（チェック表。User決定 2026-10-19・2026-10-22・migration 0030）。読むのは店の誰でも、作る・直すのは管理者だけ、✓は誰でも（担当の人がいれば担当と管理者）
+        // ルーティン（チェック表。User決定 2026-10-19・2026-10-22・migration 0030）。読むのは店の誰でも、作るのは「やることを作る」を持つ人、
+        // 直す・消すのは作った人と管理者（2026-11-05）、✓は誰でも（担当の人がいれば担当と管理者）
         if (subpath === '/checklists' && request.method === 'GET') {
           const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
           if (deny) return deny
@@ -724,10 +726,27 @@ export default {
           if (deny) return deny
           const body = await request.json().catch(() => ({}))
           const who = await _actor(env.DB, request, code, { by: body?.createdBy, byId: body?.createdById })
-          if (who.ctx && !who.admin) {
-            return jsonResponse({ code: 'checklist_forbidden', error: 'ルーティンを作る・直すのは管理者だけです' }, 403, origin, allowedOrigin)
+          // 作るのは「やることを作る」を持つ人（スタッフも・User決定 2026-11-05）。人が作ったものを直す・消すのは作った人と管理者
+          if (who.ctx && !who.admin && !ctxCan(who.ctx, 'task.create')) {
+            return jsonResponse({ code: 'checklist_forbidden', error: 'チェック表・ルーティンを作る権限がありません' }, 403, origin, allowedOrigin)
           }
-          return resultResponse(await handleChecklistUpsert(env.DB, code, body, who), origin, allowedOrigin)
+          return resultResponse(await handleChecklistUpsert(env.DB, code, body, who, { admin: !!who.admin || !who.ctx }), origin, allowedOrigin)
+        }
+        // やることのお気に入り（ひな形・migration 0035・2026-11-05）。読むのは店の誰でも、足すのは「やることを作る」を持つ人、直す・外すのは作った人と管理者
+        if (subpath === '/templates' && request.method === 'GET') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          return resultResponse(await handleTemplatesGet(env.DB, code), origin, allowedOrigin)
+        }
+        if (subpath === '/templates' && request.method === 'POST') {
+          const deny = await _requireAuth(env.DB, request, code, origin, allowedOrigin)
+          if (deny) return deny
+          const body = await request.json().catch(() => ({}))
+          const who = await _actor(env.DB, request, code, { by: body?.createdBy, byId: body?.createdById })
+          if (who.ctx && !who.admin && !ctxCan(who.ctx, 'task.create')) {
+            return jsonResponse({ code: 'template_forbidden', error: 'お気に入りを足す権限がありません' }, 403, origin, allowedOrigin)
+          }
+          return resultResponse(await handleTemplateUpsert(env.DB, code, body, who, { admin: !!who.admin || !who.ctx }), origin, allowedOrigin)
         }
         const clMark = subpath.match(/^\/checklists\/([\w-]{1,64})\/runs\/(\d{4}-\d{2}-\d{2})\/mark$/)
         if (clMark && request.method === 'POST') {

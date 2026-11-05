@@ -96,6 +96,18 @@ describe('チェック表', () => {
     expect(got.runs.map(r => r.slot).sort()).toEqual(['10:00', '15:00'])
   })
 
+  it('スタッフも作れる。人が作ったものを直す・消すのは、作った人と管理者だけ（2026-11-05）', async () => {
+    const db = fakeDb()
+    const sato = { id: 'st1', name: '佐藤' }, yamada = { id: 'st2', name: '山田' }
+    const made = await handleChecklistUpsert(db, 'S1', { ...base, id: 'c9' }, sato, { admin: false })
+    expect(made.ok).toBe(true)
+    const later = new Date(Date.parse(base.updatedAt || '2026-10-20T00:00:00Z') + 60000).toISOString()
+    const r = await handleChecklistUpsert(db, 'S1', { ...base, id: 'c9', name: '直した', updatedAt: later }, yamada, { admin: false })
+    expect(r._status).toBe(403)
+    expect((await handleChecklistUpsert(db, 'S1', { ...base, id: 'c9', name: '直した', updatedAt: later }, sato, { admin: false })).ok).toBe(true)
+    expect((await handleChecklistUpsert(db, 'S1', { ...base, id: 'c9', name: '管理者が直した', updatedAt: new Date(Date.parse(later) + 60000).toISOString() }, yamada, { admin: true })).ok).toBe(true)
+  })
+
   it('作る・読む。名前や項目が無ければ断る', async () => {
     const db = fakeDb()
     expect((await handleChecklistUpsert(db, 'S1', { ...base, name: '' }))._status).toBe(400)

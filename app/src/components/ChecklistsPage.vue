@@ -7,11 +7,11 @@
  *   時刻（いくつでも＝1日に何回も。冷蔵庫の温度など）・誰が（誰でも／人）・確かめること（並べ替え・消す）
  *   直した表は、まだ✓を付けていない日から効く（今日すでに✓を付けた分は前の項目のまま）
  * - 記録: 日ごとに1行。未完了・手つかずは赤で残す（持ち越さない）。「今日はなし」は理由つき
- * - スタッフは一覧と記録を見るだけ
+ * - スタッフも作れる（やることを作れる人・2026-11-05）。直すのは作った人と管理者
  */
 import { ref, computed, onUnmounted } from 'vue'
 import {
-  checklists, checklistRuns, canEditChecklists, saveChecklist, setChecklistPaused, removeChecklist, newItemId, startFromSample,
+  checklists, checklistRuns, canEditChecklists, canEditChecklist, saveChecklist, setChecklistPaused, removeChecklist, newItemId, startFromSample,
   CHECKLIST_SAMPLES, CL_NAME_MAX, CL_ITEM_MAX, CL_ITEMS_MAX, CL_TIMES_MAX,
 } from '../composables/useChecklists.js'
 import { staffNames } from '../composables/useAuth.js'
@@ -25,7 +25,8 @@ const props = defineProps({
   editOf:    { type: Object, default: null },   // 開いたらすぐこの表を直す
   create:    { type: Boolean, default: false }, // 開いたらすぐ作る
 })
-const emit = defineEmits(['close', 'open-run'])
+// 作るのは日誌の「＋」と同じ追加の画面（入口を1つに・2026-11-05）。親が TaskAddSheet を開く
+const emit = defineEmits(['close', 'open-run', 'add'])
 
 const view = ref(props.historyOf ? 'history' : 'list')   // list | edit | history
 const direct = !!(props.historyOf || props.editOf || props.create)   // 外から1つの画面を開いた（戻るで閉じる）
@@ -164,7 +165,7 @@ const title = computed(() => (view.value === 'edit' ? (f.value?.id ? f.value.nam
         <div class="cp-grp">{{ g.label }}</div>
         <div v-for="cl in g.items" :key="cl.id" :class="['cp-card', { off: cl.paused }]">
           <div class="cp-card-h"><b>{{ cl.name }}</b>
-            <button v-if="canEditChecklists" type="button" class="cp-link" @click="openEdit(cl)">直す ›</button>
+            <button v-if="canEditChecklist(cl)" type="button" class="cp-link" @click="openEdit(cl)">直す ›</button>
           </div>
           <div class="cp-meta">
             <span :class="['cp-pill', { off: cl.paused }]">{{ cl.paused ? 'お休み中' : whenLabel(cl) }}</span>
@@ -178,7 +179,7 @@ const title = computed(() => (view.value === 'edit' ? (f.value?.id ? f.value.nam
         </template>
         <p v-if="!lists.length" class="cp-empty">まだルーティンはありません</p>
         <template v-if="canEditChecklists">
-          <button type="button" class="cp-add" @click="openNew()">＋ 自分で作る</button>
+          <button type="button" class="cp-add" @click="emit('add')">＋ 自分で作る</button>
           <div class="cp-samp">
             <div v-for="s in CHECKLIST_SAMPLES" :key="s.name" class="cp-samp-i">
               <span><b>{{ s.name }}</b><small>{{ s.summary }}</small></span>

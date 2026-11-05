@@ -21,7 +21,11 @@ import ChecklistsPage from './ChecklistsPage.vue'
 import ProgressSheet from './ProgressSheet.vue'
 import RoutineRecords from './RoutineRecords.vue'
 import ChecklistRunSheet from './ChecklistRunSheet.vue'
-import { pullChecklists, checklistsForDay, saveChecklist, canEditChecklists, markChecklistItem, canMarkChecklist, canUnmark } from '../composables/useChecklists.js'
+import TaskAddSheet from './TaskAddSheet.vue'
+import FavoritesSheet from './FavoritesSheet.vue'
+import CopyDatesSheet from './CopyDatesSheet.vue'
+import { addTemplate, canAddTemplate, pullTemplates } from '../composables/useTemplates.js'
+import { pullChecklists, checklistsForDay, saveChecklist, newItemId, markChecklistItem, canMarkChecklist, canUnmark } from '../composables/useChecklists.js'
 import { monthDaysLabel, isSimple, WHOLE } from '../services/checklistSchedule.js'
 import { tasksOn, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, TASK_TEXT_MAX, TASK_NOTE_MAX, dueProgress, toggleTask, canToggleTask, canEditTask, canNoteTask, setTaskNote } from '../composables/useTasks.js'
 import { can, staffNames, loadStaffNames, getSessions, isAdmin } from '../composables/useAuth.js'
@@ -60,7 +64,7 @@ function stepDay(n) {
 // ── 材料 ──
 const sessions = ref([])
 onMounted(async () => {
-  pullTasks(); pullChecklists(); loadStaffNames()
+  pullTasks(); pullChecklists(); pullTemplates(); loadStaffNames()
   try { sessions.value = await getSessions() } catch (_) { sessions.value = [] }
 })
 const { getSnapshotBySessionId } = useHistory()
@@ -160,66 +164,66 @@ onUnmounted(registerInnerLayerCloser(() => {
   return false
 }))
 
-// ── 追加（＋）──
+// ── 追加（＋）: ただ1つの入口（TaskAddSheet・まず種類を選ぶ・User決定 2026-11-05）──
 const canCreate = computed(() => can('task.create'))
-const adding = ref(false)
-const fText = ref(''), fDate = ref(today), fTime = ref(''), fWho = ref('all'), fSomeday = ref(false), fNote = ref(''), fNoteOpen = ref(false)
-// ⏳ 何日かかかる（進行中・User決定 2026-10-23）: 日付は決めず、任意の期限だけ。済むまで毎日出て、止まったらアプリが知らせる
-// （「次に見る日」はやめた・User決定 2026-10-28）
-const fProg = ref(false), fDeadline = ref('')
-// 担当は 全員／人 だけ（「誰でも」「未定」はやめた・User決定 2026-10-28）。既定は自分、選べなければ全員。
-// 担当の欄はスタッフがいるときだけ出る。いなければ従来どおり誰でも（1人の店）
-function _defaultWho() {
-  if (!people.value.some(p => !p.owner)) return 'anyone'
-  const me = people.value.find(p => isMeId(p.id))
-  return me ? `p:${me.id}` : 'all'
+const addSheet = ref(null)   // null | { startKind?, template? }
+function openAdd(progress = false) { if (canCreate.value) addSheet.value = { startKind: progress === true ? 'progress' : '' } }
+const favOpen = ref(null)
+const okMsg = ref('')
+let _okT = null
+function say(m) { okMsg.value = m; clearTimeout(_okT); _okT = setTimeout(() => { okMsg.value = '' }, 2600) }
+onUnmounted(() => clearTimeout(_okT))
+function onAdded({ name }) { say(`「${name}」を足しました`) }
+
+// ── 別の日にコピー・★ お気に入りに入れる（やること・チェック表）──
+const copyOf = ref(null)     // { kind: 'task'|'checklist', src, title, sub, source, who, slot? }
+const _whoOfTask = t => (t.assign === 'person' && t.assigneeId ? `p:${t.assigneeId}` : 'all')
+const _whoOfCl = cl => (cl.assign === 'person' && cl.assigneeId ? `p:${cl.assigneeId}` : 'all')
+const _personName = id => people.value.find(p => p.id === id)?.name || ''
+function copyTask(t) {
+  picked.value = null
+  copyOf.value = { kind: 'task', src: t, title: t.text, sub: [t.dueTime, t.assign === 'person' ? t.assigneeName : ''].filter(Boolean).join(' ・ '), source: t.date, who: _whoOfTask(t) }
 }
-function openAdd(progress = false) {
-  fProg.value = progress === true; fDeadline.value = ''
-  fNote.value = ''; fNoteOpen.value = false
-  fText.value = ''; fDate.value = !date.value || date.value < today ? today : date.value; fTime.value = ''; fWho.value = _defaultWho(); fSomeday.value = false
-  fRepeatOpen.value = false; fRepeat.value = 'none'; fWeekdays.value = []; fMonthDays.value = ['1']; fErr.value = ''; adding.value = true
+function copyChecklist(cl, d, slot) {
+  clRun.value = null
+  copyOf.value = { kind: 'checklist', src: cl, slot, title: `${cl.items?.length ? '📋' : '🔁'} ${cl.name}`, sub: [cl.items?.length ? `${cl.items.length}項目` : '', slot, cl.assign === 'person' ? cl.assigneeName : ''].filter(Boolean).join(' ・ '), source: d, who: _whoOfCl(cl) }
 }
-// 管理者は追加のたびに「みんなに見せる／管理者だけ」を選ぶ（User決定 2026-10-19）。
-// チェックの付け忘れで全員に見えたり、気にしすぎて見せたいのに隠したりしないように、追加のボタンを2つにする
-// 🔁 繰り返す（管理者・User決定 2026-10-22）: 選ぶとルーティンになる。ふだんはボタン1つにたたんで、1回きりの追加を邪魔しない
-const fRepeatOpen = ref(false), fRepeat = ref('none'), fWeekdays = ref([]), fMonthDays = ref(['1']), fDayDraft = ref('1'), fErr = ref(''), fBusy = ref(false)
-const repeating = computed(() => fRepeat.value !== 'none')
-const _mdSort = a => [...new Set(a)].sort((x, y) => (x === 'L' ? 99 : Number(x)) - (y === 'L' ? 99 : Number(y)))
-function toggleWeekday(d) { fWeekdays.value = fWeekdays.value.includes(d) ? fWeekdays.value.filter(x => x !== d) : [...fWeekdays.value, d].sort() }
-function addMonthDay() { fMonthDays.value = _mdSort([...fMonthDays.value, fDayDraft.value]) }
-function toggleMonthEnd() { fMonthDays.value = fMonthDays.value.includes('L') ? fMonthDays.value.filter(x => x !== 'L') : _mdSort([...fMonthDays.value, 'L']) }
-const repeatNote = computed(() => {
-  const w = fRepeat.value === 'daily' ? '毎日' : fRepeat.value === 'weekly' ? (fWeekdays.value.length ? `毎週 ${fWeekdays.value.map(d => WEEK[d]).join('・')}` : '') : (fMonthDays.value.length ? `毎月${monthDaysLabel(fMonthDays.value.join(','))}` : '')
-  return w ? `🔁 ${w}のルーティンになります。中の項目（チェック表）はあとから足せます` : '🔁 曜日・日を選んでください'
-})
-const canAddRepeat = computed(() => fText.value.trim() && (fRepeat.value === 'daily' || (fRepeat.value === 'weekly' && fWeekdays.value.length) || (fRepeat.value === 'monthly' && fMonthDays.value.length)))
-async function submitRoutine() {
-  if (!canAddRepeat.value || fBusy.value) return
-  const v = fWho.value
-  const pid = v.startsWith('p:') ? v.slice(2) : null
-  fBusy.value = true; fErr.value = ''
+async function doCopy({ dates, who }) {
+  const c = copyOf.value
+  copyOf.value = null
+  if (!c) return
+  const pid = who.startsWith('p:') ? who.slice(2) : null
   try {
-    await saveChecklist({
-      name: fText.value, items: [], repeat: fRepeat.value,
-      repeatDays: fRepeat.value === 'weekly' ? fWeekdays.value.join(',') : fRepeat.value === 'monthly' ? fMonthDays.value.join(',') : null,
-      dueTimes: fTime.value ? [fTime.value] : [],
-      assign: pid ? 'person' : 'anyone', assigneeId: pid, assigneeName: pid ? (people.value.find(p => p.id === pid)?.name || '') : null,
-    })
-    adding.value = false
-  } catch (e) { fErr.value = e?.message || '保存できませんでした' } finally { fBusy.value = false }
+    if (c.kind === 'task') {
+      const t = c.src
+      const assign = pid ? { mode: 'person', id: pid, name: _personName(pid) || t.assigneeName || '' } : { mode: people.value.some(p => !p.owner) ? 'all' : 'anyone' }
+      for (const d of dates) addTask(d, t.text, assign, t.dueTime || null, { visibility: t.visibility || null, note: t.note || '' })
+    } else {
+      const cl = c.src
+      for (const d of dates) {
+        await saveChecklist({
+          name: cl.name, items: (cl.items ?? []).map(x => ({ id: newItemId(), text: x.text })), repeat: 'none', repeatDays: null, startDate: d,
+          dueTimes: c.slot ? [c.slot] : (cl.repeat === 'none' ? (cl.dueTimes ?? []) : []),
+          assign: pid ? 'person' : 'anyone', assigneeId: pid, assigneeName: pid ? (_personName(pid) || cl.assigneeName || '') : null,
+        })
+      }
+    }
+    say(`${dates.length}日にコピーしました`)
+  } catch (e) { err.value = e?.message || 'コピーできませんでした' }
 }
-const canSubmit = computed(() => !!fText.value.trim() && (fProg.value || fSomeday.value || !!fDate.value))
-function submitAdd(adminsOnly = false) {
-  const v = fWho.value
-  const assign = v.startsWith('p:') ? { mode: 'person', id: v.slice(2), name: people.value.find(p => p.id === v.slice(2))?.name || '' } : { mode: v }
-  const visibility = adminsOnly ? 'admins' : null
-  const ok = fProg.value
-    ? addTask(today, fText.value, assign, null, { visibility, progress: 'doing', deadline: fDeadline.value || null, note: fNote.value })
-    : addTask(fSomeday.value ? '' : fDate.value, fText.value, assign, fSomeday.value ? null : (fTime.value || null), { visibility, note: fNote.value })
-  if (ok) adding.value = false
+async function favTask(t) {
+  const kind = t.progress ? 'progress' : t.date === '' ? 'someday' : 'task'
+  const assign = t.assign === 'person' ? { mode: 'person', id: t.assigneeId, name: t.assigneeName || '' } : { mode: 'all' }
+  try { await addTemplate(kind, t.text, { dueTime: t.dueTime || undefined, note: t.note || undefined, assign }); say(`「${t.text}」をお気に入りに入れました`) }
+  catch (e) { err.value = e?.message || 'お気に入りに入れられませんでした' }
 }
-onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; adding.value = false; return true }))
+async function favChecklist(cl) {
+  const assign = cl.assign === 'person' ? { mode: 'person', id: cl.assigneeId, name: cl.assigneeName || '' } : { mode: 'all' }
+  try {
+    await addTemplate(cl.items?.length ? 'checklist' : 'routine', cl.name, { items: cl.items ?? [], repeat: cl.repeat, repeatDays: cl.repeatDays ?? null, dueTimes: cl.dueTimes ?? [], assign })
+    say(`「${cl.name}」をお気に入りに入れました`)
+  } catch (e) { err.value = e?.message || 'お気に入りに入れられませんでした' }
+}
 </script>
 
 <template>
@@ -239,6 +243,10 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
             <div class="jp-row end"><button type="button" class="jp-mini" @click="picked = null">閉じる</button><button type="button" class="jp-save" @click="savePickedNote">保存</button></div>
           </template>
           <button v-else type="button" class="jp-mini" @click="picked = null">閉じる</button>
+          <div v-if="canCreate && !picked.kind" class="jp-more">
+            <button v-if="picked.date && !picked.progress" type="button" @click="copyTask(picked)">📄 別の日にコピー</button>
+            <button v-if="canAddTemplate" type="button" @click="favTask(picked); picked = null">★ お気に入りに入れる</button>
+          </div>
         </div>
       </div>
       <div v-if="memoOpen" class="jp-sheet-bg" @click.self="memoOpen = false">
@@ -250,69 +258,24 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
         </form>
       </div>
     </Teleport>
-    <ChecklistsPage v-if="clPage" :key="clPage.historyOf?.id || (clPage.create ? 'new' : 'list')" :history-of="clPage.historyOf" :create="!!clPage.create" @close="clPage = null" @open-run="x => clRun = x" />
+    <ChecklistsPage v-if="clPage" :key="clPage.historyOf?.id || (clPage.create ? 'new' : 'list')" :history-of="clPage.historyOf" :create="!!clPage.create" @close="clPage = null" @open-run="x => clRun = x" @add="clPage = null; addSheet = { startKind: '' }" />
     <ProgressSheet v-if="progOpen" :task="progOpen" @close="progOpen = null" />
     <RoutineRecords v-if="recOpen" :focus="recOpen.focus" @close="recOpen = null" @open-run="x => clRun = x" />
-    <ChecklistRunSheet v-if="clRun" :cl="clRun.cl" :date="clRun.date" :slot="clRun.slot || ''" @close="clRun = null" @history="openClHistory" />
+    <ChecklistRunSheet
+      v-if="clRun" :cl="clRun.cl" :date="clRun.date" :slot="clRun.slot || ''" :can-copy="canCreate"
+      @close="clRun = null" @history="openClHistory" @copy="copyChecklist(clRun.cl, clRun.date, clRun.slot || '')" @fav="favChecklist(clRun.cl)"
+    />
+    <TaskAddSheet
+      v-if="addSheet" :date="date || today" :start-kind="addSheet.startKind || ''" :template="addSheet.template || null"
+      @close="addSheet = null" @added="onAdded" @favorites="addSheet = null; favOpen = true"
+    />
+    <FavoritesSheet v-if="favOpen" @close="favOpen = null" @use="t => { favOpen = null; addSheet = { template: t } }" />
+    <CopyDatesSheet
+      v-if="copyOf" :title="copyOf.title" :sub="copyOf.sub" :source="copyOf.source" :who="copyOf.who"
+      @close="copyOf = null" @copy="doCopy"
+    />
     <Teleport to="body">
-      <div v-if="adding" class="jp-sheet-bg" @click.self="adding = false">
-        <form class="jp-sheet" role="dialog" aria-label="やることを追加" @submit.prevent="!isAdmin && submitAdd(false)">
-          <b class="jp-sheet-t">やることを追加</b>
-          <input v-model="fText" type="text" :maxlength="TASK_TEXT_MAX" placeholder="例：製氷機のフィルター交換" aria-label="やること" class="jp-in" />
-          <textarea v-if="fNoteOpen && !repeating" v-model="fNote" rows="2" :maxlength="TASK_NOTE_MAX" aria-label="備考" placeholder="備考（細かいこと・手順・連絡先など）" class="jp-in jp-memo"></textarea>
-          <button v-else-if="!repeating" type="button" class="jp-rep-open" @click="fNoteOpen = true">＋ 備考</button>
-          <div v-if="!repeating" class="jp-seg jp-kind" role="group" aria-label="やることの種類">
-            <button type="button" :class="{ on: !fProg }" :aria-pressed="!fProg" @click="fProg = false">今日・日付を決める</button>
-            <button type="button" :class="{ on: fProg }" :aria-pressed="fProg" @click="fProg = true">⏳ 何日かかかる（進行中）</button>
-          </div>
-          <div v-if="fProg" class="jp-prog">
-            <label>期限（任意）<input v-model="fDeadline" type="date" class="jp-in" /></label>
-            <p class="jp-rep-note">⏳ 済むまで毎日「進行中」に出ます。止まったらアプリが知らせます（期限切れにはなりません）</p>
-          </div>
-          <div v-if="!fProg && (!fSomeday || repeating)" class="jp-row">
-            <label v-if="!repeating">日付<input v-model="fDate" type="date" class="jp-in" /></label>
-            <label>時刻<input v-model="fTime" type="time" class="jp-in" /></label>
-          </div>
-          <label v-if="!repeating && !fProg" class="jp-chk"><input v-model="fSomeday" type="checkbox" /> いつか（日付を決めない）</label>
-          <button v-if="canEditChecklists && !fRepeatOpen && !fProg" type="button" class="jp-rep-open" @click="fRepeatOpen = true">🔁 繰り返す</button>
-          <div v-if="fRepeatOpen" class="jp-rep">
-            <div class="jp-seg">
-              <button v-for="r in [['none', 'しない'], ['daily', '毎日'], ['weekly', '曜日'], ['monthly', '毎月']]" :key="r[0]" type="button"
-                :class="{ on: fRepeat === r[0] }" :aria-pressed="fRepeat === r[0]" @click="fRepeat = r[0]">{{ r[1] }}</button>
-            </div>
-            <div v-if="fRepeat === 'weekly'" class="jp-seg">
-              <button v-for="(w, d) in WEEK" :key="d" type="button" :class="{ on: fWeekdays.includes(d) }" :aria-pressed="fWeekdays.includes(d)" @click="toggleWeekday(d)">{{ w }}</button>
-            </div>
-            <div v-if="fRepeat === 'monthly'" class="jp-seg">
-              <button v-for="d in fMonthDays" :key="d" type="button" class="on" @click="fMonthDays = fMonthDays.filter(x => x !== d)">{{ d === 'L' ? '月末' : `${d}日` }} ✕</button>
-              <select v-model="fDayDraft" class="jp-in jp-sm" aria-label="足す日"><option v-for="n in 31" :key="n" :value="String(n)">{{ n }}日</option></select>
-              <button type="button" @click="addMonthDay">＋ 日</button>
-              <button type="button" :class="{ on: fMonthDays.includes('L') }" @click="toggleMonthEnd">月末</button>
-            </div>
-            <p v-if="repeating" class="jp-rep-note">{{ repeatNote }}</p>
-          </div>
-          <label v-if="people.some(p => !p.owner)">担当
-            <select v-model="fWho" class="jp-in">
-              <option value="all">全員</option>
-              <option v-for="p in people" :key="p.id" :value="`p:${p.id}`">{{ p.name }}{{ isMeId(p.id) ? '（自分）' : '' }}</option>
-            </select>
-          </label>
-          <p v-if="fErr" class="jp-err" role="alert">{{ fErr }}</p>
-          <div v-if="repeating" class="jp-row end">
-            <button type="button" class="jp-mini" @click="adding = false">やめる</button>
-            <button type="button" class="jp-save" :disabled="!canAddRepeat || fBusy" @click="submitRoutine">🔁 ルーティンとして追加</button>
-          </div>
-          <div v-else class="jp-row end">
-            <button type="button" class="jp-mini" @click="adding = false">やめる</button>
-            <button v-if="!isAdmin" type="submit" class="jp-save" :disabled="!canSubmit">{{ fProg ? '進行中として追加' : '追加' }}</button>
-          </div>
-          <!-- 管理者: 誰に見せるかを追加のたびに選ぶ（管理者だけ＝面談・給与・クレームなど。ほかのスタッフの端末には届かない） -->
-          <div v-if="isAdmin && !repeating" class="jp-add2">
-            <button type="button" class="jp-save" :disabled="!canSubmit" @click="submitAdd(false)">みんなに見せて追加</button>
-            <button type="button" class="jp-save admins" :disabled="!canSubmit" @click="submitAdd(true)">🔒 管理者だけで追加</button>
-          </div>
-        </form>
-      </div>
+      <Transition name="toast"><div v-if="okMsg" class="toast" data-type="success" role="status">{{ okMsg }}</div></Transition>
     </Teleport>
   </div>
 </template>
@@ -386,6 +349,8 @@ onUnmounted(registerInnerLayerCloser(() => { if (!adding.value) return false; ad
 .jp-sheet-t { font-size: 16px; }
 .jp-sheet label { display: grid; gap: 3px; font-size: 11.5px; font-weight: 800; color: var(--text-muted); }
 .jp-in { width: 100%; min-height: 42px; border: 1px solid var(--border); border-radius: 10px; padding: 0 10px; font: inherit; font-size: 15px; background: var(--surface); color: var(--text); box-sizing: border-box; }
+.jp-more { display: flex; flex-wrap: wrap; gap: 6px; border-top: 1px solid var(--border); padding-top: 10px; }
+.jp-more button { min-height: 40px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; font-weight: 800; padding: 0 12px; cursor: pointer; }
 .jp-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .jp-row.end { display: flex; justify-content: flex-end; }
 .jp-mini { min-height: 42px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font-weight: 700; padding: 0 14px; cursor: pointer; }

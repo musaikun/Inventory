@@ -1,7 +1,8 @@
 // ルーティン（毎日・毎週・毎月の決まった仕事。中の項目は任意＋1日に何回も・User決定 2026-10-19 / 2026-10-22・モック docs/mocks/journal-routine.html）。
 // 以前の名前は「毎日のチェック」（コードの名前は checklist のまま）。
 //
-// - 表は店ごと（サーバーが正）。作る・直す・お休み・消すのは管理者だけで、その場で送る（届かなければ戻して知らせる）
+// - 表は店ごと（サーバーが正）。作るのは「やることを作る」を持つ人（スタッフも・2026-11-05）、直す・お休み・消すのは作った人と管理者。
+//   その場で送る（届かなければ戻して知らせる）
 // - ✓・「今日はなし」は誰でも（担当の人がいれば担当と管理者）。まず画面に出し、サーバーの結果（記録の1日分）で揃える
 // - 外せるのは付けた人がその日のうち（管理者はいつでも）。サーバーも同じ規則で確かめる
 // - 端末には写し（localStorage）を置いて、開いたときすぐ出す
@@ -9,7 +10,7 @@ import { reactive, computed } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { localDateKey } from '../utils/localDate.js'
 import { deviceName, actorId, isMeId } from './useDeviceId.js'
-import { isAdmin } from './useAuth.js'
+import { isAdmin, can } from './useAuth.js'
 import { loadChecklistsFromD1, saveChecklistToD1, markChecklistInD1 } from './useStore.js'
 import { runKey, checklistsOn, dayRun, dayChecklist } from '../services/checklistSchedule.js'
 
@@ -59,16 +60,17 @@ export async function pullChecklists() {
   return true
 }
 
-// ── 表を作る・直す（管理者だけ）──
-export const canEditChecklists = computed(() => isAdmin.value)
+// ── 表を作る（やることを作れる人）・直す（作った人と管理者）──
+export const canEditChecklists = computed(() => can('task.create'))
+export function canEditChecklist(cl) { return !!cl && (isAdmin.value || isMeId(cl.createdById)) }
 
 /**
  * 保存。繰り返し（種類・曜日・日）を変えたら、予定を数え始める日を今日にする（過去の「手つかず」を作り直さない）
  * @returns {Promise<object>} 保存した表。届かなければ投げる（画面で知らせる）
  */
 export async function saveChecklist(fields) {
-  if (!isAdmin.value) throw new Error('ルーティンを作る・直すのは管理者だけです')
   const prev = fields.id ? _data.lists.find(x => x.id === fields.id) : null
+  if (prev ? !canEditChecklist(prev) : !canEditChecklists.value) throw new Error(prev ? 'このチェック表を直すのは、作った人と管理者だけです' : 'チェック表・ルーティンを作る権限がありません')
   const today = localDateKey()
   const schedChanged = !prev || prev.repeat !== fields.repeat || (prev.repeatDays ?? null) !== (fields.repeatDays ?? null)
     || (fields.repeat === 'none' && prev.startDate !== fields.startDate)
@@ -104,12 +106,12 @@ async function _send(cl, prev) {
 }
 export function setChecklistPaused(id, paused) {
   const prev = _data.lists.find(x => x.id === id)
-  if (!prev || !isAdmin.value) return Promise.reject(new Error('ルーティンを直すのは管理者だけです'))
+  if (!prev || !canEditChecklist(prev)) return Promise.reject(new Error('このルーティンを直すのは、作った人と管理者だけです'))
   return _send({ ...prev, paused: !!paused, updatedAt: _now() }, prev)
 }
 export function removeChecklist(id) {
   const prev = _data.lists.find(x => x.id === id)
-  if (!prev || !isAdmin.value) return Promise.reject(new Error('ルーティンを消すのは管理者だけです'))
+  if (!prev || !canEditChecklist(prev)) return Promise.reject(new Error('このルーティンを消すのは、作った人と管理者だけです'))
   return _send({ ...prev, deletedAt: _now(), updatedAt: _now() }, prev)
 }
 
