@@ -30,6 +30,7 @@
   .fav i { font-style:normal; font-size:10px; color:var(--star); }
   .fav.cl { border-color:#c4b5fd; background:var(--clw); color:#4c1d95; } .fav.rt { border-color:#99f6e4; background:var(--rtw); color:#134e4a; }
   .pick { display:grid; gap:7px; }
+  .sub2 { font-size:11.5px; color:var(--muted); line-height:1.6; } .sub2 b { color:var(--cl); }
   .pk { display:flex; gap:10px; align-items:center; border:1.5px solid var(--line2); border-radius:14px; padding:7px 10px; }
   .pk em { font-style:normal; font-size:22px; width:32px; text-align:center; flex:none; }
   .pk b { font-size:14px; display:block; } .pk small { font-size:11px; color:var(--muted); font-weight:700; line-height:1.45; }
@@ -99,8 +100,8 @@
         <div class="sh-h">何を足す？<i>やめる</i></div>
         <div class="pick">
           <div class="pk"><em>📅</em><span><b>やること</b><small>日付と時刻を決めて1回（揚げ油の交換）</small></span></div>
-          <div class="pk"><em>📋</em><span><b>チェック表</b><small>項目に✓を付けていく（開店準備・閉店チェック）</small></span></div>
-          <div class="pk"><em>🔁</em><span><b>ルーティン</b><small>毎日・曜日・毎月に決まってやる（冷蔵庫の温度）</small></span></div>
+          <div class="pk"><em>📋</em><span><b>チェック表</b><small>項目に✓を付けていく。1回でも毎日でも（閉店チェック）</small></span></div>
+          <div class="pk"><em>🔁</em><span><b>ルーティン</b><small>決まった日に押せば済む1件（冷蔵庫の温度）</small></span></div>
           <div class="pk"><em>⏳</em><span><b>進行中</b><small>何日かかかる。済むまで毎日出る（修理の手配）</small></span></div>
           <div class="pk"><em>📥</em><span><b>いつか</b><small>日付を決めずにしまっておく（棚の整理）</small></span></div>
         </div>
@@ -123,7 +124,7 @@
     </div>
 
     <div class="col">
-      <div class="cap">1-3 📋 チェック表<small>項目が主役。いつは「1回（日付）」か「繰り返す」。繰り返すを選ぶと曜日などが出る（ルーティンのチェック表）</small></div>
+      <div class="cap">1-3 📋 チェック表<small>項目のあるものは全部ここ。いつは「1回（日付）」か「繰り返す」（閉店チェックなど毎日のものも）。繰り返すを選ぶと、日付の代わりに毎日・曜日・毎月が出る</small></div>
       <div class="phone"><div class="dim"></div><div class="sheet">
         <div class="sh-h"><span>‹ 📋 チェック表</span><i>やめる</i></div>
         <div class="in">ケータリングの準備</div>
@@ -138,7 +139,7 @@
     </div>
 
     <div class="col">
-      <div class="cap">1-4 🔁 ルーティン<small>いつ（毎日・曜日・毎月・月末）と時刻（いくつでも）。項目は任意（入れればチェック表になる）。決めた内容を一文で言い直す</small></div>
+      <div class="cap">1-4 🔁 ルーティン<small>項目なし（押せば済む1件）。いつ（毎日・曜日・毎月・月末）と時刻（いくつでも）。項目を付けたいものは 📋 チェック表 →「繰り返す」で作る</small></div>
       <div class="phone"><div class="dim"></div><div class="sheet">
         <div class="sh-h"><span>‹ 🔁 ルーティン</span><i>やめる</i></div>
         <div class="in">冷蔵庫の温度</div>
@@ -146,8 +147,8 @@
         <div class="lbl">時刻（1日に何回でも）</div>
         <div class="rep"><span class="on">10:00 ✕</span><span class="on">15:00 ✕</span><span class="on">20:00 ✕</span><span>＋</span></div>
         <div class="field"><small>担当</small>全員</div>
-        <div class="tog"><span>📋 項目を付ける<small>任意（なし＝押せば済む）</small></span><span class="sw"></span></div>
         <div class="sent">🔁 毎日 10:00・15:00・20:00 に、全員の「冷蔵庫の温度」</div>
+        <p class="sub2">項目に✓を付けたいときは <b>📋 チェック表</b> で作ります</p>
         <div class="foot"><div class="btn">追加</div></div>
       </div></div>
     </div>
