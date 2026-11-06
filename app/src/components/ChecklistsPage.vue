@@ -160,7 +160,7 @@ const title = computed(() => (view.value === 'edit' ? (f.value?.id ? f.value.nam
 
       <!-- ① 一覧 -->
       <div v-if="view === 'list'" class="cp-body">
-        <p class="cp-lead">毎日・毎週・毎月の決まった仕事です。日誌の一番上に今日の分が出て、誰がいつ済ませたか残ります。</p>
+        <p class="cp-lead">毎日・毎週・毎月の決まった仕事です。業務管理の一番上に今日の分が出て、誰がいつ済ませたか残ります。</p>
         <template v-for="g in groups" :key="g.k">
         <div class="cp-grp">{{ g.label }}</div>
         <div v-for="cl in g.items" :key="cl.id" :class="['cp-card', { off: cl.paused }]">
