@@ -1,0 +1,195 @@
+<title>業務タブの全体像</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* 日誌 → 「業務」。中は 今日／困りごと／振り返り。ボードは廃止、ホームの「今日のやること」は件数の札に。アプリの明るい見た目の1テーマ */
+  :root {
+    color-scheme: light;
+    --page:#d3dfe3; --paper:#ffffff; --ink:#12303a; --muted:#4c6a72; --faint:#94a3b8; --line:#e2ecef; --line2:#cfdde2; --bg:#f4f7f8;
+    --pri:#0e7490; --priw:#ecfeff; --late:#dc2626; --latew:#fef2f2; --warn:#b45309; --warnw:#fffbeb; --ok:#15803d; --okw:#f0fdf4; --cl:#7c3aed; --clw:#f5f3ff;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:var(--page); color:var(--ink);
+    padding-block:20px 32px; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px));
+    display:flex; gap:28px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
+  .side { max-width:340px; display:grid; gap:10px; font-size:13px; line-height:1.7; color:var(--muted); }
+  .side h1 { font-size:19px; color:var(--ink); text-wrap:balance; } .side b { color:var(--ink); }
+  .side ul { display:grid; gap:3px; } .side li { margin-left:18px; }
+  .side .no { background:var(--paper); border-radius:12px; padding:10px 12px; font-size:12px; }
+  .phone { width:375px; max-width:100%; height:760px; background:var(--bg); border-radius:30px; overflow:hidden; display:flex; flex-direction:column;
+    box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; position:relative; }
+  svg.i { width:1.15em; height:1.15em; vertical-align:-0.2em; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+  .scr { flex:1; overflow-y:auto; overflow-x:hidden; display:flex; flex-direction:column; }
+  .scr[hidden] { display:none; }
+  /* ホーム */
+  .hero { background:linear-gradient(150deg,#0e7490,#155e75); color:#fff; padding:18px 16px 16px; display:grid; gap:4px; }
+  .hero small { opacity:.8; font-weight:700; font-size:12px; } .hero b { font-size:20px; }
+  .wrap { padding:12px; display:grid; gap:10px; grid-template-columns:minmax(0,1fr); }
+  .gy { background:var(--paper); border:1.5px solid var(--line); border-radius:16px; padding:12px; display:grid; gap:9px; text-align:left; font:inherit; color:var(--ink); cursor:pointer; width:100%; }
+  .gy-h { display:flex; align-items:center; gap:6px; font-weight:900; font-size:14.5px; } .gy-h i { margin-left:auto; font-style:normal; font-size:12px; color:var(--pri); }
+  .tags { display:grid; grid-template-columns:repeat(4,1fr); gap:5px; }
+  .tg { border-radius:11px; padding:7px 2px; display:grid; gap:1px; text-align:center; background:var(--bg); }
+  .tg b { font-size:18px; font-variant-numeric:tabular-nums; } .tg small { font-size:10px; font-weight:800; color:var(--muted); }
+  .tg.late { background:var(--latew); } .tg.late b, .tg.late small { color:var(--late); }
+  .tg.stuck { background:var(--warnw); } .tg.stuck b, .tg.stuck small { color:var(--warn); }
+  .tg.mine { background:var(--priw); } .tg.mine b, .tg.mine small { color:var(--pri); }
+  .gy-n { font-size:12px; color:var(--muted); font-weight:700; }
+  .sec { font-size:11.5px; font-weight:900; color:var(--muted); padding:2px 2px 0; }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .sc { background:var(--paper); border-radius:14px; padding:12px 4px; display:grid; gap:5px; justify-items:center; font-size:11.5px; font-weight:800; color:var(--ink); }
+  .sc svg { width:24px; height:24px; color:var(--pri); }
+  .gone { border:1.5px dashed var(--line2); border-radius:14px; padding:9px 12px; font-size:11.5px; color:var(--faint); font-weight:700; }
+  /* 業務 */
+  .hd { background:var(--paper); padding:12px 14px 0; display:grid; gap:8px; border-bottom:1px solid var(--line); }
+  .hd-t { display:flex; align-items:center; gap:8px; } .hd-t b { font-size:17px; } .hd-t small { color:var(--muted); font-weight:700; font-size:12px; }
+  .seg { display:flex; }
+  .seg button { flex:1; border:none; background:none; font:inherit; font-size:13px; font-weight:900; color:var(--muted); padding:9px 0; cursor:pointer; border-bottom:2.5px solid transparent; }
+  .seg button.on { color:var(--pri); border-bottom-color:var(--pri); }
+  .seg i { font-style:normal; font-size:10.5px; margin-left:3px; color:var(--late); }
+  .body { padding:10px 12px 20px; display:grid; gap:8px; grid-template-columns:minmax(0,1fr); align-content:start; }
+  .card { background:var(--paper); border:1.5px solid var(--line); border-left-width:5px; border-radius:12px; padding:9px 11px; display:grid; grid-template-columns:44px 1fr auto; gap:8px; align-items:center; font-size:13px; }
+  .card.late { border-color:#fca5a5; border-left-color:var(--late); } .card.done { opacity:.55; } .card.done b { text-decoration:line-through; }
+  .card.cl { border-left-color:var(--cl); } .card.tk { border-left-color:var(--pri); } .card.is { border-left-color:var(--warn); }
+  .card time { font-weight:900; font-variant-numeric:tabular-nums; font-size:12.5px; color:var(--muted); }
+  .card b { font-size:13.5px; } .card small { display:block; font-size:11px; color:var(--muted); font-weight:700; }
+  .who { font-size:11px; font-weight:800; color:var(--muted); white-space:nowrap; }
+  .flag { font-size:10px; font-weight:900; border-radius:6px; padding:1px 6px; background:var(--late); color:#fff; margin-left:4px; } .flag.w { background:var(--warn); }
+  .now { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:900; color:var(--late); } .now::after { content:''; flex:1; height:2px; background:var(--late); }
+  .add { border:1.5px dashed var(--pri); background:var(--priw); color:var(--pri); border-radius:12px; padding:10px; font:inherit; font-weight:900; font-size:13px; cursor:pointer; display:flex; gap:6px; justify-content:center; align-items:center; }
+  .cal { background:var(--paper); border-radius:14px; padding:10px; display:grid; gap:6px; }
+  .cal-h { display:flex; justify-content:space-between; font-weight:900; font-size:14px; }
+  .cal-g { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; text-align:center; font-size:11.5px; }
+  .cal-g span { padding:5px 0; border-radius:8px; font-weight:800; } .cal-g .w { color:var(--faint); font-size:10px; }
+  .cal-g .d { cursor:pointer; position:relative; } .cal-g .d.has::after { content:''; position:absolute; left:50%; bottom:2px; width:4px; height:4px; margin-left:-2px; border-radius:50%; background:var(--pri); }
+  .cal-g .d.sel { background:var(--pri); color:#fff; } .cal-g .d.fut { color:var(--faint); }
+  .rv { background:var(--paper); border-radius:14px; padding:11px 12px; display:grid; gap:6px; font-size:12.5px; }
+  .rv h3 { font-size:14px; } .rv .r { display:flex; justify-content:space-between; gap:8px; } .rv .r span:last-child { font-weight:900; }
+  .rv .bar { height:7px; border-radius:4px; background:var(--line); overflow:hidden; } .rv .bar i { display:block; height:100%; background:var(--ok); }
+  .rv p { color:var(--muted); font-size:12px; }
+  /* 下のメニュー */
+  .nav { display:flex; background:var(--paper); border-top:1px solid var(--line); padding:6px 0 10px; }
+  .nav button { flex:1; border:none; background:none; font:inherit; font-size:10.5px; font-weight:800; color:var(--faint); display:grid; justify-items:center; gap:2px; cursor:pointer; position:relative; }
+  .nav button svg { width:22px; height:22px; } .nav button.on { color:var(--pri); }
+  .nav .bd { position:absolute; top:-2px; left:calc(50% + 6px); background:var(--late); color:#fff; font-size:9.5px; border-radius:999px; padding:0 5px; font-weight:900; }
+  .nav .new { position:absolute; top:-8px; left:50%; transform:translateX(-50%); font-size:8.5px; background:var(--warn); color:#fff; border-radius:4px; padding:0 3px; }
+  button:focus-visible { outline:3px solid #a5f3fc; outline-offset:1px; }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></symbol>
+  <symbol id="i-gy" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></symbol>
+  <symbol id="i-set" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></symbol>
+  <symbol id="i-cart" viewBox="0 0 24 24"><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.7 12.4a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L21 7H6"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+</svg>
+
+<div class="side">
+  <h1>「日誌」を「業務」に</h1>
+  <div>画面は触れます（下のメニューで ホーム ⇄ 業務）。見本の店で、保存はしません。</div>
+  <ul>
+    <li><b>業務</b>の中は3つ：<b>今日</b>（やること・チェック表を時間順）／<b>困りごと</b>（前のモック）／<b>振り返り</b>（カレンダーはここへ）</li>
+    <li>開くと必ず<b>今日</b>。先の日に入れるときは、足すときに日付を選ぶ</li>
+    <li>ホームの「今日のやること」の一覧はやめ、<b>件数の札</b>だけ（遅れ・期限切れ・止まっている・自分の）。押すと業務へ</li>
+    <li><b>ボードは廃止</b>（ホームからも消える）</li>
+  </ul>
+  <div class="no">今ある部品（予定ボード・一覧・カレンダー・チェック表）はそのまま使い、入口と並びだけ変えます。<br>既存の貼り紙は消さずに読み取りだけ残すか、移行時に困りごと「その他」へ移すかは要相談。</div>
+</div>
+
+<div class="phone">
+  <div class="scr" id="s-home">
+    <div class="hero"><small>11月6日（金）・晴れ 18℃</small><b>おはようございます、高木さん</b></div>
+    <div class="wrap">
+      <button class="gy" data-go="today">
+        <span class="gy-h"><svg class="i"><use href="#i-gy"/></svg>業務<i>開く ›</i></span>
+        <span class="tags">
+          <span class="tg late"><b>1</b><small>遅れ</small></span>
+          <span class="tg late"><b>1</b><small>期限切れ</small></span>
+          <span class="tg stuck"><b>1</b><small>止まっている</small></span>
+          <span class="tg mine"><b>3</b><small>自分の</small></span>
+        </span>
+        <span class="gy-n">次：15:00 揚げ油の交換（佐藤）</span>
+      </button>
+      <div class="sec">ショートカット</div>
+      <div class="grid">
+        <span class="sc"><svg class="i"><use href="#i-mic"/></svg>棚卸</span>
+        <span class="sc"><svg class="i"><use href="#i-cart"/></svg>発注</span>
+        <span class="sc"><svg class="i"><use href="#i-chat"/></svg>チャット</span>
+      </div>
+      <div class="gone">（ここにあった「ボード」の付箋は廃止）</div>
+    </div>
+  </div>
+
+  <div class="scr" id="s-gy" hidden>
+    <div class="hd">
+      <div class="hd-t"><b>業務</b><small id="sub"></small></div>
+      <div class="seg" id="seg"></div>
+    </div>
+    <div class="body" id="body"></div>
+  </div>
+
+  <nav class="nav" id="nav"></nav>
+</div>
+
+<script>
+const NAV = [['home', 'ホーム', 'home'], ['stock', '在庫', 'box'], ['gy', '業務', 'gy'], ['report', 'レポート', 'chart'], ['set', '設定', 'set']]
+const SEG = [['today', '今日', 1], ['issues', '困りごと', 2], ['review', '振り返り', 0]]
+let screen = 'home', seg = 'today', sel = 5
+const ic = n => `<svg class="i"><use href="#i-${n}"/></svg>`
+
+const TODAY = [
+  ['10:00', 'cl', '開店チェック', '5/5項目', '全員', 'done'],
+  ['11:00', 'tk', '仕込み：ソース', '', '高木', 'done'],
+  ['14:00', 'cl', 'ランチ後の片付け', '2/6項目', '山田', 'late'],
+  ['NOW'],
+  ['15:00', 'tk', '揚げ油の交換', '2缶', '佐藤', ''],
+  ['16:00', 'tk', '発注の確認', '', '高木', ''],
+  ['22:30', 'cl', '閉店チェック', '0/8項目', '全員', ''],
+]
+const ISSUES = [
+  ['clm', 'ランチのパスタが冷めていた', '対応中', '高木', 'late'],
+  ['imp', '冷蔵庫の棚にラベルを貼りたい', 'まだ', '担当なし', 'stuck'],
+  ['brk', 'レジのプリンターが紙を噛む', '対応中', '佐藤', ''],
+  ['brk', '製氷機から水が漏れる', '待ち', '佐藤', ''],
+]
+const TY = { brk: '故障', clm: 'クレーム', imp: '改善' }
+
+function render() {
+  document.getElementById('s-home').hidden = screen !== 'home'
+  document.getElementById('s-gy').hidden = screen !== 'gy'
+  document.getElementById('nav').innerHTML = NAV.map(([k, l, i]) => `<button class="${screen === k ? 'on' : ''}" data-nav="${k}">${ic(i)}${l}${k === 'gy' ? '<span class="bd">3</span>' : ''}</button>`).join('')
+  if (screen !== 'gy') return
+  document.getElementById('sub').textContent = { today: '11月6日（金）', issues: '対応中 4件', review: '11月' }[seg]
+  document.getElementById('seg').innerHTML = SEG.map(([k, l, n]) => `<button class="${seg === k ? 'on' : ''}" data-seg="${k}">${l}${n ? `<i>●${n}</i>` : ''}</button>`).join('')
+  const b = document.getElementById('body')
+  if (seg === 'today') {
+    b.innerHTML = TODAY.map(r => r[0] === 'NOW' ? '<div class="now">今 14:40</div>' :
+      `<div class="card ${r[1]}${r[5] ? ' ' + r[5] : ''}"><time>${r[0]}</time><span><b>${r[2]}</b>${r[5] === 'late' ? '<span class="flag">遅れ</span>' : ''}${r[3] ? `<small>${r[1] === 'cl' ? 'チェック表・' : ''}${r[3]}</small>` : ''}</span><span class="who">${r[4]}</span></div>`).join('') +
+      `<button class="add">${ic('plus')}やることを足す（今日・別の日）</button>`
+  } else if (seg === 'issues') {
+    b.innerHTML = ISSUES.map(r => `<div class="card is${r[4] === 'late' ? ' late' : ''}"><time style="font-size:11px">${TY[r[0]]}</time><span><b>${r[1]}</b>${r[4] === 'late' ? '<span class="flag">期限切れ</span>' : ''}${r[4] === 'stuck' ? '<span class="flag w">止まっている</span>' : ''}<small>${r[2]}</small></span><span class="who">${r[3]}</span></div>`).join('') +
+      `<button class="add">${ic('plus')}困りごとを書く</button><p style="font-size:11.5px;color:var(--muted);text-align:center">（中身は「店の困りごと」のモックと同じ）</p>`
+  } else {
+    const days = ['日', '月', '火', '水', '木', '金', '土'].map(w => `<span class="w">${w}</span>`).join('')
+    const has = new Set([1, 2, 3, 4, 5])
+    let cells = '<span></span><span></span><span></span><span></span><span></span><span></span>'
+    for (let d = 1; d <= 30; d++) cells += `<span class="d${has.has(d) ? ' has' : ''}${d === sel ? ' sel' : ''}${d > 6 ? ' fut' : ''}" data-day="${d}">${d}</span>`
+    b.innerHTML = `<div class="cal"><div class="cal-h"><span>‹</span><span>2026年11月</span><span>›</span></div><div class="cal-g">${days}${cells}</div></div>
+      <div class="rv"><h3>11月${sel}日のふりかえり</h3>
+        <div class="r"><span>やること</span><span>9 / 10 済み</span></div><div class="bar"><i style="width:90%"></i></div>
+        <div class="r"><span>チェック表</span><span>3 / 3 済み</span></div><div class="bar"><i style="width:100%"></i></div>
+        <div class="r"><span>困りごと</span><span>書いた 1・済み 1</span></div>
+        <div class="r"><span>棚卸</span><span>あり（21:40）</span></div>
+        <p>日のメモ：雨で客足少なめ。ディナーの仕込みを2割減らした</p></div>`
+  }
+}
+document.addEventListener('click', e => {
+  const n = e.target.closest('[data-nav]'); if (n) { if (n.dataset.nav === 'home' || n.dataset.nav === 'gy') { screen = n.dataset.nav; if (screen === 'gy') seg = 'today'; render() } return }
+  const g = e.target.closest('[data-go]'); if (g) { screen = 'gy'; seg = g.dataset.go; render(); return }
+  const s = e.target.closest('[data-seg]'); if (s) { seg = s.dataset.seg; render(); return }
+  const d = e.target.closest('[data-day]'); if (d && +d.dataset.day <= 6) { sel = +d.dataset.day; render() }
+})
+render()
+</script>
