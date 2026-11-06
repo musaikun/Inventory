@@ -1,0 +1,238 @@
+<title>店の困りごと</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* Redmine のチケットを、飲食店の「困りごと」に小さく。種類は4つ固定・状態は4段・経過・写真・見ている人。アプリの明るい見た目の1テーマ */
+  :root {
+    color-scheme: light;
+    --page:#d3dfe3; --paper:#ffffff; --ink:#12303a; --muted:#4c6a72; --faint:#94a3b8; --line:#e2ecef; --line2:#cfdde2; --bg:#f4f7f8;
+    --pri:#0e7490; --priw:#ecfeff; --late:#dc2626; --latew:#fef2f2; --warn:#b45309; --warnw:#fffbeb; --ok:#15803d; --okw:#f0fdf4;
+    --brk:#dc2626; --brkw:#fef2f2; --clm:#c2410c; --clmw:#fff7ed; --imp:#7c3aed; --impw:#f5f3ff; --oth:#475569; --othw:#f1f5f9;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:var(--page); color:var(--ink);
+    padding-block:20px 32px; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px));
+    display:flex; gap:28px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
+  .side { max-width:340px; display:grid; gap:10px; font-size:13px; line-height:1.7; color:var(--muted); }
+  .side h1 { font-size:19px; color:var(--ink); text-wrap:balance; }
+  .side b { color:var(--ink); }
+  .side ul { display:grid; gap:3px; } .side li { margin-left:18px; }
+  .side .no { background:var(--paper); border-radius:12px; padding:10px 12px; font-size:12px; }
+  .phone { width:375px; max-width:100%; height:760px; background:var(--bg); border-radius:30px; overflow:hidden; display:flex; flex-direction:column;
+    box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; position:relative; }
+  svg.i { width:1.15em; height:1.15em; vertical-align:-0.2em; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+  .hd { background:var(--paper); padding:12px 14px 8px; display:grid; gap:8px; border-bottom:1px solid var(--line); }
+  .hd-t { display:flex; align-items:center; gap:8px; } .hd-t b { font-size:17px; } .hd-t small { color:var(--muted); font-weight:700; font-size:12px; }
+  .andon { display:flex; gap:6px; }
+  .an { flex:1; border:1.5px solid var(--line2); background:var(--paper); border-radius:12px; padding:6px; display:grid; gap:1px; text-align:center; cursor:pointer; font:inherit; color:var(--ink); }
+  .an b { font-size:17px; font-variant-numeric:tabular-nums; } .an small { font-size:10.5px; font-weight:800; color:var(--muted); }
+  .an.late { border-color:#fca5a5; background:var(--latew); } .an.late b, .an.late small { color:var(--late); }
+  .an.stuck { border-color:#fcd34d; background:var(--warnw); } .an.stuck b, .an.stuck small { color:var(--warn); }
+  .an.on { box-shadow:inset 0 0 0 2px currentColor; } .an.zero { opacity:.5; }
+  .chips { display:flex; gap:5px; overflow-x:auto; scrollbar-width:none; }
+  .chip { flex:none; display:inline-flex; align-items:center; gap:4px; border:1.5px solid var(--line2); background:var(--paper); border-radius:999px; padding:5px 10px; font:inherit; font-size:12px; font-weight:800; color:var(--muted); cursor:pointer; white-space:nowrap; }
+  .chip.on { border-color:var(--pri); background:var(--priw); color:var(--pri); }
+  .seg { display:flex; background:var(--paper); border-bottom:1px solid var(--line); }
+  .seg button { flex:1; border:none; background:none; font:inherit; font-size:12.5px; font-weight:900; color:var(--muted); padding:9px 0; cursor:pointer; border-bottom:2.5px solid transparent; }
+  .seg button.on { color:var(--pri); border-bottom-color:var(--pri); }
+  .seg i { font-style:normal; font-size:10.5px; margin-left:3px; color:var(--faint); }
+  .body { flex:1; overflow-y:auto; overflow-x:hidden; grid-template-columns:minmax(0,1fr); padding:10px 12px 90px; display:grid; gap:8px; align-content:start; grid-auto-rows:max-content; }
+  .card { background:var(--paper); border:1.5px solid var(--line); border-radius:14px; padding:10px 11px; display:grid; grid-template-columns:34px 1fr auto; gap:9px; cursor:pointer; text-align:left; font:inherit; color:var(--ink); width:100%; }
+  .card.late { border-color:#fca5a5; }
+  .ty { width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:17px; }
+  .ty.brk { background:var(--brkw); color:var(--brk); } .ty.clm { background:var(--clmw); color:var(--clm); } .ty.imp { background:var(--impw); color:var(--imp); } .ty.oth { background:var(--othw); color:var(--oth); }
+  .cd { min-width:0; display:grid; gap:3px; }
+  .cd b { font-size:14px; } .cd small { font-size:11px; color:var(--muted); font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cd .meta { display:flex; flex-wrap:wrap; gap:4px; align-items:center; }
+  .st { font-size:10px; font-weight:900; border-radius:6px; padding:1px 7px; }
+  .st.todo { background:var(--othw); color:var(--oth); } .st.doing { background:var(--priw); color:var(--pri); } .st.wait { background:var(--warnw); color:var(--warn); } .st.done { background:var(--okw); color:var(--ok); }
+  .flag { font-size:10px; font-weight:900; border-radius:6px; padding:1px 6px; background:var(--late); color:#fff; } .flag.stuck { background:var(--warn); }
+  .thumb { width:48px; height:48px; border-radius:10px; background:linear-gradient(150deg,#94a3b8,#e2e8f0); display:flex; align-items:flex-end; justify-content:flex-end; padding:3px; color:#fff; font-size:11px; }
+  .right { display:grid; gap:4px; justify-items:end; align-content:start; }
+  .who { display:flex; align-items:center; gap:3px; font-size:11px; font-weight:800; color:var(--muted); white-space:nowrap; }
+  .av { width:22px; height:22px; border-radius:50%; background:#e2e8f0; display:inline-flex; align-items:center; justify-content:center; font-size:10.5px; font-weight:900; color:var(--ink); }
+  .fab { position:absolute; right:16px; bottom:18px; height:50px; padding:0 18px; border-radius:999px; border:none; background:var(--pri); color:#fff; font:inherit; font-size:14.5px; font-weight:900; cursor:pointer; box-shadow:0 6px 16px rgba(14,116,144,.4); display:flex; align-items:center; gap:6px; }
+  .empty { text-align:center; font-size:12.5px; color:var(--muted); padding:24px 0; }
+  /* 詳細 */
+  .dv { position:absolute; inset:0; background:var(--bg); display:flex; flex-direction:column; z-index:20; }
+  .dv[hidden], .sh[hidden] { display:none; }
+  .dv-h { background:var(--paper); padding:10px 12px; display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--line); }
+  .dv-h button { border:none; background:none; font:inherit; color:var(--pri); font-weight:800; font-size:13px; cursor:pointer; }
+  .dv-b { flex:1; overflow-y:auto; overflow-x:hidden; grid-template-columns:minmax(0,1fr); padding:12px; display:grid; gap:10px; align-content:start; grid-auto-rows:max-content; }
+  .box { background:var(--paper); border-radius:14px; padding:11px 12px; display:grid; gap:7px; grid-template-columns:minmax(0,1fr); }
+  .box h3 { font-size:15px; }
+  .kv { display:grid; grid-template-columns:72px 1fr; gap:6px 10px; font-size:12.5px; } .kv span:nth-child(odd) { color:var(--muted); font-weight:800; font-size:11.5px; }
+  .photo { height:150px; border-radius:12px; background:linear-gradient(160deg,#64748b,#cbd5e1 60%,#e2e8f0); position:relative; }
+  .photo small { position:absolute; left:8px; bottom:6px; color:#fff; font-size:11px; font-weight:800; text-shadow:0 1px 3px rgba(0,0,0,.5); }
+  .stbtn { display:grid; grid-template-columns:repeat(4,1fr); gap:5px; }
+  .stbtn button { border:1.5px solid var(--line2); background:var(--paper); border-radius:10px; padding:8px 2px; font:inherit; font-size:12px; font-weight:900; color:var(--muted); cursor:pointer; }
+  .stbtn button.on.todo { border-color:var(--oth); color:var(--oth); background:var(--othw); }
+  .stbtn button.on.doing { border-color:var(--pri); color:var(--pri); background:var(--priw); }
+  .stbtn button.on.wait { border-color:var(--warn); color:var(--warn); background:var(--warnw); }
+  .stbtn button.on.done { border-color:var(--ok); color:var(--ok); background:var(--okw); }
+  .watch { display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:12px; }
+  .watch .tg { margin-left:auto; border:1.5px solid var(--pri); background:var(--paper); color:var(--pri); border-radius:9px; padding:5px 10px; font:inherit; font-size:12px; font-weight:900; cursor:pointer; }
+  .watch .tg.on { background:var(--pri); color:#fff; }
+  .tl { display:grid; gap:0; }
+  .ev { display:grid; grid-template-columns:22px 1fr; gap:8px; position:relative; padding-bottom:10px; }
+  .ev::before { content:''; position:absolute; left:10px; top:22px; bottom:0; width:2px; background:var(--line); }
+  .ev:last-child::before { display:none; }
+  .ev .d { width:22px; height:22px; border-radius:50%; background:var(--priw); color:var(--pri); display:flex; align-items:center; justify-content:center; font-size:11px; }
+  .ev .d.sys { background:var(--othw); color:var(--oth); }
+  .ev b { font-size:12.5px; } .ev small { display:block; font-size:10.5px; color:var(--muted); font-weight:700; }
+  .ev .ph { margin-top:5px; width:90px; height:60px; border-radius:8px; background:linear-gradient(150deg,#94a3b8,#e2e8f0); }
+  .write { display:flex; gap:6px; }
+  .write input { flex:1; min-width:0; font:inherit; font-size:15px; padding:9px 10px; border:1.5px solid var(--line2); border-radius:10px; }
+  .write button { flex:none; border:1.5px solid var(--line2); background:var(--paper); border-radius:10px; padding:0 11px; font:inherit; font-weight:900; color:var(--pri); cursor:pointer; }
+  .write button.p { background:var(--pri); color:#fff; border-color:var(--pri); }
+  /* 足す */
+  .sh { position:absolute; inset:0; background:rgba(6,34,43,.4); display:flex; align-items:flex-end; z-index:30; }
+  .sh-b { width:100%; background:var(--paper); border-radius:20px 20px 0 0; padding:14px 14px 18px; display:grid; gap:9px; }
+  .sh-h { display:flex; justify-content:space-between; align-items:center; font-size:15px; font-weight:900; }
+  .sh-h button { border:none; background:none; font:inherit; color:var(--muted); font-weight:700; cursor:pointer; }
+  .types { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+  .types button { border:2px solid var(--line2); background:var(--paper); border-radius:12px; padding:9px 2px; display:grid; gap:3px; justify-items:center; font:inherit; font-size:12px; font-weight:900; color:var(--muted); cursor:pointer; }
+  .types button svg { width:22px; height:22px; }
+  .types button.on.brk { border-color:var(--brk); color:var(--brk); background:var(--brkw); } .types button.on.clm { border-color:var(--clm); color:var(--clm); background:var(--clmw); }
+  .types button.on.imp { border-color:var(--imp); color:var(--imp); background:var(--impw); } .types button.on.oth { border-color:var(--oth); color:var(--oth); background:var(--othw); }
+  .in { font:inherit; font-size:15px; padding:9px 11px; border:1.5px solid var(--line2); border-radius:10px; width:100%; }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .lb { display:grid; gap:3px; font-size:11px; font-weight:800; color:var(--muted); }
+  .shot { border:1.5px dashed var(--line2); border-radius:12px; padding:10px; display:flex; align-items:center; gap:6px; justify-content:center; font-size:12.5px; font-weight:800; color:var(--pri); cursor:pointer; background:var(--paper); font-family:inherit; }
+  .go { border:none; border-radius:12px; background:var(--pri); color:#fff; font:inherit; font-size:14.5px; font-weight:900; padding:12px; cursor:pointer; }
+  .go:disabled { opacity:.45; }
+  button:focus-visible, input:focus-visible { outline:3px solid #a5f3fc; outline-offset:1px; }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-brk" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></symbol>
+  <symbol id="i-clm" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v4M12 14h.01"/></symbol>
+  <symbol id="i-imp" viewBox="0 0 24 24"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V17h6v-.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></symbol>
+  <symbol id="i-oth" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12h.01M12 12h.01M16 12h.01"/></symbol>
+  <symbol id="i-cam" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 24 24"><path d="M4 22V4M4 4h12l-2 4 2 4H4"/></symbol>
+</svg>
+
+<div class="side">
+  <h1>店の困りごと（Redmine を小さく）</h1>
+  <div>今の「進行中」を、店の<b>困りごと</b>として少し育てた形です。右の画面は触れます（見本の店・保存しません）。</div>
+  <ul>
+    <li><b>種類は4つだけ</b>（故障・クレーム・改善・その他）。設定はさせない</li>
+    <li><b>状態は4段</b>（まだ→対応中→待ち→済み）。今の「進行中」と同じ</li>
+    <li><b>経過</b>：誰がいつ何をしたか。写真も付けられる</li>
+    <li><b>見ている人</b>：担当でなくても「見る」にすると、動いたときに知らせが来る（店長・本部）</li>
+    <li>上の札：<b>期限切れ</b>と、3日動いていない<b>止まっている</b>ものだけ光る</li>
+  </ul>
+  <div class="no">入れないもの：状態の流れの設定・自由な項目・バージョン・ガント・作業時間・Wiki・細かい権限。<br>（将来）本部がすべての店の「故障・待ち」を一覧で見る。</div>
+</div>
+
+<div class="phone">
+  <div class="hd">
+    <div class="hd-t"><b>困りごと</b><small id="cnt"></small></div>
+    <div class="andon" id="andon"></div>
+    <div class="chips" id="types"></div>
+  </div>
+  <div class="seg" id="seg"></div>
+  <div class="body" id="list"></div>
+  <button class="fab" id="add"><svg class="i"><use href="#i-plus"/></svg>困りごとを書く</button>
+
+  <section class="dv" id="dv" hidden></section>
+  <div class="sh" id="sh" hidden></div>
+</div>
+
+<script>
+const TYPES = { brk: '故障', clm: 'クレーム', imp: '改善', oth: 'その他' }
+const ST = { todo: 'まだ', doing: '対応中', wait: '待ち', done: '済み' }
+const ME = '高木'
+const ic = (n, cls = 'i') => `<svg class="${cls}"><use href="#i-${n}"/></svg>`
+let issues = [
+  { id: 1, ty: 'brk', title: '製氷機から水が漏れる', st: 'wait', who: '佐藤', due: '11/7', late: false, stuck: false, photo: true, days: 3, watch: ['店長', '本部'],
+    log: [['佐藤', '11/4 10:12', '書いた：朝来たら床が濡れていた', true], ['佐藤', '11/4 15:40', '対応中にした・業者に連絡'], ['佐藤', '11/5 11:02', '待ちにした：見積もり待ち（明日の午前に来る）']] },
+  { id: 2, ty: 'clm', title: 'ランチのパスタが冷めていた（2番テーブル）', st: 'doing', who: '高木', due: '11/6', late: true, stuck: false, photo: false, days: 1, watch: ['店長'],
+    log: [['山田', '11/5 13:20', '書いた：お客さまから。お詫びしてデザートをお出しした'], ['高木', '11/5 15:00', '対応中にした：盛り付けの順を見直す']] },
+  { id: 3, ty: 'imp', title: '冷蔵庫の棚にラベルを貼りたい', st: 'todo', who: '', due: '', late: false, stuck: true, photo: true, days: 5, watch: [],
+    log: [['鈴木', '11/1 21:00', '書いた：どこに何があるか新人が分からない', true]] },
+  { id: 4, ty: 'brk', title: 'レジのプリンターが紙を噛む', st: 'doing', who: '佐藤', due: '', late: false, stuck: false, photo: false, days: 0, watch: ['店長'],
+    log: [['伊藤', '11/6 11:30', '書いた：今日2回止まった'], ['佐藤', '11/6 12:10', '対応中にした：ロールを替えて様子を見る']] },
+  { id: 5, ty: 'oth', title: '勝手口の鍵がかかりにくい', st: 'done', who: '山田', due: '', late: false, stuck: false, photo: false, days: 0, watch: [],
+    log: [['山田', '11/2 09:00', '書いた'], ['山田', '11/3 10:00', '済みにした：潤滑剤をさした']] },
+]
+let fType = '', fSt = 'open', fAn = '', openId = null
+
+function render() {
+  const open = issues.filter(x => x.st !== 'done')
+  document.getElementById('cnt').textContent = `対応中 ${open.length}件`
+  const late = open.filter(x => x.late).length, stuck = open.filter(x => x.stuck).length
+  document.getElementById('andon').innerHTML = [['late', '期限切れ', late], ['stuck', '3日止まっている', stuck]]
+    .map(([k, l, n]) => `<button class="an ${k}${n ? '' : ' zero'}${fAn === k ? ' on' : ''}" data-an="${k}"><b>${n}</b><small>${l}</small></button>`).join('')
+  document.getElementById('types').innerHTML = `<button class="chip${fType ? '' : ' on'}" data-ty="">すべて</button>` +
+    Object.entries(TYPES).map(([k, l]) => `<button class="chip${fType === k ? ' on' : ''}" data-ty="${k}">${ic(k)}${l}</button>`).join('')
+  const segs = [['open', '対応中', open.length], ['done', '済み', issues.length - open.length]]
+  document.getElementById('seg').innerHTML = segs.map(([k, l, n]) => `<button class="${fSt === k ? 'on' : ''}" data-st="${k}">${l}<i>${n}</i></button>`).join('')
+  const list = issues.filter(x => (fSt === 'open' ? x.st !== 'done' : x.st === 'done') && (!fType || x.ty === fType) && (!fAn || x[fAn]))
+    .sort((a, b) => (b.late - a.late) || (b.stuck - a.stuck) || (b.id - a.id))
+  document.getElementById('list').innerHTML = list.map(x => {
+    const last = x.log[x.log.length - 1]
+    return `<button class="card${x.late ? ' late' : ''}" data-id="${x.id}">
+      <span class="ty ${x.ty}">${ic(x.ty)}</span>
+      <span class="cd"><b>${x.title}</b>
+        <span class="meta"><span class="st ${x.st}">${ST[x.st]}</span>${x.late ? '<span class="flag">期限切れ</span>' : ''}${x.stuck ? '<span class="flag stuck">止まっている</span>' : ''}${x.due ? `<small>期限 ${x.due}</small>` : ''}</span>
+        <small>${last[1].split(' ')[0]} ${last[0]}：${last[2].replace(/^[^：]*：/, '')}</small></span>
+      <span class="right">${x.photo ? `<span class="thumb">${ic('cam')}</span>` : ''}<span class="who">${x.who ? `<span class="av">${x.who[0]}</span>${x.who}` : '担当なし'}</span>${x.watch.length ? `<span class="who">${ic('eye')}${x.watch.length}</span>` : ''}</span>
+    </button>`
+  }).join('') || '<p class="empty">ありません</p>'
+  if (openId) renderDetail()
+}
+function renderDetail() {
+  const x = issues.find(i => i.id === openId)
+  const dv = document.getElementById('dv'); dv.hidden = false
+  const watching = x.watch.includes(ME)
+  dv.innerHTML = `<div class="dv-h"><button id="back">‹ 一覧</button><span class="ty ${x.ty}" style="width:28px;height:28px;font-size:14px">${ic(x.ty)}</span><b style="font-size:14px">${TYPES[x.ty]}</b></div>
+    <div class="dv-b">
+      <div class="box"><h3>${x.title}</h3>
+        ${x.photo ? '<div class="photo"><small>最初の写真</small></div>' : ''}
+        <div class="kv"><span>担当</span><span>${x.who || '担当なし（押して決める）'}</span><span>期限</span><span>${x.due || '—'}${x.late ? '　<span class="flag">期限切れ</span>' : ''}</span><span>書いた人</span><span>${x.log[0][0]}　${x.log[0][1]}</span></div>
+        <div class="stbtn">${Object.entries(ST).map(([k, l]) => `<button class="${k}${x.st === k ? ' on' : ''}" data-set="${k}">${l}</button>`).join('')}</div>
+      </div>
+      <div class="box"><div class="watch">${ic('eye')}<b>見ている人</b> ${x.watch.length ? x.watch.join('・') : 'まだいません'}<button class="tg${watching ? ' on' : ''}" id="watch">${watching ? '見ている' : '見る'}</button></div>
+        <small style="font-size:11px;color:var(--muted)">見ている人には、状態が変わったときと経過が書かれたときに知らせが届きます</small></div>
+      <div class="box"><b style="font-size:13px">経過</b><div class="tl">${x.log.map(([w, t, s, ph]) => `<div class="ev"><span class="d${/にした/.test(s) ? ' sys' : ''}">${/にした/.test(s) ? ic('flag') : ic('note')}</span><span><b>${s}</b><small>${w} ・ ${t}</small>${ph ? '<span class="ph" style="display:block"></span>' : ''}</span></div>`).join('')}</div>
+        <div class="write"><input id="w" placeholder="経過を書く（例：部品を注文した）" aria-label="経過" /><button aria-label="写真">${ic('cam')}</button><button class="p" id="send">残す</button></div></div>
+    </div>`
+  document.getElementById('back').onclick = () => { openId = null; dv.hidden = true }
+  document.getElementById('watch').onclick = () => { x.watch = watching ? x.watch.filter(n => n !== ME) : [...x.watch, ME]; render() }
+  document.getElementById('send').onclick = () => { const v = document.getElementById('w').value.trim(); if (!v) return; x.log.push([ME, '11/6 今', v]); x.stuck = false; render() }
+  dv.querySelectorAll('[data-set]').forEach(b => b.onclick = () => { const s = b.dataset.set; if (s === x.st) return; x.st = s; x.stuck = false; if (s === 'done') x.late = false; x.log.push([ME, '11/6 今', `${ST[s]}にした`]); render() })
+}
+function openAdd() {
+  let ty = 'brk'
+  const sh = document.getElementById('sh'); sh.hidden = false
+  const draw = () => {
+    sh.innerHTML = `<div class="sh-b"><div class="sh-h">困りごとを書く<button id="cx">やめる</button></div>
+      <div class="types">${Object.entries(TYPES).map(([k, l]) => `<button class="${k}${ty === k ? ' on' : ''}" data-t="${k}">${ic(k)}${l}</button>`).join('')}</div>
+      <input class="in" id="tt" placeholder="何が困っている？（例：フライヤーの温度が上がらない）" aria-label="困りごと" />
+      <button class="shot">${ic('cam')}写真を撮る（任意）</button>
+      <div class="row2"><label class="lb">担当<select class="in" id="ww"><option value="">あとで決める</option><option>佐藤</option><option>高木</option><option>山田</option></select></label><label class="lb">期限（任意）<input class="in" type="date" /></label></div>
+      <button class="go" id="ok">書く</button></div>`
+    sh.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { const v = document.getElementById('tt').value; ty = b.dataset.t; draw(); document.getElementById('tt').value = v })
+    document.getElementById('cx').onclick = () => { sh.hidden = true }
+    document.getElementById('ok').onclick = () => {
+      const t = document.getElementById('tt').value.trim(); if (!t) { document.getElementById('tt').focus(); return }
+      const who = document.getElementById('ww').value
+      issues.push({ id: Date.now(), ty, title: t, st: who ? 'doing' : 'todo', who, due: '', late: false, stuck: false, photo: false, days: 0, watch: [], log: [[ME, '11/6 今', '書いた']] })
+      sh.hidden = true; fSt = 'open'; render()
+    }
+  }
+  draw()
+}
+document.addEventListener('click', e => {
+  const a = e.target.closest('[data-an]'); if (a) { fAn = fAn === a.dataset.an ? '' : a.dataset.an; render(); return }
+  const t = e.target.closest('[data-ty]'); if (t) { fType = t.dataset.ty; render(); return }
+  const s = e.target.closest('[data-st]'); if (s) { fSt = s.dataset.st; render(); return }
+  const c = e.target.closest('.card[data-id]'); if (c) { openId = Number(c.dataset.id); render(); return }
+})
+document.getElementById('add').onclick = openAdd
+render()
+</script>
