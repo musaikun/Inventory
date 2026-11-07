@@ -1,6 +1,6 @@
 # Google Play 公開準備チェックリスト
 
-最終更新: 2026-08-04
+最終更新: 2026-11-07（§6 追記）
 
 > **後続マイルストーン:** D-021により、現在はWeb Free版の公開を優先します。
 > この文書はA1（Android / Google Play）まで保留し、現在のWeb release gateには
@@ -107,6 +107,29 @@ reviewer向け手順書: [`play-reviewer-guide.md`](play-reviewer-guide.md)（Pl
 - [ ] ranking、award、期間限定価格など誤解を招く表現を使わない
 - [ ] 実在店舗・個人・token・位置情報・棚卸dataを含めない
 - [ ] app icon、feature graphic、short/full description、support連絡先を確認
+
+## 6. 2026-11-07 再確認（Claude Code・ログイン見直しと同時に進めるため）
+
+公式要件の再確認（第三者記事のみで確かめた項目は「要公式確認」）:
+
+- target API level: 新規アプリと更新は **Android 16（API 36）** が 2026-08-31 から必須。
+- 新規の**個人**デベロッパーアカウント（2023-11-13以降作成）は、本番公開の前に**12人以上×14日連続のクローズドテスト**が必要。
+  **組織アカウントは対象外**（D-U-N-S 番号が要る）。BtoB 展開も考え、どちらで登録するかを User が決める。
+- Android developer verification（本人確認・アプリ登録）: Play Console で実施。2026-09-30 に一部の国で開始、2027 に全世界。
+- account削除・Data Safety・reviewer 用のログイン情報は §1・§3・§4 のまま有効。
+
+リポジトリ内の未着手（§1〜§5 の未チェックに加えて）:
+
+- TWA の Android プロジェクトが無い（package名・署名鍵・version code・targetSdk 36・`/.well-known/assetlinks.json` すべて未作成）。
+- canonical の host が未確定（WEB-01）。Digital Asset Links、privacy／削除 URL、将来の Google ログインと送信元メールのすべてが依存する。
+- ログイン見直し（`docs/proposals.md` 2026-10-26）で、削除契約・Data Safety（メールアドレス・名前）・reviewer 手順が変わる。
+  - 削除は「アカウント」と「店（組織）」に分かれる。`account-deletion-contract.md` を作り直す。
+  - メールのリンクでのログインは reviewer が受け取れない。審査用の入り方（審査用アカウントと固定の手順）を別に用意する。
+  - TWA でメールのリンクを開くと、App ではなくブラウザで開くことがある。リンクを App で開く設定（verified links）を確認する。
+- 実機確認が要る機能: 音声入力（Web Speech API の TWA での動作）、Push（Android 13以降の通知の許可と TWA の通知の委任）、
+  位置情報（天気・TWA の位置情報の委任）、カメラ（バーコード）、ファイル選択。
+- A1 の14日 Pro 無料体験は、サーバーの契約状態（`entitlements.js`）とアカウントが前提。
+- `web-release-readiness.md` の WEB-01〜10 は 2026-10-02 時点の記述。migration は 0036 まで増えており、本番の適用状況は preflight で確かめ直す。
 
 ## 公開判定
 
