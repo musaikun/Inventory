@@ -10,6 +10,7 @@
  *   （User要望 2026-10-10: 何が変わったか分からない・押し間違えても気づかない を防ぐ）
  * 実際の書き換えと「元に戻す」は親（AxisAssignFocus）が行う。
  */
+import LineIcon from './LineIcon.vue'
 import { ref, reactive, computed } from 'vue'
 import { countRows, splitRows } from '../services/countOrder.js'
 
@@ -102,7 +103,7 @@ function apply() {
                 <span v-if="r.multi" class="co-multi">2か所にある</span>
               </button>
               <div v-if="sel === r.i" class="co-cutbar">
-                <button v-if="k > 0" type="button" class="co-cut" @click="cutAt(r.i)">✂ 「{{ r.item }}」から別の場所にする</button>
+                <button v-if="k > 0" type="button" class="co-cut" @click="cutAt(r.i)"><LineIcon name="cut" /> 「{{ r.item }}」から別の場所にする</button>
                 <span v-else class="co-cut-note">この場所の先頭です</span>
                 <button type="button" class="co-cut-x" aria-label="やめる" @click="sel = null">✕</button>
               </div>

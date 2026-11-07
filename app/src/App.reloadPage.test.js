@@ -101,12 +101,12 @@ describe('再読込しても同じページに留まる', () => {
   it('日誌タブ（お店のカレンダー）も再読み込みで残る', async () => {
     await mountApp()
     await seedItems()
-    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('日誌')))
+    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('業務管理')))
     expect(host.querySelector('.jp .jm')).not.toBeNull()
 
     await reload()
     expect(view()).toBe('sessions')
-    expect(host.querySelector('.bnav button.on').textContent).toContain('日誌')
+    expect(host.querySelector('.bnav button.on').textContent).toContain('業務管理')
     expect(host.querySelector('.jp .jm')).not.toBeNull()
   }, 20000)
 
@@ -125,7 +125,7 @@ describe('再読込しても同じページに留まる', () => {
   it('進行中セッションは保存ページより優先する', async () => {
     await mountApp()
     await seedItems()
-    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('日誌')))
+    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('業務管理')))
 
     // 日誌を見ているあいだに、別端末などで進行中の棚卸が残った状態を作る
     localStorage.setItem('_pending_session_v1', JSON.stringify({

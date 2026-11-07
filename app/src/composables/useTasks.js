@@ -152,7 +152,8 @@ function _assignFields(a) {
 
 /** @param {{ mode: string, id?: string, name?: string }} [assign] 担当（省略は「誰でも」） */
 /** @param {{ visibility?: 'admins'|null }} [opts] 'admins' ＝ 管理者だけに見せる（管理者だけが付けられる・2026-10-15） */
-export function addTask(date, text, assign = null, dueTime = null, { visibility = null, progress = null, deadline = null, note = null } = {}) {
+export const TASK_CATEGORIES = ['prep', 'clean', 'order']   // 予定ボードの色（null＝やること・migration 0036）
+export function addTask(date, text, assign = null, dueTime = null, { visibility = null, progress = null, deadline = null, note = null, endTime = null, category = null, steps = null } = {}) {
   const body = String(text ?? '').trim().slice(0, TASK_TEXT_MAX)
   if (!body || !_dateOk(date)) return null
   const now = _now()
@@ -161,13 +162,19 @@ export function addTask(date, text, assign = null, dueTime = null, { visibility 
     createdBy: deviceName.value || '', createdById: actorId(), createdAt: now,
     doneAt: null, doneBy: null, deletedAt: null, updatedAt: now,
     ..._assignFields(assign), doneList: [], dueTime: date ? _time(dueTime) : null,
+    // 予定ボード（2026-11-05）: 終わりの時刻（始まりより後のときだけ）と中身の種類
+    endTime: null, category: TASK_CATEGORIES.includes(category) ? category : null,
     visibility: visibility === 'admins' && isAdmin.value ? 'admins' : null,
     ...(PROGRESS.includes(progress) ? { progress, waitNote: null, steps: [], lastNote: null } : {}),
+    // 子タスク（チェック表から・2026-11-07）。進行中でなくても持てる
+    ...(Array.isArray(steps) && steps.length ? { steps: _cleanSteps(steps) } : {}),
     // 期限（進行中の本当の期限・期限つきのやること）
     ...(_DATE_RE.test(deadline || '') ? { deadline } : {}),
     // 備考（2026-10-26）
     ...(String(note ?? '').trim() ? { note: String(note).trim().slice(0, TASK_NOTE_MAX) } : {}),
   }
+  const end = _time(endTime)
+  if (t.dueTime && end && end > t.dueTime) t.endTime = end
   _data.list.push(t)
   _persist()
   _send(t)
@@ -234,7 +241,7 @@ async function markTask(t) {
 }
 
 /** 文面・日付・時刻を直す（作る権限のある人。TODO 本格化 A）。日付を変えると別の日へ移る */
-export function editTask(id, { text, date, dueTime, visibility } = {}) {
+export function editTask(id, { text, date, dueTime, visibility, endTime, category } = {}) {
   const t = _data.list.find(x => x.id === id)
   if (!t || !canEditTask(t)) return null
   const fields = {}
@@ -250,6 +257,11 @@ export function editTask(id, { text, date, dueTime, visibility } = {}) {
   }
   if (dueTime !== undefined && fields.date !== '') fields.dueTime = _time(dueTime)
   if (visibility !== undefined && isAdmin.value) fields.visibility = visibility === 'admins' ? 'admins' : null
+  if (category !== undefined) fields.category = TASK_CATEGORIES.includes(category) ? category : null
+  // 終わりの時刻は始まりより後のときだけ。時刻を外したら終わりも外す
+  const start = 'dueTime' in fields ? fields.dueTime : t.dueTime
+  const end = endTime !== undefined ? _time(endTime) : (t.endTime ?? null)
+  fields.endTime = start && end && end > start ? end : null
   return _patch(id, fields)
 }
 
@@ -329,8 +341,8 @@ export const PROGRESS = ['doing', 'waiting']
 export const STALE_DAYS = 5
 /** 進行中・待ちのもの（まだ済んでいない） */
 export const progressTasks = computed(() => _data.list.filter(t => _alive(t) && !t.doneAt && t.progress))
-/** 今日見るもの: 済むまで毎日（「次に見る日」はやめた。止まったらアプリが知らせる・User決定 2026-10-28） */
-export function dueProgress() { return progressTasks.value }
+/** 今日見るもの: 始める日（date）から済むまで毎日（「次に見る日」はやめた・User決定 2026-10-28／日付＋締め切りで先の日から始める・2026-11-07） */
+export function dueProgress(today = localDateKey()) { return progressTasks.value.filter(t => !t.date || t.date <= today) }
 /** 最後に動いた日からの日数（経過・状態の変更・作った日のうち新しいもの） */
 export function idleDays(t, now = Date.now()) {
   const last = [t?.lastNote?.at, t?.updatedAt, t?.createdAt].filter(Boolean).sort().pop()
@@ -351,14 +363,23 @@ export function updateProgress(id, f = {}) {
   if (f.waitNote !== undefined) fields.waitNote = String(f.waitNote ?? '').trim().slice(0, 60) || null
   if (f.date !== undefined && _DATE_RE.test(f.date)) fields.date = f.date
   if (f.deadline !== undefined) fields.deadline = _DATE_RE.test(f.deadline || '') ? f.deadline : null
-  if (f.steps !== undefined) fields.steps = (f.steps ?? []).filter(x => x?.id && String(x.text ?? '').trim()).slice(0, 20).map(x => ({ id: x.id, text: String(x.text).trim().slice(0, 100), done: !!x.done }))
+  if (f.steps !== undefined) fields.steps = _cleanSteps(f.steps)
   return _patch(id, fields)
+}
+/** いつかのものを始める: 今日から進行中（済むまで毎日出る・User決定 2026-11-07） */
+export function startTask(id) {
+  const t = _data.list.find(x => x.id === id)
+  if (!t || t.progress || !canProgress(t)) return null
+  return _patch(id, { progress: 'doing', waitNote: null, date: localDateKey(), lastNote: t.lastNote ?? null, steps: t.steps ?? [] })
 }
 /** 済みにする（進行中から） */
 export function finishProgress(id) {
   const t = _data.list.find(x => x.id === id)
   if (!t || !canProgress(t)) return null
   return _patch(id, { doneAt: _now(), doneBy: deviceName.value || '', doneById: actorId() })
+}
+function _cleanSteps(a) {
+  return (a ?? []).map(x => ({ id: x?.id || newStepId(), text: String(x?.text ?? '').trim().slice(0, 100), done: !!x?.done })).filter(x => x.text).slice(0, 20)
 }
 export const newStepId = () => 's_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
 /** 経過を読む（新しい順） */

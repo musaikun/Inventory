@@ -50,6 +50,10 @@ export function taskWriteCheck(row, body, who, ctxCan, nowIso = new Date().toISO
   const dateChanged = (row.task_date ?? '') !== (body?.date ?? '')
   const edited = visChanged || (row.body ?? '') !== String(body?.text ?? '').trim().slice(0, 200)
     || (dateChanged && !progressTask) || (row.due_time ?? null) !== (body?.dueTime || null)
+    // 予定ボード（migration 0036）: 終わりの時刻・種類も「直す」
+    //（送ってこない古い端末は変えていない扱い。保存でも前の値を残す）
+    || (body?.endTime !== undefined && (row.end_time ?? null) !== (body.endTime || null))
+    || (body?.category !== undefined && (row.category ?? null) !== (body.category || null))
     // 期限つきのやること（連絡のタスク化・2026-10-26）の期限は、文面と同じく作った人と管理者
     || (!progressTask && (row.deadline ?? null) !== (body?.deadline || null))
   if ((assignChanged || edited) && !canEdit(t, me)) {

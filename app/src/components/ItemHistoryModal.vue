@@ -25,7 +25,7 @@ function fmtWhen(ms) {
 
 const LABEL = {
   new: '新規', add: '追加', overwrite: '上書き', remove: '削除',
-  set: '入力', flag_recount: '🔖 あとで数える', unflag_recount: 'フラグ解除',
+  set: '入力', flag_recount: 'あとで数える', unflag_recount: 'フラグ解除',
   order_set: '発注', order_clear: '発注取消',
 }
 const actionLabel = (a) => LABEL[a] ?? a ?? ''

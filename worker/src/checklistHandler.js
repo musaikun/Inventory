@@ -1,6 +1,6 @@
 // 毎日のチェック（中の項目＋繰り返し＋1日に何回も・User決定 2026-10-19・migration 0030・モック docs/mocks/journal-checklist-v3.html）。
 //
-// - ひな形（checklists）は店ごと。作る・直す・消すのは管理者だけ（ルーターで確かめる）
+// - ひな形（checklists）は店ごと。作るのは「やることを作る」を持つ人（ルーター）、直す・消すのは作った人と管理者（2026-11-05）
 // - ルーティン（2026-10-22）: 中の項目は任意。項目なし＝押せば済む1件（印の項目 id は '_'）
 // - 日・回ごとの✓（checklist_runs）は、その回の最初の✓でひな形の項目を写して作る。回は 'HH:MM'（時刻なしは ''）。あとで表を直しても、その日の記録は崩れない
 // - ✓・「今日はなし」の時刻はサーバーが刻む（端末の時計は使わない）。外せるのは付けた人がその日のうち（管理者はいつでも）
@@ -95,7 +95,7 @@ export async function handleChecklistsGet(db, code, sinceDays) {
  * POST /store/:code/checklists … 表を作る・直す・お休み・消す（管理者だけ・ルーターで確かめる）
  * @param {{ id: string, name: string }} who 作った人（新しく作るときだけ刻む）
  */
-export async function handleChecklistUpsert(db, code, body = {}, who = {}) {
+export async function handleChecklistUpsert(db, code, body = {}, who = {}, { admin = true } = {}) {
   const id = typeof body.id === 'string' ? body.id : ''
   const name = _short(body.name, CL_NAME_MAX)
   const items = cleanItems(body.items)
@@ -114,6 +114,10 @@ export async function handleChecklistUpsert(db, code, body = {}, who = {}) {
   if (assign === 'person' && !assigneeId) return { _status: 400, code: 'invalid_checklist', error: '担当の人を選んでください' }
   const prev = await db.prepare('SELECT shop_code, updated_at, created_by, created_by_id, created_at FROM checklists WHERE id = ?').bind(id).first()
   if (prev && prev.shop_code !== code) return { _status: 404, error: '見つかりません' }   // 他店舗のIDは存在を漏らさない
+  // スタッフが直せる・消せるのは自分が作ったものだけ（作るのは誰でも・User決定 2026-11-05）
+  if (prev && !admin && prev.created_by_id !== who.id) {
+    return { _status: 403, code: 'checklist_forbidden', error: 'このチェック表を直す・消すのは、作った人と管理者だけです' }
+  }
   const updatedAt = _iso(body.updatedAt) ?? _now()
   if (prev && prev.updated_at > updatedAt) return { ok: true, stale: true }
   const row = {

@@ -106,7 +106,7 @@ describe('発注セッションの戻る', () => {
     expect(movementPage()).toBeNull()
 
     const leave = host.querySelector('.home-btn')
-    expect(leave.textContent.trim()).toBe('🏠')
+    expect(leave.querySelector('svg'), 'ホームの線のアイコン').not.toBeNull()
     expect(leave.getAttribute('title')).toBe('ホームに戻る')
     await click(leave)
     // 🏠 は「中断してホームへ／破棄」を訊く（☰ をやめた・2026-10-04）

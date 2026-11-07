@@ -25,10 +25,15 @@ export const _showOrders    = ref(false)
  * 最初の画面が「とっつきにくい」（User 2026-09-30）。確認はブラウザの confirm をやめて
  * 下から出るシートで訊く（OK/キャンセルの意味が読みにくかった）。
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { isAuthenticated, storeName, logout, isAdmin, currentStaff, ROLE_LABELS, can, denyMessage, canSeeReport, ownerName } from '../composables/useAuth.js'
 import SettingsList from './SettingsList.vue'
+import ChecklistsPage from './ChecklistsPage.vue'
+import ChecklistRunSheet from './ChecklistRunSheet.vue'
+import ChecklistTemplatesPage from './ChecklistTemplatesPage.vue'
+import TaskAddSheet from './TaskAddSheet.vue'
 import StaffPage from './StaffPage.vue'
 import { staffPageOpen } from '../composables/staffNav.js'
 import DataPort from './DataPort.vue'
@@ -46,7 +51,7 @@ import ManagerDashboard from './ManagerDashboard.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import HomeFooterNav from './HomeFooterNav.vue'
 import HomeTop from './HomeTop.vue'
-import JournalPage, { journalDate } from './JournalPage.vue'
+import JournalPage, { openJournalDay } from './JournalPage.vue'
 import { localDateKey } from '../utils/localDate.js'
 import MasterManagePage from './MasterManagePage.vue'
 import AppMark from './AppMark.vue'
@@ -75,7 +80,7 @@ const tab = _persistedTab
 const tabsNow = () => ['home', 'sessions', 'calendar', 'report', 'dashboard'].filter(x => x !== 'report' || canSeeReport.value)
 const slideDir = ref('')                       // 'l' | 'r'（切り替えの動きの向き）
 // トップの「今日のやること」→ 日誌のリスト
-function openJournalList() { journalDate.value = localDateKey(); goTab('calendar') }
+function openJournalList() { openJournalDay(localDateKey()); goTab('calendar') }
 function goTab(next) {
   const tabs = tabsNow()
   if (!tabs.includes(next) || next === tab.value) return
@@ -269,6 +274,7 @@ const discardKind   = computed(() => (discardTarget.value?.type === 'order' ? '�
 const { allItems, baseOf, unitOf, reorderHorizon } = useStockView()
 const { setReorderPoint, setOrderAssumptions } = useConfig()
 const showOrderBase = ref(false)
+const routinesOpen = ref(false), routineRun = ref(null), templatesOpen = ref(false), taskAdd = ref(null)
 // スタッフの管理（段 2-1・管理者だけ）。ホームのカードと参加申請のやることから開く（2026-10-14・管理から移した）
 const showStaff = staffPageOpen
 
@@ -411,7 +417,7 @@ onUnmounted(registerInnerLayerCloser(() => {
     >
       <template #extra>
         <div class="manage">
-          <SettingsList part="top" @schedule="openSchedule" @order-base="_allowed('orderSettings') && (showOrderBase = true)" />
+          <SettingsList part="top" @schedule="openSchedule" @order-base="_allowed('orderSettings') && (showOrderBase = true)" @routines="routinesOpen = true" @templates="templatesOpen = true" />
         </div>
       </template>
       <template #bottom>
@@ -452,6 +458,11 @@ onUnmounted(registerInnerLayerCloser(() => {
     <HomeFooterNav :active="tab" @go="goTab" />
 
     <OrderScheduleModal v-if="showOrderSchedule" @close="showOrderSchedule = false" />
+    <!-- 業務: ルーティンの一覧とチェック表（設定から・User決定 2026-11-07） -->
+    <ChecklistsPage v-if="routinesOpen" @close="routinesOpen = false" @open-run="x => routineRun = x" @add="routinesOpen = false; taskAdd = {}" />
+    <ChecklistRunSheet v-if="routineRun" :cl="routineRun.cl" :date="routineRun.date" :slot="routineRun.slot || ''" @close="routineRun = null" />
+    <ChecklistTemplatesPage v-if="templatesOpen" @close="templatesOpen = false" @use-checklist="t => { templatesOpen = false; taskAdd = { checklist: t } }" @use-template="t => { templatesOpen = false; taskAdd = { template: t } }" />
+    <TaskAddSheet v-if="taskAdd" :checklist="taskAdd.checklist || null" :template="taskAdd.template || null" @close="taskAdd = null" @templates="taskAdd = null; templatesOpen = true" />
     <OrderBaseModal
       v-if="showOrderBase"
       :rows="orderBaseRows"
@@ -487,15 +498,15 @@ onUnmounted(registerInnerLayerCloser(() => {
         <template v-else-if="!hasOwnList">
           <div class="sh-t">品目がまだありません</div>
           <div class="sh-s">数えながら、その場で品目を登録できます。</div>
-          <button class="bb stock" type="button" :disabled="startingKind === 'stock'" @click="startStockEmpty">👥<span>数えながら登録して始める</span></button>
-          <button class="bb" type="button" @click="closeSheet(); pickItemFile()">📄<span>ファイルから品目を取り込む</span></button>
+          <button class="bb stock" type="button" :disabled="startingKind === 'stock'" @click="startStockEmpty"><LineIcon name="users" /><span>数えながら登録して始める</span></button>
+          <button class="bb" type="button" @click="closeSheet(); pickItemFile()"><LineIcon name="file" /><span>ファイルから品目を取り込む</span></button>
         </template>
         <template v-else>
           <div class="sh-t">棚卸を始める</div>
           <div class="sh-s">数えた数が、今の在庫として確定します。</div>
           <div class="info"><div>前回<b>{{ lastStock || 'まだありません' }}</b></div><div>数える品目<b>{{ itemCount }}</b></div></div>
-          <button class="bb stock" type="button" :disabled="startingKind === 'stock'" @click="startStock()">👤<span>ひとりで始める<small>この端末だけで数える</small></span></button>
-          <button class="bb stock-soft" type="button" :disabled="startingKind === 'stock'" @click="startStock({ room: true })">👥<span>みんなで始める<small>QRを出して、スタッフのスマホをつなぐ</small></span></button>
+          <button class="bb stock" type="button" :disabled="startingKind === 'stock'" @click="startStock()"><LineIcon name="user" /><span>ひとりで始める<small>この端末だけで数える</small></span></button>
+          <button class="bb stock-soft" type="button" :disabled="startingKind === 'stock'" @click="startStock({ room: true })"><LineIcon name="users" /><span>みんなで始める<small>QRを出して、スタッフのスマホをつなぐ</small></span></button>
           <!-- 破棄して24時間以内の棚卸は、ここから元に戻して続きから始める（ホームの上に帯を出さない・User決定 2026-10-04） -->
           <button
             v-for="d in discardedStock" :key="d.id" class="bb restore" type="button"
@@ -519,13 +530,13 @@ onUnmounted(registerInnerLayerCloser(() => {
         <template v-else>
           <div class="sh-t">発注を始める</div>
           <!-- 発注は確認・記録まで（仕入先へ送らない）。誤解すると実害が出るので、ここで1回はっきり言う -->
-          <div class="note orange">📝 <b>このアプリは発注内容の確認と記録までです。</b>仕入先へは送信されません。完了後に CSV やコピーで共有できます。</div>
+          <div class="note orange"><LineIcon name="note" /> <b>このアプリは発注内容の確認と記録までです。</b>仕入先へは送信されません。完了後に CSV やコピーで共有できます。</div>
           <div class="info">
             <div>要補充<b class="warn">{{ stockRef?.reorderCount ?? 0 }}品目</b></div>
             <div>今日の発注日<b>{{ todaySchedules.length ? todaySchedules.join('・') : 'なし' }}</b></div>
           </div>
-          <button class="bb order" type="button" :disabled="startingKind === 'order'" @click="startOrder()">🧾<span>ひとりで始める</span></button>
-          <button class="bb order-soft" type="button" :disabled="startingKind === 'order'" @click="startOrder({ room: true })">👥<span>みんなで発注する<small>QRを出して、スタッフのスマホをつなぐ</small></span></button>
+          <button class="bb order" type="button" :disabled="startingKind === 'order'" @click="startOrder()"><LineIcon name="receipt" /><span>ひとりで始める</span></button>
+          <button class="bb order-soft" type="button" :disabled="startingKind === 'order'" @click="startOrder({ room: true })"><LineIcon name="users" /><span>みんなで発注する<small>QRを出して、スタッフのスマホをつなぐ</small></span></button>
           <button
             v-for="d in discardedOrder" :key="d.id" class="bb restore" type="button"
             :disabled="restoringId === d.id" @click="restoreAndResume(d)"

@@ -4,6 +4,7 @@
  * 入口は1つずつにして、押してから種類を選ぶ（品目リスト／過去の納品／過去の棚卸）。書き出しは ExportSheet.vue。
  * ホームのカードから open('import' | 'export') で開く。取込の確認画面・列指定・PDF・読み方の保存もここに持つ
  */
+import LineIcon from './LineIcon.vue'
 import { can, denyMessage } from '../composables/useAuth.js'
 import { ref, computed, onUnmounted } from 'vue'
 import { settingsSection, registerInnerLayerCloser } from '../composables/appMenuState.js'
@@ -95,7 +96,7 @@ defineExpose({ open: openPicker })
         <template v-if="picker === 'import'">
           <div class="mm-row-wrap">
             <button class="mm-row" @click="runPick(() => settingsSection = 'import')">
-              <span class="mm-row-ico">📋</span>
+              <span class="mm-row-ico"><LineIcon name="clipboard" /></span>
               <span class="mm-row-body">
                 <span class="mm-row-title">品目リスト</span>
                 <span class="mm-row-sub">CSV・Excel から（PDF はβ）・既存の品目は消えません</span>
@@ -107,7 +108,7 @@ defineExpose({ open: openPicker })
           </div>
           <div class="mm-row-wrap">
             <button class="mm-row" @click="runPick(pickDelivery)">
-              <span class="mm-row-ico">🧾</span>
+              <span class="mm-row-ico"><LineIcon name="receipt" /></span>
               <span class="mm-row-body">
                 <span class="mm-row-title">過去の納品</span>
                 <span class="mm-row-sub">
@@ -125,7 +126,7 @@ defineExpose({ open: openPicker })
           </div>
           <div class="mm-row-wrap">
             <button class="mm-row" @click="runPick(pickStocktake)">
-              <span class="mm-row-ico">🧮</span>
+              <span class="mm-row-ico"><LineIcon name="calculator" /></span>
               <span class="mm-row-body">
                 <span class="mm-row-title">過去の棚卸</span>
                 <span class="mm-row-sub">

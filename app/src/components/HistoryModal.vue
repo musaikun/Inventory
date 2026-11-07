@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { ref, computed } from 'vue'
 import { useHistory } from '../composables/useHistory.js'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
@@ -150,7 +151,7 @@ function onDelete(snap) {
                     <tr v-for="it in group.items" :key="it.item">
                       <td class="td-name">
                         {{ it.item }}
-                        <span v-if="it.flagged" class="hist-flag-badge">🔖</span>
+                        <span v-if="it.flagged" class="hist-flag-badge"><LineIcon name="bookmark" /></span>
                       </td>
                       <td class="td-num">{{ it.qty }}{{ it.unit }}</td>
                       <td v-if="group.items.some(it2 => it2.unitPrice != null)" class="td-num">
@@ -180,7 +181,7 @@ function onDelete(snap) {
                 <tr v-for="it in detailView.items" :key="it.item">
                   <td class="td-name">
                     {{ it.item }}
-                    <span v-if="it.flagged" class="hist-flag-badge" title="あとで数えるフラグ付き">🔖</span>
+                    <span v-if="it.flagged" class="hist-flag-badge" title="あとで数えるフラグ付き"><LineIcon name="bookmark" /></span>
                   </td>
                   <td class="td-num">{{ it.qty }}{{ it.unit }}</td>
                   <td v-if="detailView.items.some(it2 => it2.unitPrice != null)" class="td-num">
@@ -225,8 +226,8 @@ function onDelete(snap) {
                 </div>
               </div>
               <div class="card-actions">
-                <button class="icon-btn" @click="onDownload(snap)" title="CSVダウンロード">💾</button>
-                <button class="icon-btn danger" @click="onDelete(snap)" title="削除">🗑</button>
+                <button class="icon-btn" @click="onDownload(snap)" title="CSVダウンロード"><LineIcon name="save" /></button>
+                <button class="icon-btn danger" @click="onDelete(snap)" title="削除"><LineIcon name="trash" /></button>
               </div>
             </div>
 

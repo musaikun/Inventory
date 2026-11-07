@@ -14,6 +14,7 @@
  * 送る形は ConfirmModal の発注と同じ（App の _applyOrderConfirm）:
  *   { ingredient, orderMode:true, stock, orderQty, stockOnly, unit, lot }
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import NumPad from './NumPad.vue'
 import NoteField from './NoteField.vue'
@@ -115,7 +116,7 @@ const COACH_STEPS = [
   <div class="modal-overlay" @click.self="emit('cancel')">
     <div class="modal-sheet os">
       <div class="sheet-handle"></div>
-      <div v-if="typingUser" class="os-typing">✏️ {{ typingUser }}が入力中…</div>
+      <div v-if="typingUser" class="os-typing"><LineIcon name="pencil" /> {{ typingUser }}が入力中…</div>
 
       <div class="os-head">
         <div class="os-name-row">
@@ -188,10 +189,10 @@ const COACH_STEPS = [
               <span :class="['cs-b', 'o', { hit: s === 1 || s === 3 }]">発注 {{ s === 3 ? 2 : 3 }}口</span>
               <span :class="['cs-b', 's', { hit: s === 2 }]">在庫 {{ s === 3 ? 2 : 3 }}玉</span>
             </div>
-            <span v-if="s === 0" class="cs-finger f0">👆</span>
-            <span v-if="s === 1" class="cs-finger f1">👆</span>
-            <span v-if="s === 2" class="cs-finger f2">👆</span>
-            <span v-if="s === 3" class="cs-finger f3">👆</span>
+            <span v-if="s === 0" class="cs-finger f0"><LineIcon name="pointer" /></span>
+            <span v-if="s === 1" class="cs-finger f1"><LineIcon name="pointer" /></span>
+            <span v-if="s === 2" class="cs-finger f2"><LineIcon name="pointer" /></span>
+            <span v-if="s === 3" class="cs-finger f3"><LineIcon name="pointer" /></span>
           </div>
         </template>
       </CoachDemo>

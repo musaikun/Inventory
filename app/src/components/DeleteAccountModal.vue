@@ -5,6 +5,7 @@
 // - 200 deleted / alreadyDeleted を受けてから端末のローカルデータを消去する
 // - 503 / 通信失敗では local token を先に消さず、同じ requestId で再試行できる
 // - 409（別requestId競合）は retryable:false。保存済みの元IDを保持し自動再送しない
+import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { useFocusTrap } from '../composables/useFocusTrap.js'
@@ -230,7 +231,7 @@ function onOverlay() {
         </div>
 
         <div class="da-warn-box">
-          <div class="da-warn-head">⚠️ 次のデータがすべて削除され、復元できません</div>
+          <div class="da-warn-head"><LineIcon name="alert" /> 次のデータがすべて削除され、復元できません</div>
           <ul class="da-warn-list">
             <li>品目リスト・辞書・単価</li>
             <li>棚卸データと履歴</li>

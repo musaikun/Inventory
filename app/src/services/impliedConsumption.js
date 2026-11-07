@@ -16,6 +16,12 @@
 import { findLine } from '../utils/lineIndex.js'
 
 function _ymd(s) { return (s || '').slice(0, 10) }
+function _countedDay(it) {
+  const ms = Number(it?.at)
+  if (it?.at == null || !Number.isFinite(ms) || ms <= 0) return ''
+  const t = new Date(ms)
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
+}
 
 /**
  * 品目の在庫観測点を日付昇順で返す。
@@ -27,7 +33,8 @@ export function stockObservations(item, snapshots = [], orders = []) {
   const obs = []
   for (const s of snapshots) {
     const it = findLine(s?.items, item, i => i.qty != null)
-    if (it) obs.push({ date: _ymd(s.date), qty: Number(it.qty), src: 'stocktake' })
+    // 日をまたいだ棚卸は、品目ごとに数えた日で区切る（行の at・ms。無ければ棚卸日・User決定 2026-11-05）
+    if (it) obs.push({ date: _countedDay(it) || _ymd(s.date), qty: Number(it.qty), src: 'stocktake' })
   }
   for (const o of orders) {
     const line = findLine(o?.lines, item, l => l.stock != null && l.stock !== '')

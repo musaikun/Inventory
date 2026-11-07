@@ -35,7 +35,7 @@ describe('入出庫ページ', () => {
   it('タブは入庫と出庫だけ。在庫・発注・設定の入口を持たない', async () => {
     await mountPage()
     const tabs = [...host.querySelectorAll('.mv-tab')].map(t => t.textContent.trim())
-    expect(tabs).toEqual(['📥 入庫', '📤 出庫'])
+    expect(tabs).toEqual(['入庫', '出庫'])
     expect(host.querySelector('.mv-gear')).toBeNull()
     expect(button('発注基準')).toBeUndefined()
     expect(host.querySelector('.mv-title').textContent).toContain('入出庫')

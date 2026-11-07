@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { ref, onMounted, onUnmounted } from 'vue'
 
@@ -92,7 +93,7 @@ onUnmounted(stop)
 
         <!-- エラー -->
         <div v-if="status === 'error'" class="scan-error">
-          <div class="scan-error-icon">📷</div>
+          <div class="scan-error-icon"><LineIcon name="camera" /></div>
           <p class="scan-error-msg">{{ errorMsg }}</p>
           <button class="btn btn-primary scan-retry-btn" @click="stop(); start()">再試行</button>
         </div>

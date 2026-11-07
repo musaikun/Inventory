@@ -8,6 +8,7 @@
  * - 参加申請のやること（kind 'staff_join'）は、押すとスタッフの画面を開く。承認・お断りで自動で完了
  * - showDate: 期限切れの一覧では時刻の代わりに日付を赤で出す
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed } from 'vue'
 import {
   toggleTask, removeTask, editTask, setTaskAssign, setTaskNote, isMyTask, isNewTask, isMarkedByMe, isAssignedToMe, TASK_TEXT_MAX, TASK_NOTE_MAX,
@@ -23,7 +24,7 @@ import { localDateKey } from '../utils/localDate.js'
 const props = defineProps({
   task: { type: Object, required: true },
   showDate: { type: Boolean, default: false },
-  mark: { type: String, default: '' },   // 文面の前の印（申し送りから作ったものは 🙏）
+  mark: { type: String, default: '' },   // 文面の前の印（申し送りから作ったもの）
 })
 const t = computed(() => props.task)
 
@@ -94,8 +95,8 @@ function save() {
     <component
       :is="canEdit || (isJoin && isAdmin) ? 'button' : 'span'" :type="canEdit || (isJoin && isAdmin) ? 'button' : undefined" class="tr-tx"
       :aria-label="isJoin ? (isAdmin ? 'スタッフの画面を開く' : undefined) : (canEdit ? `${t.text}を直す` : undefined)" @click="onText"
-    ><template v-if="t.visibility === 'admins'"><span class="tr-lock" title="管理者だけに見えるやること">🔒</span> </template><template v-if="mark">{{ mark }} </template>{{ t.text }}<template v-if="showDate && t.dueTime"> <span class="tr-sub-tm">{{ t.dueTime }}</span></template>
-      <small v-if="t.note" class="tr-note">📝 {{ t.note }}</small>
+    ><template v-if="t.visibility === 'admins'"><span class="tr-lock" title="管理者だけに見えるやること"><LineIcon name="lock" /></span> </template><template v-if="mark">{{ mark }} </template>{{ t.text }}<template v-if="showDate && t.dueTime"> <span class="tr-sub-tm">{{ t.dueTime }}</span></template>
+      <small v-if="t.note" class="tr-note"><LineIcon name="note" /> {{ t.note }}</small>
       <small v-if="assignNote" :class="['tr-assign', t.assign, { me: isAssignedToMe(t) }]">{{ assignNote }}</small>
       <small v-if="isJoin && !t.doneAt">{{ isAdmin ? '押すとスタッフの画面を開きます。承認・お断りで自動で完了します' : '管理者が承認・お断りすると自動で完了します' }}</small>
       <small v-if="!isJoin && (!isMyTask(t) || (t.doneAt && t.assign !== 'all'))">
@@ -115,7 +116,7 @@ function save() {
     </div>
     <label class="tr-some"><input v-model="fSomeday" type="checkbox" /> いつか（日付を決めない）</label>
     <label class="tr-lb">備考<textarea v-model="fNote" rows="2" :maxlength="TASK_NOTE_MAX" class="tr-in tr-note-in" placeholder="細かいこと・手順・連絡先など"></textarea></label>
-    <label v-if="isAdmin" class="tr-some"><input v-model="fAdmins" type="checkbox" /> 🔒 管理者だけに見せる</label>
+    <label v-if="isAdmin" class="tr-some"><input v-model="fAdmins" type="checkbox" /> <LineIcon name="lock" /> 管理者だけに見せる</label>
     <label v-if="hasStaff" class="tr-lb">担当
       <select v-model="fWho" class="tr-in">
         <!-- 「誰でも」「未定」は選べない（User決定 2026-10-28）。以前に付けたものは、直すまでそのまま見せる -->

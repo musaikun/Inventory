@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted } from 'vue'
 import DismissibleHint from './DismissibleHint.vue'
 import { useConfig } from '../composables/useConfig.js'
@@ -139,16 +140,16 @@ function onSave() {
   <div :class="['mv', mode]">
     <header class="mv-header">
       <button class="mv-back" @click="emit('back')">‹ 戻る</button>
-      <span class="mv-title">📥 入出庫</span>
+      <span class="mv-title"><LineIcon name="inbox" /> 入出庫</span>
       <span v-if="changed.length" class="mv-count">{{ changed.length }}品目</span>
     </header>
 
     <!-- モードタブ（スライド下線で切替可能を示す）-->
     <div class="mv-tabs">
       <button :class="['mv-tab', 'in', { on: mode === 'in' }]" @click="setMode('in')">
-        📥 入庫<span v-if="pendingOrders.length" class="mv-tab-badge">{{ pendingOrders.length }}</span>
+        <LineIcon name="inbox" /> 入庫<span v-if="pendingOrders.length" class="mv-tab-badge">{{ pendingOrders.length }}</span>
       </button>
-      <button :class="['mv-tab', 'out', { on: mode === 'out' }]" @click="setMode('out')">📤 出庫</button>
+      <button :class="['mv-tab', 'out', { on: mode === 'out' }]" @click="setMode('out')"><LineIcon name="upload" /> 出庫</button>
       <div class="mv-tab-ind" :class="mode" :style="{ transform: `translateX(${tabIndex * 100}%)` }"></div>
     </div>
     <DismissibleHint id="movement-swipe" class="mv-swipe-hint">‹ スワイプで切替 ›</DismissibleHint>
@@ -174,11 +175,11 @@ function onSave() {
         </div>
 
         <div v-if="mode === 'in' && draft.orderId" class="mv-linked">
-          🧾 {{ draft.orderLabel }} の発注を入庫にプリフィル済み
+          <LineIcon name="receipt" /> {{ draft.orderLabel }} の発注を入庫にプリフィル済み
           <button class="mv-linked-clear" @click="unlinkOrder">解除</button>
         </div>
         <div v-else-if="mode === 'in' && pendingOrders.length" class="mv-orders">
-          <div class="mv-orders-title">🧾 入庫として未反映の発注があります</div>
+          <div class="mv-orders-title"><LineIcon name="receipt" /> 入庫として未反映の発注があります</div>
           <div class="mv-orders-list">
             <div v-for="o in pendingOrders" :key="o.id" class="mv-order-row">
               <div class="mv-order-info">

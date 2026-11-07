@@ -64,7 +64,7 @@ describe('MovementPage — 棚卸・発注と同じ一覧', () => {
   // 取込はデータ管理へ集約した。同じ取込に2つの入口があると、どちらが正か分からなくなる。
   it('取込の入口を持たない（データ管理へ集約）', async () => {
     await mountPage()
-    for (const tab of ['📥 入庫', '📤 出庫']) {
+    for (const tab of ['入庫', '出庫']) {
       await openTab(tab)
       // ファイル選択も「取り込む」ボタンも持たない（案内文は残ってよい）
       expect(host.querySelector('input[type="file"]')).toBeNull()
@@ -75,7 +75,7 @@ describe('MovementPage — 棚卸・発注と同じ一覧', () => {
 
   it('入庫タブは棚卸と同じ一覧を出す', async () => {
     await mountPage()
-    await openTab('📥 入庫')
+    await openTab('入庫')
     expect(table()).not.toBeNull()
     expect(rowOf('トマト')).not.toBeUndefined()
     // 未入力は棚卸と同じ「—」表示
@@ -84,7 +84,7 @@ describe('MovementPage — 棚卸・発注と同じ一覧', () => {
 
   it('行タップで NumPad シートが開き、確定すると数量セルに入る', async () => {
     await mountPage()
-    await openTab('📥 入庫')
+    await openTab('入庫')
 
     await click(rowOf('トマト'))
     const sheet = host.querySelector('.mq-sheet')
@@ -101,7 +101,7 @@ describe('MovementPage — 棚卸・発注と同じ一覧', () => {
 
   it('金額列・連続入力・非表示スワイプを持ち込まない', async () => {
     await mountPage()
-    await openTab('📤 出庫')
+    await openTab('出庫')
     // 単価が入っていても在庫金額の列は出さない（入出庫は在庫金額の画面ではない）
     expect(host.querySelector('.th-amount')).toBeNull()
     expect(host.querySelector('.tap-continuous-toggle')).toBeNull()
@@ -119,7 +119,7 @@ describe('MovementPage — 棚卸・発注と同じ一覧', () => {
       },
     }))
     await mountPage()
-    await openTab('📤 出庫')
+    await openTab('出庫')
     await click(rowOf('トマト'))
     await click(button('3'))
     await click(button('この数量にする'))

@@ -706,6 +706,15 @@ export async function saveChecklistToD1(cl) {
   if (!shopCode.value) throw new Error('店舗にログインしていません')
   return _api(`/store/${shopCode.value}/checklists`, { method: 'POST', body: JSON.stringify(cl) })
 }
+/** やることのお気に入り（ひな形・migration 0035・2026-11-05） */
+export async function loadTemplatesFromD1() {
+  if (!shopCode.value) return null
+  return _api(`/store/${shopCode.value}/templates`).catch(() => null)
+}
+export async function saveTemplateToD1(t) {
+  if (!shopCode.value) throw new Error('店舗にログインしていません')
+  return _api(`/store/${shopCode.value}/templates`, { method: 'POST', body: JSON.stringify(t) })
+}
 /** 項目に✓・「今日はなし」・外す（state null）。印はサーバーで合流させる */
 export async function markChecklistInD1(id, date, body) {
   if (!shopCode.value) throw new Error('店舗にログインしていません')

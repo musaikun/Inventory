@@ -5,6 +5,7 @@
  * 中身は services/exportBuild.js、ファイルにするのは utils/exportFile.js。
  * 金額を見る権限（money）が無い人には、金額の切り替えを出さず、いつも金額なしで出す
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed, watch } from 'vue'
 import { can } from '../composables/useAuth.js'
 import { useConfig } from '../composables/useConfig.js'
@@ -150,16 +151,16 @@ defineExpose({ open })
       <!-- 種類 -->
       <div v-if="!kind" class="ex-box">
         <button type="button" class="ex-it" @click="open('items')">
-          <span class="ex-ic">📋</span><span class="ex-tx"><b>品目リスト</b><small>品目・単位・単価・分類・発注点など。このアプリにそのまま取り込めます</small></span><span class="ex-ar">›</span>
+          <span class="ex-ic"><LineIcon name="clipboard" /></span><span class="ex-tx"><b>品目リスト</b><small>品目・単位・単価・分類・発注点など。このアプリにそのまま取り込めます</small></span><span class="ex-ar">›</span>
         </button>
         <button type="button" class="ex-it" @click="open('stock')">
-          <span class="ex-ic">📦</span><span class="ex-tx"><b>棚卸結果</b><small>{{ snaps.length ? 'いつの棚卸か・何回分かを選べます' : '棚卸の記録がまだありません' }}</small></span><span class="ex-ar">›</span>
+          <span class="ex-ic"><LineIcon name="box" /></span><span class="ex-tx"><b>棚卸結果</b><small>{{ snaps.length ? 'いつの棚卸か・何回分かを選べます' : '棚卸の記録がまだありません' }}</small></span><span class="ex-ar">›</span>
         </button>
         <button type="button" class="ex-it" @click="open('orders')">
-          <span class="ex-ic">🧾</span><span class="ex-tx"><b>発注の記録</b><small>期間の発注（業者・品目・数量）</small></span><span class="ex-ar">›</span>
+          <span class="ex-ic"><LineIcon name="receipt" /></span><span class="ex-tx"><b>発注の記録</b><small>期間の発注（業者・品目・数量）</small></span><span class="ex-ar">›</span>
         </button>
         <button type="button" class="ex-it" @click="open('moves')">
-          <span class="ex-ic">📥</span><span class="ex-tx"><b>入出庫の記録</b><small>期間の入庫（納品）・出庫</small></span><span class="ex-ar">›</span>
+          <span class="ex-ic"><LineIcon name="inbox" /></span><span class="ex-tx"><b>入出庫の記録</b><small>期間の入庫（納品）・出庫</small></span><span class="ex-ar">›</span>
         </button>
       </div>
       <p v-if="!kind && !mayMoney" class="ex-note">金額は入りません（金額を見る権限がありません）。</p>

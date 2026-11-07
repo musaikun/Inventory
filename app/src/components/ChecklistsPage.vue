@@ -1,18 +1,18 @@
 <script setup>
 /**
  * ルーティンの一覧・作る/直す・記録（全画面・User決定 2026-10-19 / 2026-10-22・モック docs/mocks/journal-routine.html ③④）。
- * - 一覧: 毎日・毎週・毎月・1回だけに分けて並べる。「1つだけ」か「◯項目」か。見本は押すだけで始まる。お休み中は薄く
+ * - 一覧: 毎日・毎週・毎月・1回だけに分けて並べる。「1つだけ」か「◯項目」か。お休み中は薄く（見本はやめた・User決定 2026-11-07）
  * - 中の項目は任意（なし＝押せば済む1件、あり＝チェック表）。毎月は複数の日・月末も選べる
  * - 作る・直す（管理者だけ）: 上に「毎日 22:00 に、誰でも チェックする」と文で出す。名前・いつ（なし／毎日／曜日／毎月◯日）・
  *   時刻（いくつでも＝1日に何回も。冷蔵庫の温度など）・誰が（誰でも／人）・確かめること（並べ替え・消す）
  *   直した表は、まだ✓を付けていない日から効く（今日すでに✓を付けた分は前の項目のまま）
  * - 記録: 日ごとに1行。未完了・手つかずは赤で残す（持ち越さない）。「今日はなし」は理由つき
- * - スタッフは一覧と記録を見るだけ
+ * - スタッフも作れる（やることを作れる人・2026-11-05）。直すのは作った人と管理者
  */
 import { ref, computed, onUnmounted } from 'vue'
 import {
-  checklists, checklistRuns, canEditChecklists, saveChecklist, setChecklistPaused, removeChecklist, newItemId, startFromSample,
-  CHECKLIST_SAMPLES, CL_NAME_MAX, CL_ITEM_MAX, CL_ITEMS_MAX, CL_TIMES_MAX,
+  checklists, checklistRuns, canEditChecklists, canEditChecklist, saveChecklist, setChecklistPaused, removeChecklist, newItemId,
+  CL_NAME_MAX, CL_ITEM_MAX, CL_ITEMS_MAX, CL_TIMES_MAX,
 } from '../composables/useChecklists.js'
 import { staffNames } from '../composables/useAuth.js'
 import { isMeId } from '../composables/useDeviceId.js'
@@ -25,7 +25,8 @@ const props = defineProps({
   editOf:    { type: Object, default: null },   // 開いたらすぐこの表を直す
   create:    { type: Boolean, default: false }, // 開いたらすぐ作る
 })
-const emit = defineEmits(['close', 'open-run'])
+// 作るのは日誌の「＋」と同じ追加の画面（入口を1つに・2026-11-05）。親が TaskAddSheet を開く
+const emit = defineEmits(['close', 'open-run', 'add'])
 
 const view = ref(props.historyOf ? 'history' : 'list')   // list | edit | history
 const direct = !!(props.historyOf || props.editOf || props.create)   // 外から1つの画面を開いた（戻るで閉じる）
@@ -42,10 +43,6 @@ const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 const f = ref(null)
 function _blank() { return { id: null, name: '', items: [], repeat: 'daily', weekdays: [], monthDays: ['1'], startDate: localDateKey(), times: [], who: 'anyone', paused: false } }
 function openNew() { f.value = _blank(); timeDraft.value = ''; err.value = ''; view.value = 'edit' }
-async function useSample(sample) {
-  busy.value = true; err.value = ''
-  try { await startFromSample(sample) } catch (e) { err.value = e?.message || '作れませんでした' } finally { busy.value = false }
-}
 function openEdit(cl) {
   f.value = {
     id: cl.id, name: cl.name, items: cl.items.map(x => ({ ...x })), repeat: cl.repeat,
@@ -159,12 +156,12 @@ const title = computed(() => (view.value === 'edit' ? (f.value?.id ? f.value.nam
 
       <!-- ① 一覧 -->
       <div v-if="view === 'list'" class="cp-body">
-        <p class="cp-lead">毎日・毎週・毎月の決まった仕事です。日誌の一番上に今日の分が出て、誰がいつ済ませたか残ります。</p>
+        <p class="cp-lead">毎日・毎週・毎月の決まった仕事です。業務管理の一番上に今日の分が出て、誰がいつ済ませたか残ります。</p>
         <template v-for="g in groups" :key="g.k">
         <div class="cp-grp">{{ g.label }}</div>
         <div v-for="cl in g.items" :key="cl.id" :class="['cp-card', { off: cl.paused }]">
           <div class="cp-card-h"><b>{{ cl.name }}</b>
-            <button v-if="canEditChecklists" type="button" class="cp-link" @click="openEdit(cl)">直す ›</button>
+            <button v-if="canEditChecklist(cl)" type="button" class="cp-link" @click="openEdit(cl)">直す ›</button>
           </div>
           <div class="cp-meta">
             <span :class="['cp-pill', { off: cl.paused }]">{{ cl.paused ? 'お休み中' : whenLabel(cl) }}</span>
@@ -178,13 +175,7 @@ const title = computed(() => (view.value === 'edit' ? (f.value?.id ? f.value.nam
         </template>
         <p v-if="!lists.length" class="cp-empty">まだルーティンはありません</p>
         <template v-if="canEditChecklists">
-          <button type="button" class="cp-add" @click="openNew()">＋ 自分で作る</button>
-          <div class="cp-samp">
-            <div v-for="s in CHECKLIST_SAMPLES" :key="s.name" class="cp-samp-i">
-              <span><b>{{ s.name }}</b><small>{{ s.summary }}</small></span>
-              <button type="button" :disabled="busy" @click="useSample(s)">見本で始める</button>
-            </div>
-          </div>
+          <button type="button" class="cp-add" @click="emit('add')">＋ 自分で作る</button>
           <p v-if="err" class="cp-err" role="alert">{{ err }}</p>
         </template>
         <p v-else class="cp-empty">作る・直すのは管理者です</p>
@@ -193,7 +184,7 @@ const title = computed(() => (view.value === 'edit' ? (f.value?.id ? f.value.nam
       <!-- ② 作る・直す -->
       <form v-else-if="view === 'edit' && f" class="cp-body" @submit.prevent="save">
         <p class="cp-sentence"><b>{{ sentence.name }}</b>は<br><u>{{ sentence.when }}</u><u>{{ sentence.at }}</u>、<u>{{ sentence.who }}</u> {{ sentence.verb }}</p>
-        <label class="cp-f">名前<input v-model="f.name" type="text" :maxlength="CL_NAME_MAX" class="cp-in" placeholder="例：🌙 退店チェック／発注書の提出" /></label>
+        <label class="cp-f">名前<input v-model="f.name" type="text" :maxlength="CL_NAME_MAX" class="cp-in" placeholder="例：退店チェック／発注書の提出" /></label>
         <div class="cp-f">確かめること（任意）
           <p v-if="!f.items.length" class="cp-none-items">なし ＝ 押せば済む1件。項目を足すとチェック表になります</p>
           <div v-for="(it, i) in f.items" :key="it.id" class="cp-it">
@@ -290,7 +281,6 @@ const title = computed(() => (view.value === 'edit' ? (f.value?.id ? f.value.nam
 .cp-add { border: 2px dashed #a5f3fc; border-radius: 14px; padding: 12px; background: var(--surface); font: inherit; font-size: 14px; font-weight: 900; color: var(--primary); cursor: pointer; }
 .cp-add.small { padding: 8px; font-size: 13px; border-width: 1px; border-radius: 10px; }
 .cp-add:disabled { opacity: .5; }
-.cp-sample { margin: 0; text-align: center; font-size: 12px; color: var(--text-muted); }
 .cp-empty { margin: 0; padding: 10px 4px; text-align: center; font-size: 12.5px; color: var(--text-muted); }
 .cp-f { display: grid; gap: 6px; font-size: 12px; font-weight: 800; color: var(--text-muted); }
 .cp-in { width: 100%; min-height: 42px; border: 1px solid var(--border); border-radius: 10px; padding: 0 10px; font: inherit; font-size: 15px; background: var(--surface); color: var(--text); box-sizing: border-box; }
@@ -320,11 +310,6 @@ const title = computed(() => (view.value === 'edit' ? (f.value?.id ? f.value.nam
 .cp-none { font-size: 12.5px; font-weight: 700; color: var(--text-muted); }
 .cp-addt { min-height: 40px; border: 1px dashed #a5b4fc; border-radius: 10px; background: var(--surface); color: #4f46e5; font: inherit; font-size: 13px; font-weight: 800; padding: 0 12px; cursor: pointer; }
 .cp-addt:disabled { opacity: .5; }
-.cp-samp { display: grid; gap: 7px; }
-.cp-samp-i { display: flex; align-items: center; gap: 8px; border: 1px solid #c7d2fe; background: #eef2ff; border-radius: 12px; padding: 10px 12px; }
-.cp-samp-i span { flex: 1; display: grid; gap: 2px; color: #3730a3; font-size: 13.5px; }
-.cp-samp-i small { font-size: 11.5px; color: var(--text-muted); font-weight: 600; }
-.cp-samp-i button { flex: none; border: none; border-radius: 9px; background: #4f46e5; color: #fff; font: inherit; font-size: 12.5px; font-weight: 800; padding: 8px 10px; cursor: pointer; }
 .cp-rec-slots { display: flex; flex-wrap: wrap; gap: 4px; }
 .cp-rec-slots span { font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 999px; background: #fee2e2; color: #b91c1c; }
 .cp-rec-slots span.ok { background: #dcfce7; color: #166534; }

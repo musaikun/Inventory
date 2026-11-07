@@ -7,10 +7,12 @@
 // 画面には依存しない（材料は引数で受け取る）
 import { stockTimeLabel, fmtHm, fmtDuration } from './journalRecords.js'
 import { isSimple } from './checklistSchedule.js'
+import { localDateKey } from '../utils/localDate.js'
 
 const _hm = iso => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : fmtHm(d.getTime()) }
 // 並べるための時刻（'09:05'。fmtHm は '9:05' なので文字の順にならない）
 const _hhmm = v => { const d = new Date(v); return Number.isNaN(d.getTime()) ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
+const _key = ms => localDateKey(new Date(ms))
 const _md = k => { const [, m, d] = String(k).split('-').map(Number); return m ? `${m}/${d}` : '' }
 
 /**
@@ -54,18 +56,25 @@ export function buildDayTimeline({ date, today, tasks = [], late = [], carry = [
   for (const r of records) {
     if (r.kind === 'stock' && !r.imported && r.at != null && r.end != null && r.end > r.at) {
       const ref = { type: 'record', rec: r }
+      // 日をまたいだ棚卸は、この日の分だけ出す（始めた日: 開始〜翌日へ続く中断 ／ 終えた日: 前日からの再開〜完了・User決定 2026-11-05）
+      const d0 = new Date(date + 'T00:00:00').getTime(), d1 = d0 + 86400_000
+      const inDay = t => t >= d0 && t < d1
+      const multi = !inDay(r.at) || !inDay(r.end)
       const pauses = (r.pauses ?? []).map(p => ({ from: p.from, to: p.to }))
-      spans.push({ key: r.key, from: r.at, to: r.end, pauses })
-      out.push({ key: `${r.key}-s`, time: _hhmm(r.at), ev: 'start', span: r.key, kind: '棚卸', title: '棚卸 開始', sub: r.by || '', state: 'done', ref })
+      spans.push({ key: r.key, from: Math.max(r.at, d0), to: Math.min(r.end, d1 - 1), pauses: pauses.map(p => ({ from: Math.max(p.from, d0), to: Math.min(p.to, d1 - 1) })) })
+      if (inDay(r.at)) out.push({ key: `${r.key}-s`, time: _hhmm(r.at), ev: 'start', span: r.key, kind: '棚卸', title: '棚卸 開始', sub: r.by || '', state: 'done', ref })
       pauses.forEach((p, i) => {
-        out.push({ key: `${r.key}-p${i}`, time: _hhmm(p.from), ev: 'pause', span: r.key, kind: '棚卸', title: `中断 ${fmtDuration(p.to - p.from)}`, sub: `${fmtHm(p.from)}〜${fmtHm(p.to)}`, state: 'done', ref })
-        out.push({ key: `${r.key}-r${i}`, time: _hhmm(p.to), ev: 'resume', span: r.key, kind: '棚卸', title: '再開', sub: '', state: 'done', ref })
+        if (inDay(p.from)) out.push({ key: `${r.key}-p${i}`, time: _hhmm(p.from), ev: 'pause', span: r.key, kind: '棚卸', title: inDay(p.to) ? `中断 ${fmtDuration(p.to - p.from)}` : '中断（翌日に続く）', sub: inDay(p.to) ? `${fmtHm(p.from)}〜${fmtHm(p.to)}` : `${fmtHm(p.from)}〜 ${_md(_key(p.to))} ${fmtHm(p.to)}`, state: 'done', ref })
+        if (inDay(p.to)) out.push({ key: `${r.key}-r${i}`, time: _hhmm(p.to), ev: 'resume', span: r.key, kind: '棚卸', title: inDay(p.from) ? '再開' : '再開（前日から）', sub: inDay(p.from) ? '' : `${_md(_key(r.at))} ${fmtHm(r.at)} 開始`, state: 'done', ref })
       })
-      const crew = r.crew ?? []
+      const crew = (r.crew ?? []).filter(c => inDay(c.from))
       crew.forEach((c, i) => {
         out.push({ key: `${r.key}-j${i}`, time: _hhmm(c.from), ev: 'join', span: r.key, kind: '棚卸', title: `${c.name} ${c.count}品目`, sub: `${fmtHm(c.from)}〜${fmtHm(c.to)}`, state: 'done', ref })
       })
-      out.push({ key: `${r.key}-e`, time: _hhmm(r.end), ev: 'end', span: r.key, kind: '棚卸', title: r.title, sub: stockTimeLabel(r), state: 'done', ref, pauseCount: pauses.length, pauseMs: pauses.reduce((n, p) => n + (p.to - p.from), 0), crewCount: crew.length })
+      if (inDay(r.end)) {
+        const dayPauses = pauses.filter(p => inDay(p.from) && inDay(p.to))
+        out.push({ key: `${r.key}-e`, time: _hhmm(r.end), ev: 'end', span: r.key, kind: '棚卸', title: r.title, sub: stockTimeLabel(r), state: 'done', ref, pauseCount: dayPauses.length, pauseMs: dayPauses.reduce((n, p) => n + (p.to - p.from), 0), crewCount: crew.length, multi })
+      }
       continue
     }
     const sub = r.kind === 'stock' ? [stockTimeLabel(r), r.by].filter(Boolean).join(' ・ ') : [r.by, r.lines?.slice(0, 3).map(l => l.item).join('・')].filter(Boolean).join(' ・ ')

@@ -17,6 +17,7 @@
  * 自動判定が選択済みに見えるため、**すでに選ばれているものをもう一度押さないと進めない**
  * という状態になっていた。押す＝選ぶ、進む＝次へ、に分ける。
  */
+import LineIcon from './LineIcon.vue'
 import { ref, computed, watch, nextTick } from 'vue'
 import { pdfPagesToTable, rowsToCsv, suggestEdge, planLayout, detectLayout, pageHeads,
          oddRowIndexes, GRID_MAX } from '../utils/pdfGrid.js'
@@ -290,7 +291,7 @@ watch([rowStep, edges], () => { oddOnly.value = false })
         <template v-else>
           <div class="gs-bar">
             <span class="gs-bar-t">横{{ layout.cols }} × 縦{{ layout.rows }}（1ページに{{ count }}個）で読んだ表</span>
-            <button class="gs-back" @click="pdfOpen = true">📄 元のPDF</button>
+            <button class="gs-back" @click="pdfOpen = true"><LineIcon name="file" /> 元のPDF</button>
           </div>
 
           <p class="gs-guide">

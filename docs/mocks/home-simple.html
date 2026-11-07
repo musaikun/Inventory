@@ -1,0 +1,163 @@
+<title>シンプルなホーム</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* ホームを3つに（業務の札・棚卸/発注・お知らせ）。管理系は設定と在庫タブへ。案1（3つだけ）/案2（管理者だけ小さい列）を切り替えて見る */
+  :root {
+    color-scheme: light;
+    --page:#d3dfe3; --paper:#ffffff; --ink:#12303a; --muted:#4c6a72; --faint:#94a3b8; --line:#e2ecef; --line2:#cfdde2; --bg:#f4f7f8;
+    --pri:#0e7490; --priw:#ecfeff; --ord:#c2410c; --ordw:#fff7ed; --late:#dc2626; --latew:#fef2f2; --warn:#b45309; --warnw:#fffbeb;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:var(--page); color:var(--ink);
+    padding-block:20px 32px; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px));
+    display:flex; gap:28px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
+  .side { max-width:340px; display:grid; gap:10px; font-size:13px; line-height:1.7; color:var(--muted); }
+  .side h1 { font-size:19px; color:var(--ink); } .side b { color:var(--ink); }
+  .side ul { display:grid; gap:3px; } .side li { margin-left:18px; }
+  .sw { display:grid; gap:6px; background:var(--paper); border-radius:12px; padding:10px 12px; }
+  .sw > span { font-size:11.5px; font-weight:900; color:var(--ink); }
+  .sw div { display:flex; gap:5px; }
+  .sw button { flex:1; border:1.5px solid var(--line2); background:var(--paper); border-radius:9px; padding:7px 4px; font:inherit; font-size:12px; font-weight:800; color:var(--muted); cursor:pointer; }
+  .sw button.on { border-color:var(--pri); background:var(--priw); color:var(--pri); }
+  .phone { width:375px; max-width:100%; height:760px; background:var(--bg); border-radius:30px; overflow:hidden; display:flex; flex-direction:column;
+    box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; }
+  svg.i { width:1.15em; height:1.15em; vertical-align:-0.2em; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+  .scr { flex:1; overflow-y:auto; overflow-x:hidden; }
+  .hero { background:linear-gradient(150deg,#0e7490,#155e75); color:#fff; padding:18px 16px 16px; display:grid; gap:3px; }
+  .hero small { opacity:.85; font-weight:700; font-size:12px; } .hero b { font-size:18px; }
+  .wrap { padding:12px; display:grid; gap:10px; grid-template-columns:minmax(0,1fr); }
+  .note { border-radius:14px; padding:10px 12px; display:flex; gap:8px; align-items:center; font-size:13px; font-weight:800; border:1.5px solid; text-align:left; font-family:inherit; cursor:pointer; width:100%; }
+  .note.w { background:var(--warnw); border-color:#fcd34d; color:var(--warn); } .note.p { background:var(--priw); border-color:#a5f3fc; color:var(--pri); }
+  .note i { margin-left:auto; font-style:normal; font-size:12px; }
+  .gy { background:var(--paper); border:1.5px solid var(--line); border-radius:16px; padding:12px; display:grid; gap:9px; text-align:left; font:inherit; color:var(--ink); cursor:pointer; width:100%; }
+  .gy-h { display:flex; align-items:center; gap:6px; font-weight:900; font-size:14.5px; } .gy-h i { margin-left:auto; font-style:normal; font-size:12px; color:var(--pri); }
+  .tags { display:grid; grid-template-columns:repeat(4,1fr); gap:5px; }
+  .tg { border-radius:11px; padding:7px 2px; display:grid; gap:1px; text-align:center; background:var(--bg); }
+  .tg b { font-size:18px; font-variant-numeric:tabular-nums; } .tg small { font-size:10px; font-weight:800; color:var(--muted); }
+  .tg.late { background:var(--latew); } .tg.late b, .tg.late small { color:var(--late); }
+  .tg.stuck { background:var(--warnw); } .tg.stuck b, .tg.stuck small { color:var(--warn); }
+  .tg.mine { background:var(--priw); } .tg.mine b, .tg.mine small { color:var(--pri); }
+  .gy-n { font-size:12px; color:var(--muted); font-weight:700; }
+  .big { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .bb { border:none; border-radius:18px; padding:18px 10px 14px; display:grid; gap:6px; justify-items:center; font:inherit; color:#fff; cursor:pointer; }
+  .bb svg { width:30px; height:30px; } .bb b { font-size:16px; } .bb small { font-size:11px; font-weight:800; opacity:.9; }
+  .bb.st { background:linear-gradient(150deg,#0e7490,#0891b2); } .bb.od { background:linear-gradient(150deg,#c2410c,#ea580c); }
+  .live { display:inline-flex; align-items:center; gap:4px; background:rgba(255,255,255,.22); border-radius:999px; padding:1px 8px; }
+  .live::before { content:''; width:7px; height:7px; border-radius:50%; background:#a7f3d0; }
+  .adm { display:grid; gap:6px; }
+  .adm > span { font-size:11px; font-weight:900; color:var(--faint); padding-left:2px; }
+  .adm div { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .ab { background:var(--paper); border:1.5px solid var(--line); border-radius:12px; padding:9px 4px; display:flex; gap:5px; align-items:center; justify-content:center; font:inherit; font-size:12px; font-weight:800; color:var(--ink); cursor:pointer; position:relative; }
+  .ab svg { color:var(--pri); }
+  .bd { background:var(--late); color:#fff; font-size:9.5px; border-radius:999px; padding:0 5px; font-weight:900; }
+  /* 在庫 */
+  .hd { background:var(--paper); padding:12px 14px; display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--line); }
+  .hd b { font-size:17px; } .hd .sp { margin-left:auto; display:flex; gap:6px; }
+  .pill { border:1.5px solid var(--line2); background:var(--paper); border-radius:999px; padding:5px 10px; font:inherit; font-size:12px; font-weight:800; color:var(--muted); display:inline-flex; gap:4px; align-items:center; }
+  .pill.hi { border-color:var(--pri); color:var(--pri); background:var(--priw); box-shadow:0 0 0 3px #a5f3fc; }
+  .tbl { background:var(--paper); margin:10px 12px; border-radius:14px; overflow:hidden; }
+  .tbl .r { display:grid; grid-template-columns:1fr 60px 50px; padding:9px 12px; border-bottom:1px solid var(--line); font-size:13px; }
+  .tbl .r.h { font-size:11px; font-weight:900; color:var(--muted); background:var(--bg); } .tbl .r span:not(:first-child) { text-align:right; font-variant-numeric:tabular-nums; }
+  .tbl .c { padding:6px 12px; font-size:11px; font-weight:900; color:var(--pri); background:var(--priw); }
+  /* 設定 */
+  .grp { margin:10px 12px; background:var(--paper); border-radius:14px; overflow:hidden; }
+  .grp > span { display:block; padding:8px 12px 4px; font-size:11px; font-weight:900; color:var(--faint); }
+  .it { display:flex; align-items:center; gap:10px; padding:11px 12px; border-top:1px solid var(--line); font-size:13.5px; font-weight:700; }
+  .it svg { color:var(--pri); } .it i { margin-left:auto; font-style:normal; color:var(--faint); }
+  .it.hi { background:var(--priw); }
+  .cap { margin:4px 16px; font-size:11.5px; color:var(--muted); }
+  .nav { display:flex; background:var(--paper); border-top:1px solid var(--line); padding:6px 0 10px; }
+  .nav button { flex:1; border:none; background:none; font:inherit; font-size:10.5px; font-weight:800; color:var(--faint); display:grid; justify-items:center; gap:2px; cursor:pointer; }
+  .nav button svg { width:22px; height:22px; } .nav button.on { color:var(--pri); }
+  button:focus-visible { outline:3px solid #a5f3fc; outline-offset:1px; }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></symbol>
+  <symbol id="i-gy" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></symbol>
+  <symbol id="i-set" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></symbol>
+  <symbol id="i-cart" viewBox="0 0 24 24"><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.7 12.4a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L21 7H6"/></symbol>
+  <symbol id="i-data" viewBox="0 0 24 24"><path d="M8 4v12M4 12l4 4 4-4M16 20V8M12 12l4-4 4 4"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 24 24"><path d="M3 6h13M3 12h9M3 18h5M17 10v10M14 17l3 3 3-3"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M16 3.1a4 4 0 0 1 0 7.8M22 21a7 7 0 0 0-5-6.7"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/></symbol>
+  <symbol id="i-store" viewBox="0 0 24 24"><path d="M3 9l1.5-5h15L21 9M3 9h18v2a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0zM5 13v8h14v-8"/></symbol>
+</svg>
+
+<div class="side">
+  <h1>ホームを3つに</h1>
+  <div>画面は触れます。下のメニューで 在庫・設定 も見られ、移した先が光ります。</div>
+  <div class="sw"><span>案</span><div id="sw-plan"></div></div>
+  <div class="sw"><span>見ている人</span><div id="sw-role"></div></div>
+  <ul>
+    <li>ホームは <b>お知らせ（ある時だけ）・業務の札・棚卸／発注</b></li>
+    <li>品目リスト整理 → <b>在庫タブ</b>の上「整理」</li>
+    <li>データ・スタッフ → <b>設定</b>の「店の管理」</li>
+    <li>スタッフの承認待ちは、ホームのお知らせから直接開く</li>
+    <li>案2は管理者だけ、ホームの下に小さい列を残す</li>
+  </ul>
+</div>
+
+<div class="phone">
+  <div class="scr" id="scr"></div>
+  <nav class="nav" id="nav"></nav>
+</div>
+
+<script>
+let plan = 1, role = 'admin', tab = 'home'
+const ic = n => `<svg class="i"><use href="#i-${n}"/></svg>`
+const NAV = [['home', 'ホーム', 'home'], ['stock', '在庫', 'box'], ['gy', '業務', 'gy'], ['report', 'レポート', 'chart'], ['set', '設定', 'set']]
+function home() {
+  const adm = role === 'admin'
+  return `<div class="hero"><small>11月6日（金）・晴れ 18℃</small><b>${adm ? '高木（店長）' : '山田'}</b></div>
+  <div class="wrap">
+    ${adm ? `<button class="note w" data-tab="set">${ic('users')}スタッフの参加待ち 1人<i>開く ›</i></button>` : ''}
+    <button class="note p">${ic('bell')}今日は発注日・締切 15:00<i>›</i></button>
+    <button class="gy"><span class="gy-h">${ic('gy')}業務<i>開く ›</i></span>
+      <span class="tags"><span class="tg late"><b>1</b><small>遅れ</small></span><span class="tg late"><b>1</b><small>期限切れ</small></span><span class="tg stuck"><b>1</b><small>止まっている</small></span><span class="tg mine"><b>${adm ? 3 : 2}</b><small>自分の</small></span></span>
+      <span class="gy-n">次：15:00 揚げ油の交換（佐藤）</span></button>
+    <div class="big">
+      <button class="bb st">${ic('mic')}<b>棚卸</b><small><span class="live">2人が数えている</span></small></button>
+      <button class="bb od">${ic('cart')}<b>発注</b><small>まだ</small></button>
+    </div>
+    ${adm && plan === 2 ? `<div class="adm"><span>店長だけ</span><div>
+      <button class="ab" data-tab="set">${ic('data')}データ</button>
+      <button class="ab" data-tab="stock">${ic('sort')}整理</button>
+      <button class="ab" data-tab="set">${ic('users')}スタッフ<span class="bd">1</span></button></div></div>` : ''}
+  </div>`
+}
+function stock() {
+  const rows = [['冷蔵', [['豚バラ', '3.5kg', '2'], ['卵', '4パック', '1']]], ['乾物', [['パスタ', '12袋', '0'], ['米', '20kg', '1']]]]
+  return `<div class="hd"><b>在庫</b><span class="sp">${role === 'admin' ? `<span class="pill hi">${ic('sort')}整理</span>` : ''}<span class="pill">入出庫</span></span></div>
+  <div class="tbl"><div class="r h"><span>品目</span><span>在庫</span><span>発注</span></div>
+  ${rows.map(([c, rs]) => `<div class="c">${c}</div>` + rs.map(r => `<div class="r"><span>${r[0]}</span><span>${r[1]}</span><span>${r[2]}</span></div>`).join('')).join('')}</div>
+  ${role === 'admin' ? '<p class="cap">「整理」= 今の「品目リスト整理」（分類・数える順・導線）</p>' : ''}`
+}
+function settings() {
+  const adm = role === 'admin'
+  return `<div class="hd"><b>設定</b></div>
+  ${adm ? `<div class="grp"><span>店の管理</span>
+    <div class="it hi">${ic('users')}スタッフ<span class="bd" style="margin-left:6px">1</span><i>›</i></div>
+    <div class="it hi">${ic('data')}データ（取り込み・書き出し）<i>›</i></div>
+    <div class="it">${ic('store')}店の情報<i>›</i></div></div>` : ''}
+  <div class="grp"><span>この端末</span>
+    <div class="it">${ic('bell')}知らせ<i>›</i></div>
+    <div class="it">${ic('mic')}音声入力<i>›</i></div></div>`
+}
+function render() {
+  document.getElementById('sw-plan').innerHTML = [[1, '案1：3つだけ'], [2, '案2：店長だけ小さい列']].map(([k, l]) => `<button class="${plan === k ? 'on' : ''}" data-plan="${k}">${l}</button>`).join('')
+  document.getElementById('sw-role').innerHTML = [['admin', '店長'], ['staff', 'スタッフ']].map(([k, l]) => `<button class="${role === k ? 'on' : ''}" data-role="${k}">${l}</button>`).join('')
+  document.getElementById('nav').innerHTML = NAV.filter(n => role === 'admin' || n[0] !== 'report').map(([k, l, i]) => `<button class="${tab === k ? 'on' : ''}" data-tab="${k}">${ic(i)}${l}</button>`).join('')
+  document.getElementById('scr').innerHTML = tab === 'stock' ? stock() : tab === 'set' ? settings() : tab === 'home' ? home()
+    : `<div class="hd"><b>${NAV.find(n => n[0] === tab)[1]}</b></div><p class="cap" style="margin:16px">（この画面は別のモック）</p>`
+}
+document.addEventListener('click', e => {
+  const p = e.target.closest('[data-plan]'); if (p) { plan = +p.dataset.plan; tab = 'home'; render(); return }
+  const r = e.target.closest('[data-role]'); if (r) { role = r.dataset.role; if (role === 'staff' && tab === 'report') tab = 'home'; render(); return }
+  const t = e.target.closest('[data-tab]'); if (t) { tab = t.dataset.tab; render() }
+})
+render()
+</script>

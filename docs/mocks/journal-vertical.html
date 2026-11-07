@@ -1,0 +1,223 @@
+<title>日誌の縦の業務管理</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* スマホの縦で、数十人の店の1日。採るのは 標準作業（チェック表）・アンドン（異常だけ光らせる）・カンバン（状態の段）の3つだけ。アプリの明るい見た目の1テーマ */
+  :root {
+    color-scheme: light;
+    --page:#d3dfe3; --paper:#ffffff; --ink:#12303a; --muted:#4c6a72; --faint:#94a3b8; --line:#e2ecef; --line2:#cfdde2; --bg:#f4f7f8;
+    --pri:#0e7490; --priw:#ecfeff; --late:#dc2626; --latew:#fef2f2; --warn:#b45309; --warnw:#fffbeb; --ok:#15803d; --okw:#f0fdf4; --cl:#7c3aed; --clw:#f5f3ff;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:var(--page); color:var(--ink);
+    padding-block:20px 32px; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px));
+    display:flex; gap:28px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
+  .side { max-width:340px; display:grid; gap:10px; font-size:13px; line-height:1.7; color:var(--muted); }
+  .side h1 { font-size:19px; color:var(--ink); text-wrap:balance; }
+  .side b { color:var(--ink); }
+  .side ol { display:grid; gap:4px; } .side li { margin-left:18px; }
+  .phone { width:375px; max-width:100%; height:760px; background:var(--bg); border-radius:30px; overflow:hidden; display:flex; flex-direction:column;
+    box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; position:relative; }
+  .hd { background:var(--paper); padding:12px 14px 8px; display:grid; gap:8px; border-bottom:1px solid var(--line); }
+  .hd-t { display:flex; align-items:baseline; gap:8px; } .hd-t b { font-size:17px; } .hd-t small { color:var(--muted); font-weight:700; font-size:12px; }
+  .hd-t .ring { margin-left:auto; font-size:12px; font-weight:900; color:var(--pri); background:var(--priw); border-radius:999px; padding:3px 10px; }
+  /* アンドン */
+  .andon { display:flex; gap:6px; }
+  .an { flex:1; border:1.5px solid var(--line2); background:var(--paper); border-radius:12px; padding:7px 6px; display:grid; gap:1px; text-align:center; cursor:pointer; font:inherit; color:var(--ink); }
+  .an b { font-size:18px; font-variant-numeric:tabular-nums; } .an small { font-size:10.5px; font-weight:800; color:var(--muted); }
+  .an.late { border-color:#fca5a5; background:var(--latew); } .an.late b, .an.late small { color:var(--late); }
+  .an.none { border-color:#fcd34d; background:var(--warnw); } .an.none b, .an.none small { color:var(--warn); }
+  .an.zero { opacity:.55; }
+  .an.on { box-shadow:inset 0 0 0 2px currentColor; }
+  /* 人のチップ */
+  .people { display:flex; gap:6px; overflow-x:auto; padding-bottom:2px; scrollbar-width:none; }
+  .people::-webkit-scrollbar { display:none; }
+  .pc { flex:none; display:flex; align-items:center; gap:5px; border:1.5px solid var(--line2); background:var(--paper); border-radius:999px; padding:3px 10px 3px 3px; font:inherit; font-size:12px; font-weight:800; color:var(--ink); cursor:pointer; white-space:nowrap; }
+  .pc .av { width:24px; height:24px; border-radius:50%; background:#e2e8f0; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:900; position:relative; }
+  .pc .av i { position:absolute; right:-2px; top:-2px; width:9px; height:9px; border-radius:50%; background:var(--late); border:1.5px solid #fff; }
+  .pc small { color:var(--muted); font-weight:700; }
+  .pc.on { border-color:var(--pri); background:var(--priw); color:var(--pri); }
+  .pc.all { padding-left:10px; }
+  /* 見方 */
+  .tabs { display:flex; background:var(--paper); border-bottom:1px solid var(--line); }
+  .tabs button { flex:1; border:none; background:none; font:inherit; font-size:13px; font-weight:900; color:var(--muted); padding:10px 0; cursor:pointer; border-bottom:2.5px solid transparent; }
+  .tabs button.on { color:var(--pri); border-bottom-color:var(--pri); }
+  .body { flex:1; overflow-y:auto; padding:10px 12px 90px; display:grid; gap:8px; align-content:start; grid-auto-rows:max-content; }
+  .note { font-size:11.5px; color:var(--muted); font-weight:700; padding:0 2px; }
+  /* 今日: 時間が縦 */
+  .row { display:grid; grid-template-columns:44px 1fr; gap:8px; align-items:start; }
+  .tm { font-size:12px; font-weight:800; color:var(--muted); padding-top:12px; text-align:right; font-variant-numeric:tabular-nums; }
+  .card { background:var(--paper); border:1.5px solid var(--line); border-radius:14px; padding:9px 10px; display:grid; grid-template-columns:28px 1fr auto; gap:8px; align-items:center; cursor:pointer; }
+  .card .ck { width:26px; height:26px; border-radius:50%; border:2px solid #cbd5e1; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:900; color:#fff; background:#fff; }
+  .card.done .ck { background:var(--ok); border-color:var(--ok); }
+  .card.done .tt b { color:var(--faint); text-decoration:line-through; }
+  .card.late { border-color:#fca5a5; background:var(--latew); } .card.late .ck { border-color:var(--late); }
+  .card.unassigned { border-style:dashed; border-color:#fcd34d; }
+  .tt b { font-size:14px; display:block; } .tt small { font-size:11px; color:var(--muted); font-weight:700; }
+  .tag { font-size:10px; font-weight:900; border-radius:6px; padding:1px 6px; }
+  .tag.cl { background:var(--clw); color:var(--cl); } .tag.lt { background:var(--late); color:#fff; } .tag.na { background:var(--warnw); color:var(--warn); }
+  .who { display:flex; align-items:center; gap:4px; font-size:11px; font-weight:800; color:var(--muted); }
+  .who .av { width:22px; height:22px; border-radius:50%; background:#e2e8f0; display:flex; align-items:center; justify-content:center; font-size:10.5px; font-weight:900; color:var(--ink); }
+  .now { display:grid; grid-template-columns:44px 1fr; gap:8px; align-items:center; }
+  .now span { font-size:11px; font-weight:900; color:var(--late); text-align:right; }
+  .now i { height:2px; background:var(--late); border-radius:2px; position:relative; }
+  .now i::before { content:''; position:absolute; left:-4px; top:-3px; width:8px; height:8px; border-radius:50%; background:var(--late); }
+  .prog { height:5px; border-radius:3px; background:#e2e8f0; overflow:hidden; grid-column:2 / -1; }
+  .prog span { display:block; height:100%; background:var(--cl); }
+  /* 人ごと */
+  .pr { background:var(--paper); border:1.5px solid var(--line); border-radius:14px; overflow:hidden; }
+  .pr-h { width:100%; border:none; background:none; font:inherit; display:grid; grid-template-columns:32px 1fr auto; gap:9px; align-items:center; padding:9px 10px; cursor:pointer; text-align:left; color:var(--ink); }
+  .pr-h .av { width:32px; height:32px; border-radius:50%; background:#e2e8f0; display:flex; align-items:center; justify-content:center; font-weight:900; }
+  .pr-h b { font-size:14px; } .pr-h small { display:block; font-size:11px; color:var(--muted); font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pr-h .bar { height:5px; border-radius:3px; background:#e2e8f0; overflow:hidden; margin-top:4px; } .pr-h .bar span { display:block; height:100%; background:var(--ok); }
+  .pr-h .n { font-size:12px; font-weight:900; color:var(--muted); text-align:right; } .pr-h .n.late { color:var(--late); }
+  .pr.late { border-color:#fca5a5; }
+  .pr-b { border-top:1px solid var(--line); padding:6px 10px 10px; display:grid; gap:6px; }
+  .mini { display:grid; grid-template-columns:40px 18px 1fr; gap:6px; align-items:center; font-size:12.5px; font-weight:700; }
+  .mini .t { color:var(--muted); font-variant-numeric:tabular-nums; font-size:11.5px; }
+  .mini .d { width:14px; height:14px; border-radius:50%; border:2px solid #cbd5e1; }
+  .mini.done .d { background:var(--ok); border-color:var(--ok); } .mini.done span:last-child { color:var(--faint); text-decoration:line-through; }
+  .mini.late .d { border-color:var(--late); } .mini.late span:last-child { color:var(--late); }
+  /* カンバン（縦の段） */
+  .lane { display:grid; gap:6px; }
+  .lane-h { display:flex; align-items:center; gap:6px; font-size:12.5px; font-weight:900; padding:4px 2px 0; }
+  .lane-h i { font-style:normal; font-size:11px; color:var(--muted); background:var(--paper); border-radius:999px; padding:0 8px; }
+  .lane-h.doing { color:var(--pri); } .lane-h.wait { color:var(--warn); } .lane-h.todo { color:var(--muted); } .lane-h.done { color:var(--ok); }
+  .kc { background:var(--paper); border:1.5px solid var(--line); border-radius:12px; padding:9px 10px; display:grid; gap:4px; }
+  .kc b { font-size:13.5px; } .kc small { font-size:11px; color:var(--muted); font-weight:700; }
+  .kc .mv { display:flex; gap:5px; margin-top:2px; }
+  .kc .mv button { border:1px solid var(--line2); background:var(--paper); border-radius:8px; padding:4px 9px; font:inherit; font-size:11px; font-weight:800; color:var(--pri); cursor:pointer; }
+  .kc.late { border-color:#fca5a5; }
+  .fab { position:absolute; right:16px; bottom:18px; width:54px; height:54px; border-radius:50%; border:none; background:var(--pri); color:#fff; font-size:28px; cursor:pointer; box-shadow:0 6px 16px rgba(14,116,144,.4); }
+  .empty { text-align:center; font-size:12.5px; color:var(--muted); padding:20px 0; }
+  button:focus-visible { outline:3px solid #a5f3fc; outline-offset:1px; }
+</style>
+
+<div class="side">
+  <h1>日誌の縦の業務管理（スマホ・数十人）</h1>
+  <div>採るのは相性の良い<b>3つだけ</b>。右の画面は触れます（見本の店・保存しません）。</div>
+  <ol>
+    <li><b>標準作業・チェックリスト</b>：毎日のルーティンとチェック表が土台。今日の一覧に時刻の順で並び、項目の進み具合の棒が付く。</li>
+    <li><b>アンドン</b>：上の2つの札（遅れ・担当なし）。数十人を1人ずつ見なくても、困っているものだけ光る。押すとそれだけに絞る。</li>
+    <li><b>カンバン</b>：「進行中」の見方で、何日もかかるものを縦の段（まだ→進行中→待ち→済み）に。横の列はスマホで見にくいので使わない。</li>
+  </ol>
+  <div>人のチップは横にすべらせる（数十人でも1行）。赤い点＝遅れがある人。押すとその人だけ。「人ごと」は1人1行で、開くとその人の今日。</div>
+</div>
+
+<div class="phone">
+  <div class="hd">
+    <div class="hd-t"><b>11月6日（金）</b><small>今日</small><span class="ring" id="ring"></span></div>
+    <div class="andon" id="andon"></div>
+    <div class="people" id="people"></div>
+  </div>
+  <div class="tabs" role="tablist">
+    <button role="tab" data-v="today" class="on">今日</button>
+    <button role="tab" data-v="people">人ごと</button>
+    <button role="tab" data-v="kanban">進行中</button>
+  </div>
+  <div class="body" id="body"></div>
+  <button class="fab" aria-label="足す">＋</button>
+</div>
+
+<script>
+const NOW = 14 * 60 + 10
+const NAMES = ['佐藤','高木','山田','鈴木','田中','伊藤','渡辺','中村','小林','加藤','吉田','山本','松本','井上','木村','林','清水','山崎','森','池田','橋本','阿部','石川','前田']
+const people = NAMES.map((n, i) => ({ id: 'p' + i, name: n, role: i === 0 ? '店長' : i < 4 ? 'キッチン' : 'ホール' }))
+const P = id => people.find(p => p.id === id)
+// 見本の今日（時刻・担当・チェック表の進み）
+let items = [
+  { id: 'a', t: '09:00', text: '開店チェック', cl: [5, 5], who: 'p1', done: true },
+  { id: 'b', t: '10:00', text: '冷蔵庫の温度（1回目）', who: 'p2', done: true },
+  { id: 'c', t: '10:30', text: '野菜の発注（締切）', who: 'p0', done: true },
+  { id: 'd', t: '11:00', text: 'ランチの仕込み', cl: [6, 8], who: 'p1' },
+  { id: 'e', t: '12:00', text: 'トイレ掃除', who: null },
+  { id: 'f', t: '13:00', text: 'ホールのモップがけ', who: 'p4' },
+  { id: 'g', t: '13:30', text: '納品の検品', cl: [1, 4], who: 'p0' },
+  { id: 'h', t: '15:00', text: '冷蔵庫の温度（2回目）', who: 'p2' },
+  { id: 'i', t: '15:00', text: 'ディナーの仕込み', cl: [0, 10], who: 'p3' },
+  { id: 'j', t: '17:00', text: '看板を出す', who: null },
+  { id: 'k', t: '17:30', text: 'ホールの準備', cl: [0, 6], who: 'p5' },
+  { id: 'l', t: '20:00', text: '冷蔵庫の温度（3回目）', who: 'p2' },
+  { id: 'm', t: '22:30', text: '閉店チェック', cl: [0, 6], who: 'p6' },
+]
+for (let i = 7; i < 24; i++) items.push({ id: 'z' + i, t: ['16:00', '18:00', '19:00', '21:00'][i % 4], text: ['ドリンクの補充', 'ゴミ出し', 'テーブル拭き', 'レジ締め'][i % 4], who: 'p' + i })
+let kanban = [
+  { id: 'k1', text: '製氷機の修理の手配', who: 'p0', st: 'wait', sub: '業者から見積もり待ち・3日目' },
+  { id: 'k2', text: '新メニューの試作', who: 'p1', st: 'doing', sub: '6日目・期限を2日過ぎ', late: true },
+  { id: 'k3', text: '換気扇のフィルター交換', who: null, st: 'todo', sub: 'いつか' },
+  { id: 'k4', text: '倉庫の棚の整理', who: 'p7', st: 'doing', sub: '2日目' },
+  { id: 'k5', text: 'アルバイト募集の貼り紙', who: 'p0', st: 'done', sub: '昨日 済み' },
+]
+const min = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
+const isLate = x => !x.done && min(x.t) < NOW
+let view = 'today', personSel = '', andonSel = '', openP = new Set(['p1'])
+
+function render() {
+  const done = items.filter(x => x.done).length
+  document.getElementById('ring').textContent = `${done} / ${items.length} 済み`
+  const late = items.filter(isLate), none = items.filter(x => !x.who && !x.done)
+  const an = [['late', '遅れ', late.length], ['none', '担当なし', none.length]]
+  document.getElementById('andon').innerHTML = an.map(([k, l, n]) => `<button class="an ${k}${n ? '' : ' zero'}${andonSel === k ? ' on' : ''}" data-an="${k}"><b>${n}</b><small>${l}</small></button>`).join('')
+  const lateBy = new Set(late.map(x => x.who))
+  const countBy = id => items.filter(x => x.who === id).length
+  document.getElementById('people').innerHTML = `<button class="pc all${personSel ? '' : ' on'}" data-p="">全員 <small>${people.length}人</small></button>` +
+    people.map(p => `<button class="pc${personSel === p.id ? ' on' : ''}" data-p="${p.id}"><span class="av">${p.name[0]}${lateBy.has(p.id) ? '<i></i>' : ''}</span>${p.name}<small>${countBy(p.id)}</small></button>`).join('')
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.v === view))
+  const body = document.getElementById('body')
+  const pass = x => (!personSel || x.who === personSel) && (!andonSel || (andonSel === 'late' ? isLate(x) : !x.who && !x.done))
+  if (view === 'today') {
+    const list = items.filter(pass).sort((a, b) => min(a.t) - min(b.t))
+    let h = andonSel || personSel ? `<div class="note">${andonSel === 'late' ? '遅れているものだけ' : andonSel === 'none' ? '担当がいないものだけ' : ''}${personSel ? `${P(personSel).name}さんのものだけ` : ''}（もう一度押すと戻る）</div>` : ''
+    let nowShown = !!andonSel
+    for (const x of list) {
+      if (!nowShown && min(x.t) > NOW) { h += `<div class="now"><span>${Math.floor(NOW / 60)}:${String(NOW % 60).padStart(2, '0')}</span><i></i></div>`; nowShown = true }
+      const p = x.who ? P(x.who) : null
+      h += `<div class="row"><span class="tm">${x.t.replace(/^0/, '')}</span><div class="card${x.done ? ' done' : ''}${isLate(x) ? ' late' : ''}${!x.who && !x.done ? ' unassigned' : ''}" data-ck="${x.id}">
+        <span class="ck">${x.done ? '✓' : ''}</span>
+        <span class="tt"><b>${x.text}</b><small>${x.cl ? `<span class="tag cl">チェック表 ${x.cl[0]}/${x.cl[1]}</span> ` : ''}${isLate(x) ? '<span class="tag lt">遅れ</span> ' : ''}${!x.who && !x.done ? '<span class="tag na">担当なし</span>' : ''}</small></span>
+        <span class="who">${p ? `<span class="av">${p.name[0]}</span>${p.name}` : ''}</span>
+        ${x.cl ? `<span class="prog"><span style="width:${x.cl[0] / x.cl[1] * 100}%"></span></span>` : ''}
+      </div></div>`
+    }
+    body.innerHTML = h || '<p class="empty">ありません</p>'
+  } else if (view === 'people') {
+    const ps = people.filter(p => !personSel || p.id === personSel).map(p => {
+      const mine = items.filter(x => x.who === p.id).sort((a, b) => min(a.t) - min(b.t))
+      return { p, mine, late: mine.filter(isLate).length, done: mine.filter(x => x.done).length }
+    }).filter(r => r.mine.length && (!andonSel || (andonSel === 'late' && r.late))).sort((a, b) => b.late - a.late)
+    let h = '<div class="note">遅れのある人が上。押すとその人の今日</div>'
+    for (const r of ps) {
+      const next = r.mine.find(x => !x.done)
+      const o = openP.has(r.p.id)
+      h += `<div class="pr${r.late ? ' late' : ''}"><button class="pr-h" data-open="${r.p.id}"><span class="av">${r.p.name[0]}</span>
+        <span><b>${r.p.name}</b> <small style="display:inline">${r.p.role}</small><small>${next ? `次：${next.t.replace(/^0/, '')} ${next.text}` : '今日の分は全部済み'}</small><span class="bar"><span style="width:${r.done / r.mine.length * 100}%"></span></span></span>
+        <span class="n${r.late ? ' late' : ''}">${r.late ? `遅れ ${r.late}<br>` : ''}${r.done}/${r.mine.length} ${o ? '▲' : '▼'}</span></button>
+        ${o ? `<div class="pr-b">${r.mine.map(x => `<div class="mini${x.done ? ' done' : ''}${isLate(x) ? ' late' : ''}"><span class="t">${x.t.replace(/^0/, '')}</span><span class="d"></span><span>${x.text}${x.cl ? `（${x.cl[0]}/${x.cl[1]}）` : ''}</span></div>`).join('')}</div>` : ''}</div>`
+    }
+    const nobody = items.filter(x => !x.who && !x.done)
+    if (nobody.length && !personSel) h += `<div class="pr" style="border-style:dashed;border-color:#fcd34d"><button class="pr-h"><span class="av" style="background:var(--warnw);color:var(--warn)">？</span><span><b>担当なし</b><small>${nobody.map(x => x.text).join('・')}</small></span><span class="n">${nobody.length}</span></button></div>`
+    body.innerHTML = h
+  } else {
+    const L = [['todo', 'まだ'], ['doing', '進行中'], ['wait', '待ち'], ['done', '済み']]
+    const ks = kanban.filter(k => (!personSel || k.who === personSel) && (!andonSel || (andonSel === 'late' ? k.late : !k.who)))
+    let h = '<div class="note">何日もかかるもの。段は縦に（スマホで横の列は見にくい）。ボタンで次の段へ</div>'
+    for (const [st, lab] of L) {
+      const xs = ks.filter(k => k.st === st)
+      h += `<div class="lane"><div class="lane-h ${st}">${lab}<i>${xs.length}</i></div>` + xs.map(k => {
+        const p = k.who ? P(k.who) : null
+        const nexts = L.filter(([s]) => s !== st && s !== 'todo').map(([s, l]) => `<button data-mv="${k.id}" data-to="${s}">${l}へ</button>`).join('')
+        return `<div class="kc${k.late ? ' late' : ''}"><b>${k.text}</b><small>${p ? p.name + ' ・ ' : '担当なし ・ '}${k.sub}</small>${st !== 'done' ? `<div class="mv">${nexts}</div>` : ''}</div>`
+      }).join('') + '</div>'
+    }
+    body.innerHTML = h
+  }
+}
+document.addEventListener('click', e => {
+  const an = e.target.closest('[data-an]'); if (an) { andonSel = andonSel === an.dataset.an ? '' : an.dataset.an; render(); return }
+  const pc = e.target.closest('[data-p]'); if (pc) { personSel = personSel === pc.dataset.p ? '' : pc.dataset.p; render(); return }
+  const tb = e.target.closest('.tabs button'); if (tb) { view = tb.dataset.v; render(); return }
+  const ck = e.target.closest('[data-ck]'); if (ck) { const x = items.find(i => i.id === ck.dataset.ck); x.done = !x.done; if (x.cl) x.cl[0] = x.done ? x.cl[1] : x.cl[0]; render(); return }
+  const op = e.target.closest('[data-open]'); if (op) { const id = op.dataset.open; openP.has(id) ? openP.delete(id) : openP.add(id); render(); return }
+  const mv = e.target.closest('[data-mv]'); if (mv) { const k = kanban.find(x => x.id === mv.dataset.mv); k.st = mv.dataset.to; if (k.st === 'done') k.sub = '今日 済み'; render() }
+})
+render()
+</script>

@@ -1,4 +1,5 @@
 <script setup>
+import LineIcon from './LineIcon.vue'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { ref, computed } from 'vue'
 import { parseDeliveryImportCSV } from '../utils/deliveryImportParser.js'
@@ -127,7 +128,7 @@ function onImport() {
 
       <!-- 列名で判別できないファイルの受け皿。ここから列を自分で指定して取り込む -->
       <button v-if="parseError" class="map-columns-btn" @click="emit('mapColumns')">
-        🗂 列を指定して取り込む
+        <LineIcon name="folders" /> 列を指定して取り込む
       </button>
 
       <template v-else>

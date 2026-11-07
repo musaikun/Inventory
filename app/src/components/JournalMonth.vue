@@ -4,7 +4,7 @@
  * 1マスに出すのは 日付・祝日の名前・大きな業務の札2つまで（棚卸・発注・予定。先の日は点線）・下の帯1本（緑＝全部済み・黄＝一部・赤＝やり残し）。
  * 前後の月の日は薄く。押した日は pick(date, { col, row, rows }) で知らせる（そのマスから広がる）
  * 月を送るときは横に滑らせる（User決定 2026-10-26。次の月は右から、前の月は左から）
- * info(date) → { st: 'y'|'p'|'x'|'', tags: [{ label, kind: 'stock'|'order'|'plan', future }] }
+ * info(date) → { st: 'y'|'p'|'x'|'f'|'', tags: [{ label, kind: 'stock'|'order'|'plan', future }] }
  */
 import { ref, computed, watch } from 'vue'
 import { localDateKey } from '../utils/localDate.js'
@@ -17,7 +17,7 @@ const props = defineProps({
   selected: { type: String, default: '' },
   info: { type: Function, required: true },
 })
-const emit = defineEmits(['pick', 'settings'])
+const emit = defineEmits(['pick'])
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 const _d = k => new Date(k + 'T00:00:00')
 
@@ -53,7 +53,7 @@ const cells = computed(() => {
 })
 const rowsN = computed(() => cells.value[0]?.rows ?? 5)
 const swipe = useHorizontalSwipe({ onLeft: () => step(1), onRight: () => step(-1), threshold: 60 })
-const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し' }
+const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し', f: '予定あり' }
 </script>
 
 <template>
@@ -63,7 +63,6 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し' }
       <button v-if="!isThisMonth" type="button" class="jm-today" @click="goToday">今日</button>
       <button type="button" class="jm-nav" aria-label="前の月" @click="step(-1)">‹</button>
       <button type="button" class="jm-nav" aria-label="次の月" @click="step(1)">›</button>
-      <button type="button" class="jm-nav" aria-label="ルーティンの設定" @click="emit('settings')">🔁</button>
     </header>
     <div class="jm-w"><span v-for="(w, i) in WEEK" :key="w" :class="{ sun: i === 0, sat: i === 6 }">{{ w }}</span></div>
     <div :key="`${ym.y}-${ym.m}`" :class="['jm-grid', slide && `slide-${slide}`]" :style="{ gridTemplateRows: `repeat(${rowsN}, minmax(0, 1fr))` }">
@@ -79,7 +78,7 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し' }
         <i :class="['st', c.info.st]"></i>
       </button>
     </div>
-    <div class="jm-leg"><span><i class="y"></i>全部済み</span><span><i class="p"></i>一部</span><span><i class="x"></i>やり残し</span></div>
+    <div class="jm-leg"><span><i class="y"></i>全部済み</span><span><i class="p"></i>一部</span><span><i class="x"></i>やり残し</span><span><i class="f"></i>予定あり</span></div>
   </div>
 </template>
 
@@ -113,9 +112,9 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し' }
 .tag.stock { background: #e0f4f8; color: #0b5f73; } .tag.order { background: #fdeedd; color: #9a4a07; } .tag.plan { background: #efe9fd; color: #5b33b6; }
 .tag.fut { background: transparent; border: 1px dashed currentColor; }
 .st { margin-top: auto; align-self: stretch; height: 5px; border-radius: 3px; }
-.st.y { background: #22a55a; } .st.p { background: #e89b0c; } .st.x { background: #dc3b3b; }
+.st.y { background: #22a55a; } .st.p { background: #e89b0c; } .st.x { background: #dc3b3b; } .st.f { background: #3b82f6; }
 .jm-leg { display: flex; justify-content: center; gap: 14px; padding: 7px 10px; border-top: 1px solid #e3ecef; font-size: 10.5px; font-weight: 700; color: var(--text-muted); }
 .jm-leg span { display: flex; align-items: center; gap: 4px; }
 .jm-leg i { width: 16px; height: 5px; border-radius: 3px; }
-.jm-leg i.y { background: #22a55a; } .jm-leg i.p { background: #e89b0c; } .jm-leg i.x { background: #dc3b3b; }
+.jm-leg i.y { background: #22a55a; } .jm-leg i.p { background: #e89b0c; } .jm-leg i.x { background: #dc3b3b; } .jm-leg i.f { background: #3b82f6; }
 </style>

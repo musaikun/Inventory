@@ -33,7 +33,7 @@ afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null })
 describe('設定タブ', () => {
   it('オーナー: お店・発注。店名はその場で変えられる', async () => {
     await mount('top')
-    expect([...host.querySelectorAll('.sl-sec')].map(e => e.textContent)).toEqual(['お店', '発注'])
+    expect([...host.querySelectorAll('.sl-sec')].map(e => e.textContent)).toEqual(['お店', '業務', '発注'])
     expect(row('オーナーの名前').textContent).toContain('無才')
     await click(row('店名'))
     const input = host.querySelector('input[aria-label="店名"]')
@@ -55,7 +55,7 @@ describe('設定タブ', () => {
   it('スタッフ（アルバイト）: お店・発注・アカウントは出さない', async () => {
     staff = { id: 'st_a', name: '山田', role: 'arbeit' }; admin = false
     await mount('top')
-    expect(host.querySelectorAll('.sl-sec')).toHaveLength(1)   // お店（店名を見るだけ）
+    expect(host.querySelectorAll('.sl-sec')).toHaveLength(2)   // お店（店名を見るだけ）・業務（ルーティン・チェック表）
     expect(row('店名').disabled).toBe(true)
     expect(row('スタッフ')).toBeUndefined()
     expect(row('オーナーの名前')).toBeUndefined()

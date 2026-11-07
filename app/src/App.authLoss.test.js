@@ -107,7 +107,7 @@ function seedActiveSession() {
 
 describe('App — 401（別端末ログイン）で作業を消さない', () => {
   beforeEach(() => {
-    localStorage.clear(); sessionStorage.clear()
+    localStorage.clear(); localStorage.setItem('_journal_view_v1', 'list'); sessionStorage.clear()
     vi.clearAllMocks()
     authInvalidatedHandler = null
     linesCalls = []
@@ -174,7 +174,7 @@ describe('App — 401（別端末ログイン）で作業を消さない', () =>
 
 describe('App — 中身の無いスナップショットで詳細を騙らない', () => {
   beforeEach(() => {
-    localStorage.clear()
+    localStorage.clear(); localStorage.setItem('_journal_view_v1', 'list')
     vi.clearAllMocks()
     authInvalidatedHandler = null
     linesCalls = []
@@ -198,7 +198,7 @@ describe('App — 中身の無いスナップショットで詳細を騙らな�
     if (localHistory) localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(localHistory))
     await mountApp()
     // 日誌（月のカレンダー・2026-10-26）の今日を押してタイムライン。棚卸の行から詳細へ
-    ;[...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('日誌'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    ;[...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('業務管理'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 12; i++) await nextTick()
     await new Promise(r => setTimeout(r, 0))
     host.querySelector(`.jm-c[aria-label^="${TODAY}"]`)?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -244,7 +244,7 @@ describe('App — 中身の無いスナップショットで詳細を騙らな�
 // 消す前に、失効時点の店舗の未送信キューへ確定させる（送信はしない）。
 describe('App — 失効直前のデバウンス保存をキューへ残す', () => {
   beforeEach(() => {
-    localStorage.clear()
+    localStorage.clear(); localStorage.setItem('_journal_view_v1', 'list')
     vi.clearAllMocks()
     authInvalidatedHandler = null
     linesCalls = []

@@ -2,23 +2,26 @@
 /**
  * トップ（ホーム）。アプリを開いて最初の画面（User決定 2026-10-07・モック docs/mocks/home-top.html）。
  * - 上部: アイコンと同じ「暗い地に光る輪」に、日付・天気（あいさつはやめて帯を低くした・User決定 2026-10-30）
- * - 今日のやることの要約（進み具合の輪・期限切れ・次の時刻のもの）。押すと「やること」画面
- * - ボード（以前の「連絡」のトーク。「掲示板」から改名・User決定 2026-10-27 / 10-30）: 新しい貼り紙の数と、貼り紙2枚を付箋のように。押すとボード（BoardPage）
+ * - 今日のやること: 進み具合の輪と、気になる順の一覧（期限切れ・遅れ・止まっている・自分の・次の時刻。最大5行）。押すと業務管理
+ *   （User決定 2026-11-06・モック docs/mocks/home-trim.html。並べ方は services/homeAttention.js）
+ * - ボードは廃止（User決定 2026-11-06）。貼り紙のデータとサーバーはそのまま（消していない）
  * - 棚卸・発注が始まっていれば、ショートカットのアイコンで知らせる（進行中のカードはやめた・User決定 2026-10-27）。
  *   だれかがルームに入っていれば「進行中」（外の輪が回る）、だれもいなければ「中断中」（光って止まっている）
- * - ショートカット: 棚卸／発注／品目リスト整理／在庫／日誌／レポート／スタッフ／データ／設定（最大9枚・説明文なし・User決定 2026-10-26）。
+ * - ショートカット: 棚卸／発注／品目リスト整理／スタッフ／データ／設定（説明文なし・User決定 2026-10-26）。
+ *   在庫・業務管理・レポートは下のメニューと同じなので外した（User決定 2026-11-06）
  *   管理者には「スタッフ」も（承認待ちの数。管理から移した・User決定 2026-10-14）
  * 棚卸・発注は在庫タブの今のボタンからも始められる（両方に置く・User決定）。
  */
-import { ref, computed, onMounted } from 'vue'
-import { tasksOn, overdueTasks, isAssignedToMe, isMarkedByMe, pullTasks } from '../composables/useTasks.js'
-import { currentStaff, storeName, canSeeReport, isAuthenticated, isAdmin, can } from '../composables/useAuth.js'
+import LineIcon from './LineIcon.vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { tasksOn, overdueTasks, isAssignedToMe, isMarkedByMe, pullTasks, progressTasks, isStale } from '../composables/useTasks.js'
+import { checklistsForDay, pullChecklists } from '../composables/useChecklists.js'
+import { homeAttention } from '../services/homeAttention.js'
+import { storeName, isAuthenticated, isAdmin, can } from '../composables/useAuth.js'
 import { aliveTasks } from '../composables/useTasks.js'
 import { useWeather } from '../composables/useWeather.js'
 import { localDateKey } from '../utils/localDate.js'
 import { APP_NAME } from '../appInfo.js'
-import BoardPage from './BoardPage.vue'
-import { handoffs, unreadHandoffs, pullHandoffs } from '../composables/useHandoffs.js'
 import { useSortSetup } from '../composables/useSortSetup.js'
 import { useConfig } from '../composables/useConfig.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
@@ -35,22 +38,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['go', 'stock', 'order', 'resume', 'openTodo'])
 
-onMounted(() => { pullTasks(); pullHandoffs() })
-
-// ── ボード ──
-const boardOpen = ref(false)
-// ボードに出ているもの（タスクにして終わったものは外れる）。まだ見ていないものを先に2枚
-const boardPreview = computed(() => {
-  const done = new Set(aliveTasks.value.filter(t => t.doneAt).map(t => t.id))
-  const on = handoffs.value.filter(h => !(h.taskId && done.has(h.taskId)))
-  const fresh = on.filter(h => unreadHandoffs.value.includes(h))
-  return { fresh: fresh.length, list: [...fresh, ...on.filter(h => !fresh.includes(h))].slice(0, 2).map((h, i) => ({ h, fresh: fresh.includes(h), rot: i ? 1.5 : -2 })) }
-})
-const _ago = iso => {
-  const d = new Date(iso)
-  const day = localDateKey(d)
-  return day === localDateKey() ? `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}` : day === localDateKey(new Date(Date.now() - 86400_000)) ? '昨日' : `${d.getMonth() + 1}/${d.getDate()}`
-}
+onMounted(() => { pullTasks(); pullChecklists() })
 
 // ── 日付（あいさつは出さない・User決定 2026-10-30）──
 const now = new Date()
@@ -61,10 +49,10 @@ const { state: weatherState } = useWeather()
 const today = localDateKey()
 const wx = computed(() => {
   const w = weatherState.weather?.[today]
-  if (!w) return ''
+  if (!w) return null
   const t = w.tempHi != null ? `${Math.round(w.tempHi)}°` : ''
   const pop = w.pop != null ? `降水 ${w.pop}%` : ''
-  return [`${w.icon} ${t}`.trim(), weatherState.loc?.name || '', pop].filter(Boolean).join(' ・ ')
+  return { icon: w.icon, text: [t, weatherState.loc?.name || '', pop].filter(Boolean).join(' ・ ') }   // アイコンは線のアイコンで（2026-11-05）
 })
 
 // ── 今日のやること ──
@@ -73,23 +61,26 @@ const late = computed(() => overdueTasks(today))
 const doneOf = t => !!t.doneAt   // 「全員」は全員の印がそろったときにサーバーが doneAt を立てる
 const doneCount = computed(() => todays.value.filter(doneOf).length)
 const total = computed(() => todays.value.length)
-const R = 30, C = 2 * Math.PI * R
+const R = 24, C = 2 * Math.PI * R
 const dash = computed(() => (total.value ? `${(doneCount.value / total.value) * C} ${C}` : `0 ${C}`))
-/** 要約に出す3行: 期限切れ → 今日のまだのもの（自分の担当を先に） */
-const preview = computed(() => {
-  const open = todays.value.filter(t => !(t.assign === 'all' ? isMarkedByMe(t) : t.doneAt))
-  const mine = open.filter(isAssignedToMe)
-  const rest = open.filter(t => !isAssignedToMe(t))
-  // 期限切れは1行にまとめる（溜まっていても今日の分が隠れないように）
-  const lateLine = late.value.length === 1
-    ? [{ t: late.value[0], tag: '期限切れ', late: true }]
-    : late.value.length ? [{ t: { id: '_late', text: `${late.value.length}件（古い日から）` }, tag: '期限切れ', late: true }] : []
-  return [
-    ...lateLine,
-    ...[...mine, ...rest].sort((a, b) => (a.dueTime || '99').localeCompare(b.dueTime || '99'))
-      .map(t => ({ t, tag: t.dueTime || '今日', late: false })),
-  ].slice(0, 3)
-})
+// 気になる順の一覧（今の時刻は1分ごとに更新して、遅れを数え直す）
+const nowHm = ref('')
+const _tickNow = () => { const d = new Date(); nowHm.value = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
+_tickNow()
+let _nowTimer = null
+onMounted(() => { _nowTimer = setInterval(_tickNow, 60_000) })
+onUnmounted(() => clearInterval(_nowTimer))
+const attention = computed(() => homeAttention({
+  today: todays.value,
+  overdue: late.value,
+  stale: progressTasks.value.filter(isStale),
+  checklists: checklistsForDay(today),
+  now: nowHm.value,
+  isMine: isAssignedToMe,
+  isDone: t => (t.assign === 'all' ? isMarkedByMe(t) || !!t.doneAt : !!t.doneAt),
+}))
+const COUNT_LABELS = [['over', '期限切れ', 'l'], ['late', '遅れ', 'l'], ['stuck', '止まっている', 's'], ['mine', '自分の', 'm']]
+const countChips = computed(() => COUNT_LABELS.map(([k, label, cls]) => ({ k, label, cls, n: attention.value.counts[k] })).filter(c => c.n))
 
 // 承認待ち（参加申請のやることのうち、まだ決まっていないもの）
 const joinWaiting = computed(() => aliveTasks.value.filter(t => t.kind === 'staff_join' && !t.doneAt).length)
@@ -141,12 +132,6 @@ const shortcuts = computed(() => [
       : !hasRoute.value ? { text: 'まだ', kind: 'cy' }
       : routeStats.value.missing ? { text: `導線 ${routeStats.value.missing}`, kind: 'red' } : null,
     d: ['M4 6h10M4 12h16M4 18h7', 'M17 15l3 3-3 3'] }] : []),
-  { key: 'sessions', label: '在庫',
-    badge: props.reorderCount ? { text: String(props.reorderCount), kind: 'red' } : null,
-    d: ['M3 8l9-5 9 5v8l-9 5-9-5z', 'M3 8l9 5 9-5M12 13v8'] },
-  { key: 'calendar', label: '日誌',
-    d: ['M9 6h11M9 12h11M9 18h11', 'M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2'] },
-  ...(canSeeReport.value ? [{ key: 'report', label: 'レポート', d: ['M5 20V10M12 20V4M19 20v-7'] }] : []),
   ...(isAuthenticated.value && isAdmin.value ? [{
     key: 'staff', label: 'スタッフ',
     badge: joinWaiting.value ? { text: String(joinWaiting.value), kind: 'red' } : null, hot: !!joinWaiting.value,
@@ -196,43 +181,35 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
       </div>
       <div class="ht-hi">
         <b>{{ dateLabel }}</b>
-        <span v-if="wx" class="ht-wx">{{ wx }}</span>
+        <span v-if="wx" class="ht-wx"><LineIcon :name="wx.icon" /> {{ wx.text }}</span>
       </div>
     </section>
 
-    <button type="button" class="ht-today" aria-label="やることを開く" @click="emit('openTodo')">
-      <span class="ht-pr" aria-hidden="true">
-        <svg width="72" height="72" viewBox="0 0 72 72">
-          <circle cx="36" cy="36" :r="R" fill="none" stroke="#e2eef1" stroke-width="7" />
-          <circle cx="36" cy="36" :r="R" fill="none" :stroke="`url(#${gid})`" stroke-width="7" stroke-linecap="round" :stroke-dasharray="dash" transform="rotate(-90 36 36)" />
-        </svg>
-        <span>{{ doneCount }}/{{ total }}<small>完了</small></span>
-      </span>
-      <span class="ht-tx">
-        <span class="ht-tt">今日のやること<i>すべて見る ›</i></span>
-        <span v-for="p in preview" :key="p.t.id" :class="['ht-ln', { late: p.late, mine: isAssignedToMe(p.t) }]">
-          <em>{{ p.tag }}</em><span>{{ p.t.text }}<template v-if="isAssignedToMe(p.t)">（あなた）</template></span>
+    <button type="button" class="ht-today" aria-label="業務管理を開く" @click="emit('openTodo')">
+      <span class="ht-th">
+        <span class="ht-pr" aria-hidden="true">
+          <svg width="56" height="56" viewBox="0 0 56 56">
+            <circle cx="28" cy="28" :r="R" fill="none" stroke="#e2eef1" stroke-width="6" />
+            <circle cx="28" cy="28" :r="R" fill="none" :stroke="`url(#${gid})`" stroke-width="6" stroke-linecap="round" :stroke-dasharray="dash" transform="rotate(-90 28 28)" />
+          </svg>
+          <span>{{ doneCount }}/{{ total }}<small>完了</small></span>
         </span>
-        <span v-if="!preview.length" class="ht-ln none">{{ total ? 'ぜんぶ終わりました' : '今日のやることはありません' }}</span>
-      </span>
-    </button>
-
-    <button type="button" class="ht-bd-card" aria-label="ボードを開く" @click="boardOpen = true">
-      <span class="ht-bdc-h">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="3" width="13" height="15" rx="3" transform="skewY(-8)" /><rect x="4" y="7" width="13" height="15" rx="3" transform="skewY(-8)" /></svg>
-        <b>ボード</b>
-        <em v-if="boardPreview.fresh">新しい {{ boardPreview.fresh }}</em>
-        <i>›</i>
-      </span>
-      <span v-if="boardPreview.list.length" class="ht-bdc-g">
-        <span v-for="n in boardPreview.list" :key="n.h.id" :class="['ht-bdc-n', { fresh: n.fresh }]" :style="{ transform: `rotate(${n.rot}deg)` }">
-          <span class="b">{{ n.h.body }}</span>
-          <small>{{ n.h.by }} ・ {{ _ago(n.h.createdAt) }}</small>
+        <span class="ht-tx">
+          <span class="ht-tt">今日のやること<i>業務管理を開く ›</i></span>
+          <span class="ht-cnt">
+            <span v-for="c in countChips" :key="c.k" :class="c.cls">{{ c.label }} {{ c.n }}</span>
+            <span v-if="!countChips.length" class="m">気になるものはありません</span>
+          </span>
         </span>
       </span>
-      <span v-else class="ht-bdc-none">まだ貼り紙はありません</span>
+      <span v-if="attention.rows.length" class="ht-rows">
+        <span v-for="r in attention.rows" :key="r.key" :class="['ht-rw', { me: r.mine }]" :data-kind="r.kind">
+          <em :class="r.kind">{{ r.tag }}</em><span>{{ r.text }}</span><small>{{ r.side }}</small>
+        </span>
+      </span>
+      <span v-else class="ht-none">{{ total ? 'ぜんぶ終わりました' : '今日のやることはありません' }}</span>
+      <span v-if="attention.more" class="ht-more">ほか {{ attention.more }}件</span>
     </button>
-    <BoardPage v-if="boardOpen" @close="boardOpen = false" />
 
 
     <div class="ht-sec">ショートカット</div>
@@ -269,7 +246,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
           </template>
           <template v-else-if="sheet === 'sort'">
             <button type="button" class="ht-sh-b route" @click="pickSheet(() => openRoute())">
-              <b>🚶 導線作成</b>
+              <b><LineIcon name="route" /> 導線作成</b>
               <small v-if="hasRoute">{{ routeLabel }}</small>
               <small v-else>棚卸で歩く順番。場所ごとに品目を入れ、その順で数えます</small>
               <span v-if="hasRoute" class="ht-sh-bar" aria-hidden="true"><span :style="{ width: (routeStats.total ? routeStats.done / routeStats.total * 100 : 0) + '%' }"></span></span>
@@ -340,33 +317,33 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-hi b { display: block; font-size: 18px; font-weight: 800; letter-spacing: .04em; line-height: 1.35; }
 .ht-wx { display: inline-block; margin-top: 8px; font-size: 12px; color: #bfeaf2; }
 
-.ht-bd-card { position: relative; z-index: 1; width: calc(100% - 28px); margin: 12px 14px 0; border: none; border-radius: 20px; background: var(--surface); box-shadow: 0 8px 22px rgba(6,34,43,.1); padding: 12px 14px 16px; display: grid; gap: 12px; text-align: left; font: inherit; color: var(--text); cursor: pointer; }
-.ht-bdc-h { display: flex; align-items: center; gap: 8px; color: var(--primary, #0e7490); }
-.ht-bdc-h b { flex: 1; font-size: 15px; color: var(--text); }
-.ht-bdc-h em { font-style: normal; font-size: 11.5px; font-weight: 900; color: #06323c; background: linear-gradient(90deg, #67e8f9, #6ee7b7); border-radius: 999px; padding: 2px 9px; }
-.ht-bdc-h i { font-style: normal; font-weight: 800; }
-.ht-bdc-g { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 2px 4px 0; }
-.ht-bdc-n { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 6px; min-height: 76px; padding: 10px 10px 8px; border-radius: 12px; background: var(--surface, #fff); box-shadow: 0 6px 14px rgba(6,34,43,.13), 0 1px 2px rgba(6,34,43,.08); }
-.ht-bdc-n.fresh { padding-top: 13px; box-shadow: 0 0 0 1.5px rgba(34,211,238,.5), 0 8px 18px rgba(14,116,144,.2); }
-.ht-bdc-n.fresh::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: linear-gradient(90deg, #2563eb, #22d3ee, #34d399); box-shadow: 0 0 10px #22d3ee; }
-.ht-bdc-n .b { font-size: 12.5px; font-weight: 700; line-height: 1.5; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
-.ht-bdc-n small { margin-top: auto; font-size: 10.5px; font-weight: 800; color: var(--text-muted); }
-.ht-bdc-n.fresh small { color: var(--primary, #0e7490); }
-.ht-bdc-none { font-size: 12.5px; font-weight: 700; color: var(--text-muted); }
 .ht-today { position: relative; z-index: 1; width: calc(100% - 28px); margin: -64px 14px 0; border: none; text-align: left; font: inherit; color: var(--text);
-  background: rgba(255,255,255,.97); border-radius: 20px; padding: 14px; box-shadow: 0 10px 28px rgba(6,34,43,.18); display: flex; gap: 14px; align-items: center; cursor: pointer; }
-.ht-pr { flex: none; position: relative; width: 72px; height: 72px; }
-.ht-pr > span { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 900; font-size: 17px; line-height: 1.1; }
-.ht-pr small { font-size: 9.5px; color: var(--text-muted); font-weight: 700; }
-.ht-tx { flex: 1; min-width: 0; display: grid; gap: 4px; }
+  background: rgba(255,255,255,.97); border-radius: 20px; padding: 14px; box-shadow: 0 10px 28px rgba(6,34,43,.18); display: grid; gap: 10px; cursor: pointer; }
+.ht-th { display: flex; gap: 12px; align-items: center; }
+.ht-pr { flex: none; position: relative; width: 56px; height: 56px; }
+.ht-pr > span { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; line-height: 1.1; }
+.ht-pr small { font-size: 9px; color: var(--text-muted); font-weight: 700; }
+.ht-tx { flex: 1; min-width: 0; display: grid; gap: 5px; }
 .ht-tt { font-size: 13px; font-weight: 800; color: var(--text-muted); display: flex; justify-content: space-between; gap: 6px; }
 .ht-tt i { font-style: normal; color: var(--primary); white-space: nowrap; }
-.ht-ln { font-size: 13px; display: flex; gap: 6px; align-items: baseline; min-width: 0; }
-.ht-ln > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ht-ln em { font-style: normal; font-weight: 800; font-size: 11px; flex: none; color: var(--primary); }
-.ht-ln.late em { color: #b91c1c; }
-.ht-ln.mine > span { color: var(--primary); font-weight: 800; }
-.ht-ln.none { color: var(--text-muted); }
+.ht-cnt { display: flex; gap: 5px; flex-wrap: wrap; }
+.ht-cnt span { font-size: 11px; font-weight: 900; border-radius: 999px; padding: 2px 8px; }
+.ht-cnt .l { background: #fef2f2; color: #b91c1c; }
+.ht-cnt .s { background: #fffbeb; color: #b45309; }
+.ht-cnt .m { background: #ecfeff; color: var(--primary); }
+.ht-rows { display: grid; border-top: 1px solid #e2ecef; }
+.ht-rw { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; gap: 8px; align-items: baseline; padding: 8px 0 7px; border-bottom: 1px solid #e2ecef; font-size: 13px; }
+.ht-rw:last-child { border-bottom: none; padding-bottom: 0; }
+.ht-rw em { font-style: normal; font-size: 10.5px; font-weight: 900; border-radius: 6px; padding: 1px 0; text-align: center; color: var(--primary); white-space: nowrap; overflow: hidden; }
+.ht-rw em.over { background: #b91c1c; color: #fff; }
+.ht-rw em.late { background: #fef2f2; color: #b91c1c; }
+.ht-rw em.stuck { background: #fffbeb; color: #b45309; }
+.ht-rw em.mine { background: #ecfeff; }
+.ht-rw > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.ht-rw small { font-size: 11px; color: var(--text-muted); font-weight: 800; white-space: nowrap; }
+.ht-rw.me > span { color: var(--primary); }
+.ht-more { font-size: 11.5px; font-weight: 800; color: var(--primary); text-align: center; }
+.ht-none { font-size: 13px; color: var(--text-muted); font-weight: 700; text-align: center; padding: 4px 0 2px; }
 
 
 .ht-sec { margin: 16px 18px 8px; font-size: 11px; font-weight: 800; letter-spacing: .1em; color: var(--text-muted); }

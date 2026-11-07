@@ -10,6 +10,19 @@ import { findLine, linesOf } from '../utils/lineIndex.js'
 
 function _round(v) { return Math.round(v * 1000) / 1000 }
 
+// 基準点の日付と時刻。明細の行が「数えた時刻」（at・ms）を持てばそれを使う。
+// 日をまたいだ棚卸では、棚卸日（始めた日）と完了の時刻ではなく、その品目を数えた時点から入出庫を数える
+// （1日目に数えた品目に2日目の納品を足し、2日目に数えた品目には足さない・User決定 2026-11-05）
+function _pad(n) { return String(n).padStart(2, '0') }
+function _baseOf(s, it) {
+  const ms = Number(it?.at)
+  if (it?.at != null && Number.isFinite(ms) && ms > 0) {
+    const t = new Date(ms)
+    return { date: `${t.getFullYear()}-${_pad(t.getMonth() + 1)}-${_pad(t.getDate())}`, savedAt: t.toISOString() }
+  }
+  return { date: s.date || '', savedAt: s.savedAt || '' }
+}
+
 /**
  * @param {string} item      品目名
  * @param {Array}  snapshots useHistory.getSnapshots() の配列（順不同でよい）
@@ -23,8 +36,7 @@ export function theoreticalStock(item, snapshots = [], movements = [], { asOf = 
   for (const s of snapshots) {
     const it = findLine(s?.items, item, i => i.qty != null)
     if (!it) continue
-    const d = s.date || ''
-    const at = s.savedAt || ''
+    const { date: d, savedAt: at } = _baseOf(s, it)
     if (!base || d.localeCompare(base.date) > 0 || (d === base.date && at.localeCompare(base.savedAt) > 0)) {
       base = { date: d, savedAt: at, qty: Number(it.qty) }
     }

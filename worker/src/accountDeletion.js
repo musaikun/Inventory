@@ -92,6 +92,7 @@ function deletionStatements(db, shopCode, requestId, completedAt, expiresAt) {
     // 申し送り（migration 0032）
     db.prepare('DELETE FROM handoffs WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM checklists WHERE shop_code = ?').bind(shopCode),
+    db.prepare('DELETE FROM task_templates WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM store_inventory WHERE shop_code = ?').bind(shopCode),
     db.prepare('DELETE FROM store_configs WHERE shop_code = ?').bind(shopCode),
     // 送った通知の印（migration 0021）。購読より先に消す（端末で引くため）
