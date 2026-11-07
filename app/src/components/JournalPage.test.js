@@ -279,18 +279,14 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     expect(T.aliveTasks.value.find(x => x.id === t.id).note).toBe('業者に連絡済み')
   })
 
-  it('ルーティン: 月の🔁から見本で始める。「＋」で繰り返しを選ぶと繰り返しになる', async () => {
+  it('「＋」で繰り返しを選ぶとルーティンになる。月の見出しにチェック表・ルーティンのボタンは無い（見本も無い）', async () => {
     const { default: JournalPage } = await import('./JournalPage.vue')
     await mount(JournalPage)
-    await click(host.querySelector('[aria-label="ルーティンの設定"]'))
-    const page = document.body.querySelector('.cp')
-    await click(btn('見本で始める', page))
+    expect(host.querySelector('[aria-label="ルーティンの設定"]')).toBeNull()
+    expect(host.querySelector('[aria-label="チェック表"]')).toBeNull()
     const { saveChecklistToD1 } = await import('../composables/useStore.js')
-    expect(saveChecklistToD1).toHaveBeenCalledWith(expect.objectContaining({ name: '開店チェック', repeat: 'daily' }))
-    await click(btn('戻る', page))
     const { localDateKey } = await import('../utils/localDate.js')
-    const dt = await openDay(localDateKey())
-    expect(dt.textContent).toContain('開店チェック')
+    await openDay(localDateKey())
     const form = await addForm('ゴミ出し')
     await click(row(form, 'repeat'))
     await click(btn('毎月', form))
@@ -300,6 +296,31 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     await click(btn('毎日', form))
     await click(form.querySelector('.ta-go'))
     expect(saveChecklistToD1).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'ゴミ出し', items: [], repeat: 'daily' }))
+  })
+
+  it('過ぎた日には＋を出さない。先の日の登録業務は青い帯（予定あり）。やることは開いて消せる（User決定 2026-11-07）', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
+    const T = await import('../composables/useTasks.js')
+    const k = n => localDateKey(new Date(Date.now() + n * 86400_000))
+    T.addTask(k(2), '業者の点検')
+    const { default: JournalPage } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    const cell = host.querySelector(`.jm-c[aria-label^="${k(2)}"]`)
+    if (cell) expect(cell.querySelector('.st.f')).not.toBeNull()
+    if (host.querySelector(`.jm-c[aria-label^="${k(-1)}"]`)) {
+      await openDay(k(-1))
+      expect(host.querySelector('.dt-fab')).toBeNull()
+      await click(host.querySelector('[aria-label="月にもどる"]'))
+    }
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await openDay(localDateKey())
+    T.addTask(localDateKey(), '揚げ油の交換'); await tick()
+    const item = [...host.querySelectorAll('.dt-card, .dt-ct')].find(e => e.textContent.includes('揚げ油の交換'))
+    await click(item)
+    const sh = document.body.querySelector('.jp-sheet')
+    await click(btn('このやることを消す', sh))
+    expect(T.aliveTasks.value.some(t => t.text === '揚げ油の交換')).toBe(false)
+    confirm.mockRestore()
   })
 
   it('棚卸の中断が4回を超えたら1行にたたむ（押すと開く）。帯は斜線のまま', async () => {

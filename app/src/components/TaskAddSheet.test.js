@@ -106,8 +106,12 @@ describe('業務を追加（種類は選ばない）', () => {
 describe('チェック表（別の入口）・子タスク・いつか→始める', () => {
   it('チェック表を作り、「このチェック表で業務を追加」で付けて開く', async () => {
     const { default: Journal } = await import('./JournalPage.vue')
+    const { localDateKey } = await import('../utils/localDate.js')
     await mount(Journal)
-    await click(host.querySelector('[aria-label="チェック表"]'))
+    await click(host.querySelector(`.jm-c[aria-label^="${localDateKey()}"]`))
+    await click(host.querySelector('.dt-fab'))
+    await click(row('list'))
+    await click(btn('チェック表を作る・直す', sheet()))   // 入口は追加の画面のチェック表の行（月の見出しのボタンはやめた）
     const page = document.body.querySelector('.ct')
     await click(btn('チェック表を作る', page))
     const sh = document.body.querySelector('.ct-sh')

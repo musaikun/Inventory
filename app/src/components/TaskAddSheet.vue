@@ -25,7 +25,7 @@ const props = defineProps({
   presetTime: { type: String, default: '' },  // 予定ボードのマスから（始まりの時刻）
   presetWho: { type: String, default: '' },   // 予定ボードのマスから（'all' | 'p:<id>'）
 })
-const emit = defineEmits(['close', 'added'])
+const emit = defineEmits(['close', 'added', 'templates'])
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 const today = localDateKey()
@@ -280,7 +280,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
               <button v-for="t in checklistTemplates" :key="t.id" type="button" @click="pickList(t)">
                 <span class="tl"><span>{{ t.name }}</span><small>{{ t.data.items.map(x => x.text).join('・') }}</small></span><b v-if="itemsName === t.name">✓</b>
               </button>
-              <p v-if="!checklistTemplates.length" class="ta-none">チェック表はまだありません</p>
+              <button type="button" class="ta-manage" @click="emit('templates')"><LineIcon name="pencil" size="15" /><span>チェック表を作る・直す</span></button>
             </div>
             <ul v-if="r.id === 'list' && items.length && open !== 'list'" class="ta-items">
               <li v-for="it in items" :key="it.id">{{ it.text }}</li>
@@ -359,6 +359,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
 .ta-list b { color: var(--primary, #0e7490); }
 .ta-list .av { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 12px; font-weight: 900; color: #fff; background: #0e7490; }
 .ta-list .av.all { background: #94a3b8; }
+.ta-list .ta-manage { color: var(--primary, #0e7490); font-weight: 800; }
 .ta-none { margin: 0; padding: 10px 16px 12px 0; font-size: 13px; color: #8aa0a8; }
 .ta-items { list-style: none; margin: 0; padding: 0 16px 12px 56px; display: grid; gap: 4px; }
 .ta-items li { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #3d545d; }

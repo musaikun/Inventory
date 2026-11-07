@@ -8,7 +8,7 @@
  * 変えられるのは担当の人・作った人・管理者（canProgress）。経過は見える人なら誰でも書ける
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { updateProgress, finishProgress, canProgress, loadNotes, addNote, newStepId, idleDays } from '../composables/useTasks.js'
+import { updateProgress, finishProgress, canProgress, canRemoveTask, removeTask, loadNotes, addNote, newStepId, idleDays } from '../composables/useTasks.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 
 const props = defineProps({ task: { type: Object, required: true } })
@@ -62,6 +62,11 @@ async function send() {
     }
     after.value = 'keep'; afterWait.value = ''
   } catch (e) { err.value = e?.message || '書き込めませんでした。電波の届くところでもう一度' } finally { busy.value = false }
+}
+// 消す（作った人と管理者・User決定 2026-11-07）
+function del() {
+  if (!window.confirm(`「${t.value.text}」を消しますか？`)) return
+  if (removeTask(t.value.id)) emit('close')
 }
 onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 </script>
@@ -117,6 +122,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
           <li v-for="n in notes" :key="n.id">{{ n.body }}<small>{{ at(n.at) }} {{ n.by }}</small></li>
           <li v-if="!loading && !notes.length" class="none">まだ経過はありません<small>{{ at(t.createdAt) }} {{ t.createdBy }}（作った人）</small></li>
         </ol>
+        <button v-if="canRemoveTask(t)" type="button" class="ps-del" @click="del">この進行中を消す</button>
       </div>
     </div>
   </Teleport>
@@ -126,6 +132,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 .ps-bg { position: fixed; inset: 0; z-index: 125; background: rgba(15,23,42,.4); display: flex; align-items: flex-end; justify-content: center; }
 .ps { width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; background: var(--surface); border-radius: 22px 22px 0 0; padding: 16px 16px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 10px; box-sizing: border-box; }
 .ps-h { display: flex; align-items: center; gap: 8px; } .ps-h b { flex: 1; font-size: 18px; }
+.ps-del { justify-self: center; min-height: 44px; border: none; background: none; color: #b91c1c; font: inherit; font-size: 14px; font-weight: 800; cursor: pointer; }
 .ps-x { width: 34px; height: 34px; border-radius: 50%; border: none; background: #f1f5f9; color: #64748b; font-weight: 900; cursor: pointer; }
 .ps-seg { display: flex; gap: 4px; }
 .ps-seg button { flex: 1; min-height: 40px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font: inherit; font-size: 13px; font-weight: 800; color: var(--text-muted); cursor: pointer; }

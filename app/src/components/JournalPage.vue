@@ -32,7 +32,7 @@ import CopyDatesSheet from './CopyDatesSheet.vue'
 import { addTemplate, canAddTemplate, pullTemplates } from '../composables/useTemplates.js'
 import { pullChecklists, checklistsForDay, saveChecklist, newItemId, markChecklistItem, canMarkChecklist, canUnmark } from '../composables/useChecklists.js'
 import { monthDaysLabel, isSimple, WHOLE } from '../services/checklistSchedule.js'
-import { tasksOn, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, editTask, setTaskAssign, TASK_TEXT_MAX, TASK_NOTE_MAX, dueProgress, toggleTask, canToggleTask, canEditTask, canNoteTask, setTaskNote, startTask, canProgress } from '../composables/useTasks.js'
+import { tasksOn, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, editTask, setTaskAssign, TASK_TEXT_MAX, TASK_NOTE_MAX, dueProgress, toggleTask, canToggleTask, canEditTask, canNoteTask, setTaskNote, startTask, canProgress, canRemoveTask, removeTask } from '../composables/useTasks.js'
 import { can, staffNames, loadStaffNames, getSessions, isAdmin } from '../composables/useAuth.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
@@ -93,12 +93,16 @@ const orderDays = computed(() => new Set(getOrders().map(o => o.date)))
 const _plain = d => tasksOn(d).filter(t => !t.progress)
 
 /** 月のマス: 済み具合の帯と札（棚卸・発注・メモ。先の日は予定を点線） */
+// 帯: 過ぎた日は 全部済み／一部／やり残し。今日から先で登録した業務があれば青の「予定あり」（User決定 2026-11-07）。
+// 毎日・毎週のルーティンだけでは青にしない（どの日も青くなって見分けられない）。1回きりのやること・チェック表で数える
 function dayInfo(d) {
   const ts = _plain(d)
   const ls = checklistsForDay(d)
   const total = ts.length + ls.length
   const done = ts.filter(t => t.doneAt).length + ls.filter(r => r.complete).length
-  const st = !total || d >= today ? (d === today && total && done === total ? 'y' : '') : done === total ? 'y' : done ? 'p' : 'x'
+  const planned = ts.filter(t => !t.doneAt).length + ls.filter(r => !r.complete && r.cl.repeat === 'none').length
+  const st = d < today ? (!total ? '' : done === total ? 'y' : done ? 'p' : 'x')
+    : total && done === total ? 'y' : planned ? 'f' : ''
   const fut = d > today
   const tags = []
   if (stockDays.value.has(d) || (d === today && props.activeSession)) tags.push({ label: '棚卸', kind: 'stock' })
@@ -127,6 +131,12 @@ const picked = ref(null)     // 直す: やること1件（TaskRow を出す）
 // 備考: 直せない担当の人も書き足せる（直せる人は TaskRow の「直す」で）
 const pNote = ref('')
 watch(picked, t => { pNote.value = t?.note || '' })
+// 消す（作った人と管理者・未完了の間。User決定 2026-11-07）
+function deletePicked() {
+  const t = picked.value
+  if (!t || !window.confirm(`「${t.text}」を消しますか？`)) return
+  if (removeTask(t.id)) { picked.value = null; say(`「${t.text}」を消しました`) }
+}
 // いつかのものを始める（今日から進行中・User決定 2026-11-07）
 function startPicked() {
   const t = picked.value
@@ -191,7 +201,7 @@ function onAdded({ name }) { say(`「${name}」を足しました`) }
 // ── 予定ボード（予約台帳の形・2026-11-05）──
 // 空いているマス → その時間・その人で「やること」を足す
 function addAt({ row, start }) {
-  if (!canCreate.value) return
+  if (!canCreate.value || (date.value || today) < today) return   // 過ぎた日には足さない（User決定 2026-11-07）
   addSheet.value = { startKind: 'task', date: date.value || today, time: start, who: row === 'all' ? 'all' : `p:${row}` }
 }
 const _assignOfRow = row => (row === 'all'
@@ -271,9 +281,9 @@ async function favChecklist(cl) {
 
 <template>
   <div class="jp">
-    <JournalMonth :today="today" :focus="date" :selected="open ? date : ''" :info="dayInfo" @pick="pick" @settings="clPage = {}" @templates="ctOpen = true" />
+    <JournalMonth :today="today" :focus="date" :selected="open ? date : ''" :info="dayInfo" @pick="pick" />
     <DayTimeline
-      v-if="open && date" :key="date" :date="date" :today="today" :origin="origin" :timeline="timeline" :can-add="canCreate"
+      v-if="open && date" :key="date" :date="date" :today="today" :origin="origin" :timeline="timeline" :can-add="canCreate && date >= today"
       @close="closeDay" @step="stepDay" @add="openAdd()" @check="check" @open="openItem" @memo="openMemo"
       @add-at="addAt" @move="moveTask" @place="placeSomeday"
     />
@@ -293,6 +303,7 @@ async function favChecklist(cl) {
             <button v-if="picked.date && !picked.progress" type="button" @click="copyTask(picked)"><LineIcon name="file" /> 別の日にコピー</button>
             <button v-if="canAddTemplate" type="button" @click="favTask(picked); picked = null"><LineIcon name="star" /> お気に入りに入れる</button>
           </div>
+          <button v-if="canRemoveTask(picked)" type="button" class="jp-del" @click="deletePicked">このやることを消す</button>
         </div>
       </div>
       <div v-if="memoOpen" class="jp-sheet-bg" @click.self="memoOpen = false">
@@ -304,17 +315,17 @@ async function favChecklist(cl) {
         </form>
       </div>
     </Teleport>
-    <ChecklistsPage v-if="clPage" :key="clPage.historyOf?.id || (clPage.create ? 'new' : 'list')" :history-of="clPage.historyOf" :create="!!clPage.create" @close="clPage = null" @open-run="x => clRun = x" @add="clPage = null; addSheet = { startKind: '' }" />
+    <ChecklistsPage v-if="clPage" :key="clPage.historyOf?.id || clPage.editOf?.id || (clPage.create ? 'new' : 'list')" :history-of="clPage.historyOf" :edit-of="clPage.editOf || null" :create="!!clPage.create" @close="clPage = null" @open-run="x => clRun = x" @add="clPage = null; addSheet = { startKind: '' }" />
     <ProgressSheet v-if="progOpen" :task="progOpen" @close="progOpen = null" />
     <RoutineRecords v-if="recOpen" :focus="recOpen.focus" @close="recOpen = null" @open-run="x => clRun = x" />
     <ChecklistRunSheet
       v-if="clRun" :cl="clRun.cl" :date="clRun.date" :slot="clRun.slot || ''" :can-copy="canCreate"
-      @close="clRun = null" @history="openClHistory" @copy="copyChecklist(clRun.cl, clRun.date, clRun.slot || '')" @fav="favChecklist(clRun.cl)"
+      @close="clRun = null" @history="openClHistory" @edit="cl => { clRun = null; clPage = { editOf: cl } }" @copy="copyChecklist(clRun.cl, clRun.date, clRun.slot || '')" @fav="favChecklist(clRun.cl)"
     />
     <TaskAddSheet
       v-if="addSheet" :date="addSheet.date || date || today" :start-kind="addSheet.startKind || ''" :template="addSheet.template || null"
       :checklist="addSheet.checklist || null" :preset-time="addSheet.time || ''" :preset-who="addSheet.who || ''"
-      @close="addSheet = null" @added="onAdded"
+      @close="addSheet = null" @added="onAdded" @templates="addSheet = null; ctOpen = true"
     />
     <ChecklistTemplatesPage v-if="ctOpen" @close="ctOpen = false" @use-checklist="t => { ctOpen = false; addSheet = { checklist: t } }" @use-template="t => { ctOpen = false; addSheet = { template: t } }" />
     <CopyDatesSheet
@@ -396,6 +407,7 @@ async function favChecklist(cl) {
 .jp-sheet-t { font-size: 16px; }
 .jp-sheet label { display: grid; gap: 3px; font-size: 11.5px; font-weight: 800; color: var(--text-muted); }
 .jp-in { width: 100%; min-height: 42px; border: 1px solid var(--border); border-radius: 10px; padding: 0 10px; font: inherit; font-size: 15px; background: var(--surface); color: var(--text); box-sizing: border-box; }
+.jp-del { min-height: 44px; border: none; background: none; color: #b91c1c; font: inherit; font-size: 14px; font-weight: 800; cursor: pointer; }
 .jp-start { min-height: 50px; border: none; border-radius: 14px; background: linear-gradient(135deg, #ca8a04, #a16207); color: #fff; font: inherit; font-size: 15px; font-weight: 900; cursor: pointer; }
 .jp-more { display: flex; flex-wrap: wrap; gap: 6px; border-top: 1px solid var(--border); padding-top: 10px; }
 .jp-more button { min-height: 40px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; font-weight: 800; padding: 0 12px; cursor: pointer; }
