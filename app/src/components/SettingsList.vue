@@ -24,7 +24,7 @@ const props = defineProps({
   part: { type: String, default: 'top' },
   isGuest: { type: Boolean, default: false },
 })
-const emit = defineEmits(['schedule', 'orderBase', 'feedback'])
+const emit = defineEmits(['schedule', 'orderBase', 'feedback', 'routines', 'templates'])
 
 const isOwner = computed(() => isAuthenticated.value && !currentStaff.value)
 const { state: weatherState } = useWeather()
@@ -95,6 +95,17 @@ async function save() {
           </button>
         </div>
       </template>
+
+      <!-- 業務（ルーティンの一覧・チェック表。業務管理の見出しから移した・User決定 2026-11-07） -->
+      <div class="sl-sec">業務</div>
+      <div class="sl-box">
+        <button type="button" class="sl-it" @click="emit('routines')">
+          <span class="sl-ic"><LineIcon name="repeat" /></span><span class="sl-tx"><b>ルーティン</b><small>一覧・直す・お休み・消す</small></span><span class="sl-ar" aria-hidden="true">›</span>
+        </button>
+        <button type="button" class="sl-it" @click="emit('templates')">
+          <span class="sl-ic"><LineIcon name="clipboard" /></span><span class="sl-tx"><b>チェック表</b><small>項目のひな形・お気に入り</small></span><span class="sl-ar" aria-hidden="true">›</span>
+        </button>
+      </div>
 
       <template v-if="can('orderSettings')">
         <div class="sl-sec">発注</div>

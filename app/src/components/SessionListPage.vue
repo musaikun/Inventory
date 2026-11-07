@@ -30,6 +30,10 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { isAuthenticated, storeName, logout, isAdmin, currentStaff, ROLE_LABELS, can, denyMessage, canSeeReport, ownerName } from '../composables/useAuth.js'
 import SettingsList from './SettingsList.vue'
+import ChecklistsPage from './ChecklistsPage.vue'
+import ChecklistRunSheet from './ChecklistRunSheet.vue'
+import ChecklistTemplatesPage from './ChecklistTemplatesPage.vue'
+import TaskAddSheet from './TaskAddSheet.vue'
 import StaffPage from './StaffPage.vue'
 import { staffPageOpen } from '../composables/staffNav.js'
 import DataPort from './DataPort.vue'
@@ -270,6 +274,7 @@ const discardKind   = computed(() => (discardTarget.value?.type === 'order' ? '�
 const { allItems, baseOf, unitOf, reorderHorizon } = useStockView()
 const { setReorderPoint, setOrderAssumptions } = useConfig()
 const showOrderBase = ref(false)
+const routinesOpen = ref(false), routineRun = ref(null), templatesOpen = ref(false), taskAdd = ref(null)
 // スタッフの管理（段 2-1・管理者だけ）。ホームのカードと参加申請のやることから開く（2026-10-14・管理から移した）
 const showStaff = staffPageOpen
 
@@ -412,7 +417,7 @@ onUnmounted(registerInnerLayerCloser(() => {
     >
       <template #extra>
         <div class="manage">
-          <SettingsList part="top" @schedule="openSchedule" @order-base="_allowed('orderSettings') && (showOrderBase = true)" />
+          <SettingsList part="top" @schedule="openSchedule" @order-base="_allowed('orderSettings') && (showOrderBase = true)" @routines="routinesOpen = true" @templates="templatesOpen = true" />
         </div>
       </template>
       <template #bottom>
@@ -453,6 +458,11 @@ onUnmounted(registerInnerLayerCloser(() => {
     <HomeFooterNav :active="tab" @go="goTab" />
 
     <OrderScheduleModal v-if="showOrderSchedule" @close="showOrderSchedule = false" />
+    <!-- 業務: ルーティンの一覧とチェック表（設定から・User決定 2026-11-07） -->
+    <ChecklistsPage v-if="routinesOpen" @close="routinesOpen = false" @open-run="x => routineRun = x" @add="routinesOpen = false; taskAdd = {}" />
+    <ChecklistRunSheet v-if="routineRun" :cl="routineRun.cl" :date="routineRun.date" :slot="routineRun.slot || ''" @close="routineRun = null" />
+    <ChecklistTemplatesPage v-if="templatesOpen" @close="templatesOpen = false" @use-checklist="t => { templatesOpen = false; taskAdd = { checklist: t } }" @use-template="t => { templatesOpen = false; taskAdd = { template: t } }" />
+    <TaskAddSheet v-if="taskAdd" :checklist="taskAdd.checklist || null" :template="taskAdd.template || null" @close="taskAdd = null" @templates="taskAdd = null; templatesOpen = true" />
     <OrderBaseModal
       v-if="showOrderBase"
       :rows="orderBaseRows"
