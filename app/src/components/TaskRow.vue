@@ -9,6 +9,7 @@
  * - showDate: 期限切れの一覧では時刻の代わりに日付を赤で出す
  */
 import LineIcon from './LineIcon.vue'
+import InlinePick from './InlinePick.vue'
 import { ref, computed } from 'vue'
 import {
   toggleTask, removeTask, editTask, setTaskAssign, setTaskNote, isMyTask, isNewTask, isMarkedByMe, isAssignedToMe, TASK_TEXT_MAX, TASK_NOTE_MAX,
@@ -109,10 +110,9 @@ function save() {
 
   <form v-else class="tr-edit" @submit.prevent="save">
     <input v-model="fText" type="text" :maxlength="TASK_TEXT_MAX" aria-label="やること" class="tr-in wide" />
-    <div v-if="!fSomeday" class="tr-edit-row">
-      <label class="tr-lb">日付<input v-model="fDate" type="date" class="tr-in" /></label>
-      <label class="tr-lb">時刻<input v-model="fTime" type="time" class="tr-in" /></label>
-      <button v-if="fTime" type="button" class="tr-mini" @click="fTime = ''">時刻なし</button>
+    <div v-if="!fSomeday" class="tr-when">
+      <InlinePick v-model="fDate" mode="date" label="日付" />
+      <InlinePick v-model="fTime" mode="time" label="時刻" clearable empty="なし" />
     </div>
     <label class="tr-some"><input v-model="fSomeday" type="checkbox" /> いつか（日付を決めない）</label>
     <label class="tr-lb">備考<textarea v-model="fNote" rows="2" :maxlength="TASK_NOTE_MAX" class="tr-in tr-note-in" placeholder="細かいこと・手順・連絡先など"></textarea></label>
@@ -135,6 +135,7 @@ function save() {
 </template>
 
 <style scoped>
+.tr-when { display: grid; gap: 6px; }
 .tr-note { display: block; white-space: pre-wrap; color: #5b4a1e !important; background: #fffbeb; border-radius: 6px; padding: 2px 6px; margin-top: 3px; }
 .tr-note-in { min-height: 56px; padding: 6px 8px; resize: vertical; }
 .tr { display: flex; align-items: center; gap: 10px; padding: 8px 6px; font-size: 14px; color: var(--text); border-top: 1px solid var(--border); }

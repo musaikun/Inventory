@@ -8,6 +8,8 @@
  *   本日・予定 → その日の1回きりのチェック表 ／ 繰り返し → 毎回その項目 ／ 締め切り・いつか → 子タスク
  */
 import LineIcon from './LineIcon.vue'
+import TimeGrid from './TimeGrid.vue'
+import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { ref, computed, onUnmounted } from 'vue'
 import { addTask, TASK_TEXT_MAX, TASK_NOTE_MAX } from '../composables/useTasks.js'
 import { saveChecklist, newItemId, CL_NAME_MAX } from '../composables/useChecklists.js'
@@ -100,6 +102,11 @@ function openCal(id) {
   const d = new Date(base + 'T00:00:00')
   calYm.value = { y: d.getFullYear(), m: d.getMonth() }
 }
+// カレンダーは左右に払っても月が変わる（User決定 2026-11-07）
+const calSwipe = useHorizontalSwipe({ onLeft: () => stepCal(1), onRight: () => stepCal(-1), threshold: 40 })
+// 時刻は端末の時計を重ねず、このモーダルの中で 始まり／終わり を押して選ぶ（User決定 2026-11-07）
+const timeEnd = ref('start')   // 'start' | 'end'
+function onStartPicked() { if (endTime.value && endTime.value <= time.value) endTime.value = ''; timeEnd.value = 'end' }
 function stepCal(n) { const d = new Date(calYm.value.y, calYm.value.m + n, 1); calYm.value = { y: d.getFullYear(), m: d.getMonth() } }
 const calCells = computed(() => {
   const { y, m } = calYm.value
@@ -127,6 +134,7 @@ function pickDay(c) {
 function toggleRow(id) {
   open.value = open.value === id ? '' : id
   if (id === 'day' || id === 'deadline') openCal(id)
+  if (id === 'time') timeEnd.value = 'start'
 }
 function clearDay() { day.value = ''; repeat.value = 'none'; time.value = ''; endTime.value = ''; open.value = '' }   // 締め切りは残す（締め切りだけの進行中）
 function clearDeadline() { deadline.value = ''; open.value = '' }
@@ -250,7 +258,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
             <div class="ta-mh"><b>{{ modalTitle }}</b><button type="button" class="ta-done" @click="open = ''">完了</button></div>
               <div v-if="open === 'day' || open === 'deadline'" class="ta-cal">
                 <div class="ta-cal-h"><b>{{ calYm.y }}年{{ calYm.m + 1 }}月</b><button type="button" aria-label="前の月" @click="stepCal(-1)">‹</button><button type="button" aria-label="次の月" @click="stepCal(1)">›</button></div>
-                <div class="ta-cal-g">
+                <div class="ta-cal-g" @touchstart.passive="calSwipe.onTouchStart" @touchmove.passive="calSwipe.onTouchMove" @touchend.passive="calSwipe.onTouchEnd" @touchcancel.passive="calSwipe.onTouchCancel">
                   <span v-for="w in WEEK" :key="w" class="wd">{{ w }}</span>
                   <template v-for="c in calCells" :key="c.key">
                     <span v-if="!c.d"></span>
@@ -261,11 +269,17 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
                 <button v-if="open === 'deadline' && deadline" type="button" class="ta-clear" @click="clearDeadline">締め切りを外す</button>
               </div>
 
-              <div v-if="open === 'time'" class="ta-in-row">
-                <input v-model="time" type="time" aria-label="始まり" />
-                <span>〜</span>
-                <input v-model="endTime" type="time" aria-label="終わり" :min="time" :disabled="!time" />
-                <button v-if="time" type="button" class="ta-clear" @click="time = ''; endTime = ''; open = ''">外す</button>
+              <div v-if="open === 'time'" class="ta-tm">
+                <div class="ta-seg" role="tablist" aria-label="始まり・終わり">
+                  <button type="button" role="tab" :aria-selected="timeEnd === 'start'" :class="{ on: timeEnd === 'start' }" data-time="start" @click="timeEnd = 'start'">始まり <b>{{ time || '—' }}</b></button>
+                  <button type="button" role="tab" :aria-selected="timeEnd === 'end'" :class="{ on: timeEnd === 'end' }" :disabled="!time" data-time="end" @click="timeEnd = 'end'">終わり <b>{{ endTime || 'なし' }}</b></button>
+                </div>
+                <TimeGrid v-if="timeEnd === 'start'" v-model="time" @done="onStartPicked" />
+                <TimeGrid v-else v-model="endTime" :min="time" @done="open = ''" />
+                <div class="ta-tm-f">
+                  <button v-if="timeEnd === 'end' && endTime" type="button" class="ta-clear" @click="endTime = ''">終わりを外す</button>
+                  <button v-if="time" type="button" class="ta-clear" @click="time = ''; endTime = ''; open = ''">時刻を外す</button>
+                </div>
               </div>
 
               <div v-if="open === 'repeat'" class="ta-sub">
@@ -355,8 +369,11 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
 .ta-cal-g .d.on { background: var(--primary, #0e7490); color: #fff; font-weight: 900; }
 .ta-cal-g .d:disabled { color: #c9d6db; cursor: default; }
 .ta-clear { justify-self: end; border: none; background: none; font: inherit; font-size: 13.5px; font-weight: 800; color: #b91c1c; cursor: pointer; min-height: 36px; }
-.ta-in-row { display: flex; align-items: center; gap: 8px; padding: 8px 16px 12px; }
-.ta-in-row input { flex: 1; min-width: 0; min-height: 40px; border: 1px solid var(--border); border-radius: 10px; padding: 0 8px; font: inherit; font-size: 15px; background: var(--surface); color: var(--text); }
+.ta-tm { display: grid; gap: 10px; padding: 8px 16px 12px; }
+.ta-tm .ta-seg button b { font-variant-numeric: tabular-nums; margin-left: 4px; }
+.ta-tm .ta-seg button:disabled { opacity: .45; }
+.ta-tm-f { display: flex; justify-content: flex-end; gap: 12px; }
+.ta-cal-g { touch-action: pan-y; }
 .ta-sub { padding: 4px 14px 12px; display: grid; gap: 10px; }
 .ta-seg { display: flex; padding: 3px; border-radius: 11px; background: #eef2f4; }
 .ta-seg button { flex: 1; min-height: 34px; border: none; border-radius: 9px; background: transparent; font: inherit; font-size: 13.5px; font-weight: 800; color: #5b6f78; cursor: pointer; }

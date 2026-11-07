@@ -64,6 +64,28 @@ describe('業務を追加（種類は選ばない）', () => {
     expect(T.aliveTasks.value.find(x => x.text === '備品の確認')).toMatchObject({ progress: 'doing', date: localDateKey(), deadline: localDateKey(plus(3)) })
   })
 
+  it('日付のカレンダーは左右に払うと月が変わる。時刻はモーダルの中で 時→分 を押すだけ（始まり→終わり）', async () => {
+    const { default: Sheet } = await import('./TaskAddSheet.vue')
+    await mount(Sheet)
+    const touch = (el, type, x) => { const e = new Event(type, { bubbles: true }); e.changedTouches = [{ clientX: x, clientY: 100 }]; el.dispatchEvent(e) }
+    await click(row('day'))
+    const title = () => sheet().querySelector('.ta-cal-h b').textContent
+    const before = title()
+    const g = sheet().querySelector('.ta-cal-g')
+    touch(g, 'touchstart', 300); touch(g, 'touchmove', 200); touch(g, 'touchend', 200); await tick()
+    expect(title()).not.toBe(before)
+    touch(g, 'touchstart', 100); touch(g, 'touchend', 260); await tick()
+    expect(title()).toBe(before)
+    await click(btn('完了', sheet()))
+    await click(row('time'))
+    expect(sheet().querySelector('input[type=time]'), '端末の時計は使わない').toBeNull()
+    await click(sheet().querySelector('[data-hour="15"]')); await click(sheet().querySelector('[data-min="00"]'))
+    expect(sheet().querySelector('[data-time="end"]').getAttribute('aria-selected'), '始まりを決めると終わりへ').toBe('true')
+    await click(sheet().querySelector('[data-hour="16"]')); await click(sheet().querySelector('[data-min="30"]'))
+    expect(sheet().querySelector('.ta-modal')).toBeNull()
+    expect(row('time').textContent).toContain('15:00〜16:30')
+  })
+
   it('チェック表を付けた予定は、その日の1回きりのチェック表になる', async () => {
     await seedTemplates([{ id: 'tp1', kind: 'checklist', name: '開店準備', data: { items: [{ id: 'a', text: '看板を出す' }, { id: 'b', text: 'レジを開ける' }] }, sort: 1 }])
     const { localDateKey } = await import('../utils/localDate.js')

@@ -32,8 +32,8 @@ describe('やることの行・1日の締切', () => {
     const form = host.querySelector('.tr-edit')
     const text = form.querySelector('input[type=text]')
     text.value = '野菜の検品（午後）'; text.dispatchEvent(new Event('input'))
-    const time = form.querySelector('input[type=time]')
-    time.value = '14:00'; time.dispatchEvent(new Event('input')); await tick()
+    await click(form.querySelector('.ip-f[aria-label="時刻"]'))
+    await click(form.querySelector('[data-hour="14"]')); await click(form.querySelector('[data-min="00"]'))
     form.dispatchEvent(new Event('submit', { cancelable: true })); await tick()
     expect(T.tasksOn('2026-10-05').find(t => t.id === mine.id)).toMatchObject({ text: '野菜の検品（午後）', dueTime: '14:00' })
     // 完了したら固める: 直す・消すのボタンは出さない

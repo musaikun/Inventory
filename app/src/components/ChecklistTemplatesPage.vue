@@ -84,9 +84,13 @@ onUnmounted(registerInnerLayerCloser(() => { if (edit.value) { edit.value = null
     <div v-if="edit" class="ct-bg" @click.self="edit = null">
       <form class="ct-sh" aria-label="チェック表を直す" @submit.prevent="addItem">
         <div class="ct-sh-h">
-          <input v-model="edit.name" type="text" maxlength="60" aria-label="チェック表の名前" placeholder="名前" :disabled="!editable" />
+          <b>{{ edit.id ? 'チェック表を直す' : 'チェック表を作る' }}</b>
           <button type="button" aria-label="閉じる" @click="edit = null">✕</button>
         </div>
+        <!-- 名前は入力欄と分かる形に（見出しのような枠なしだと一瞬わからない・User 2026-11-07） -->
+        <label class="ct-nm"><span>チェック表の名前</span>
+          <input v-model="edit.name" type="text" maxlength="60" aria-label="チェック表の名前" placeholder="例：閉店チェック" :disabled="!editable" />
+        </label>
         <ol class="ct-items">
           <li v-for="(it, i) in edit.items" :key="it.id">
             <span>{{ it.text }}</span>
@@ -130,7 +134,13 @@ onUnmounted(registerInnerLayerCloser(() => { if (edit.value) { edit.value = null
 .ct-bg { position: fixed; inset: 0; z-index: 120; background: rgba(6,34,43,.45); display: flex; align-items: flex-end; justify-content: center; }
 .ct-sh { width: 100%; max-width: 600px; box-sizing: border-box; max-height: 85dvh; overflow-y: auto; background: var(--surface, #fff); border-radius: 22px 22px 0 0; padding: 12px 16px calc(20px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; }
 .ct-sh-h { display: flex; align-items: center; gap: 6px; }
-.ct-sh-h input { flex: 1; min-width: 0; height: 46px; border: none; font: inherit; font-size: 18px; font-weight: 900; color: var(--text); background: transparent; }
+.ct-sh-h b { flex: 1; min-width: 0; font-size: 16px; font-weight: 900; }
+.ct-nm { display: grid; gap: 4px; }
+.ct-nm span { font-size: 11.5px; font-weight: 800; color: var(--text-muted); }
+.ct-nm input { min-height: 48px; border: 1.5px solid #b9d3da; border-radius: 12px; padding: 0 12px; font: inherit; font-size: 16px; font-weight: 800; color: var(--text); background: #f7fbfc; box-sizing: border-box; width: 100%; }
+.ct-nm input:focus { outline: none; border-color: var(--primary, #0e7490); background: var(--surface, #fff); box-shadow: 0 0 0 3px rgba(14,116,144,.15); }
+.ct-nm input::placeholder { color: #94a3b8; font-weight: 600; }
+.ct-nm input:disabled { background: transparent; border-color: transparent; padding: 0; }
 .ct-sh-h input:focus { outline: none; }
 .ct-sh-h button { width: 40px; height: 40px; border: none; background: none; font-size: 16px; color: var(--text-muted); cursor: pointer; }
 .ct-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }

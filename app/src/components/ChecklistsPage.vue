@@ -10,6 +10,7 @@
  * - スタッフも作れる（やることを作れる人・2026-11-05）。直すのは作った人と管理者
  */
 import { ref, computed, onUnmounted } from 'vue'
+import InlinePick from './InlinePick.vue'
 import {
   checklists, checklistRuns, canEditChecklists, canEditChecklist, saveChecklist, setChecklistPaused, removeChecklist, newItemId,
   CL_NAME_MAX, CL_ITEM_MAX, CL_ITEMS_MAX, CL_TIMES_MAX,
@@ -215,17 +216,14 @@ const title = computed(() => (view.value === 'edit' ? (f.value?.id ? f.value.nam
             </div>
             <small class="cp-none">その月に無い日（31日など）は月末に</small>
           </template>
-          <label v-else-if="f.repeat === 'none'" class="cp-inline">日付<input v-model="f.startDate" type="date" class="cp-in sm" /></label>
+          <InlinePick v-else-if="f.repeat === 'none'" v-model="f.startDate" mode="date" label="日付" />
         </div>
         <div class="cp-f">時刻（いくつでも。1日に何回も見るものは時刻を足す）
           <div class="cp-times">
             <button v-for="t in f.times" :key="t" type="button" class="cp-time" :aria-label="`${t}を外す`" @click="removeTime(t)">{{ t }} ✕</button>
             <span v-if="!f.times.length" class="cp-none">時刻なし（その日のうちならいつでも）</span>
           </div>
-          <div v-if="f.times.length < CL_TIMES_MAX" class="cp-inline">
-            <input v-model="timeDraft" type="time" class="cp-in sm" aria-label="足す時刻" />
-            <button type="button" class="cp-addt" :disabled="!timeDraft" @click="addTime">＋ 時刻を足す</button>
-          </div>
+          <InlinePick v-if="f.times.length < CL_TIMES_MAX" v-model="timeDraft" mode="time" label="足す時刻" empty="押して選ぶ" @picked="addTime" />
         </div>
         <label v-if="people.some(p => !p.owner)" class="cp-f">誰が
           <select v-model="f.who" class="cp-in">

@@ -6,6 +6,7 @@
  */
 import LineIcon from './LineIcon.vue'
 import { ref, computed, onUnmounted } from 'vue'
+import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { localDateKey } from '../utils/localDate.js'
 import { staffNames } from '../composables/useAuth.js'
 import { isMeId } from '../composables/useDeviceId.js'
@@ -22,6 +23,8 @@ const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 const today = localDateKey()
 const _m = d => { const [y, m] = d.split('-').map(Number); return { y, m } }
 const month = ref(_m(props.source && props.source > today ? props.source : today))
+// 左右に払っても月が変わる（User決定 2026-11-07）
+const swipe = useHorizontalSwipe({ onLeft: () => step(1), onRight: () => step(-1), threshold: 40 })
 function step(d) { let { y, m } = month.value; m += d; if (m < 1) { m = 12; y-- } else if (m > 12) { m = 1; y++ } month.value = { y, m } }
 const cells = computed(() => {
   const { y, m } = month.value
@@ -63,7 +66,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
           <b>{{ month.y }}年{{ month.m }}月</b>
           <button type="button" aria-label="次の月" @click="step(1)">›</button>
         </div>
-        <div class="cd-cal">
+        <div class="cd-cal" @touchstart.passive="swipe.onTouchStart" @touchmove.passive="swipe.onTouchMove" @touchend.passive="swipe.onTouchEnd" @touchcancel.passive="swipe.onTouchCancel">
           <span v-for="w in WEEK" :key="w" class="cd-wd">{{ w }}</span>
           <template v-for="c in cells" :key="c.key">
             <span v-if="c.blank"></span>
