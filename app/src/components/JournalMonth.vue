@@ -18,7 +18,7 @@ const props = defineProps({
   selected: { type: String, default: '' },
   info: { type: Function, required: true },
 })
-const emit = defineEmits(['pick', 'settings'])
+const emit = defineEmits(['pick', 'settings', 'templates'])
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 const _d = k => new Date(k + 'T00:00:00')
 
@@ -64,6 +64,7 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し' }
       <button v-if="!isThisMonth" type="button" class="jm-today" @click="goToday">今日</button>
       <button type="button" class="jm-nav" aria-label="前の月" @click="step(-1)">‹</button>
       <button type="button" class="jm-nav" aria-label="次の月" @click="step(1)">›</button>
+      <button type="button" class="jm-nav" aria-label="チェック表" @click="emit('templates')"><LineIcon name="clipboard" /></button>
       <button type="button" class="jm-nav" aria-label="ルーティンの設定" @click="emit('settings')"><LineIcon name="repeat" /></button>
     </header>
     <div class="jm-w"><span v-for="(w, i) in WEEK" :key="w" :class="{ sun: i === 0, sat: i === 6 }">{{ w }}</span></div>

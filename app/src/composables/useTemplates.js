@@ -85,6 +85,27 @@ export function addTemplate(kind, name, data = {}) {
   }
   return _send(t, prev)
 }
+/** チェック表（項目の並びのひな形）を作る・直す（User決定 2026-11-07・別の入り口「チェック表」） */
+export function saveChecklistTemplate(id, name, items) {
+  const prev = id ? _data.list.find(x => x.id === id) : null
+  if (prev && !canEditTemplate(prev)) return Promise.reject(new Error('このチェック表を直すのは、作った人と管理者だけです'))
+  if (!prev && !canAddTemplate.value) return Promise.reject(new Error('チェック表を作る権限がありません'))
+  const n = String(name ?? '').trim().slice(0, TEMPLATE_NAME_MAX)
+  if (!n) return Promise.reject(new Error('名前を入れてください'))
+  const list = (items ?? []).map(x => ({ id: /^[\w-]{1,64}$/.test(x?.id ?? '') ? x.id : 'i_' + Math.random().toString(36).slice(2, 10), text: String(x?.text ?? '').trim().slice(0, 100) })).filter(x => x.text).slice(0, 50)
+  if (!list.length) return Promise.reject(new Error('項目を1つ以上入れてください'))
+  if (!prev && findTemplate('checklist', n)) return Promise.reject(new Error('同じ名前のチェック表があります'))
+  const last = templates.value.reduce((m, t) => Math.max(m, t.sort ?? 0), 0)
+  const t = {
+    ...(prev ?? {}), id: prev?.id ?? _uid(), kind: 'checklist', name: n, data: { ...(prev?.data ?? {}), items: list },
+    sort: prev?.sort ?? last + 1,
+    createdBy: prev?.createdBy ?? (deviceName.value || ''), createdById: prev?.createdById ?? actorId(),
+    createdAt: prev?.createdAt ?? _now(), updatedAt: _now(),
+  }
+  return _send(t, prev)
+}
+/** チェック表（項目のあるひな形） */
+export const checklistTemplates = computed(() => templates.value.filter(t => t.kind === 'checklist' && t.data?.items?.length))
 export function renameTemplate(id, name) {
   const prev = _data.list.find(x => x.id === id)
   const n = String(name ?? '').trim().slice(0, TEMPLATE_NAME_MAX)

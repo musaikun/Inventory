@@ -26,12 +26,13 @@ import ProgressSheet from './ProgressSheet.vue'
 import RoutineRecords from './RoutineRecords.vue'
 import ChecklistRunSheet from './ChecklistRunSheet.vue'
 import TaskAddSheet from './TaskAddSheet.vue'
-import FavoritesSheet from './FavoritesSheet.vue'
+import ChecklistTemplatesPage from './ChecklistTemplatesPage.vue'
+import TaskSteps from './TaskSteps.vue'
 import CopyDatesSheet from './CopyDatesSheet.vue'
 import { addTemplate, canAddTemplate, pullTemplates } from '../composables/useTemplates.js'
 import { pullChecklists, checklistsForDay, saveChecklist, newItemId, markChecklistItem, canMarkChecklist, canUnmark } from '../composables/useChecklists.js'
 import { monthDaysLabel, isSimple, WHOLE } from '../services/checklistSchedule.js'
-import { tasksOn, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, editTask, setTaskAssign, TASK_TEXT_MAX, TASK_NOTE_MAX, dueProgress, toggleTask, canToggleTask, canEditTask, canNoteTask, setTaskNote } from '../composables/useTasks.js'
+import { tasksOn, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, editTask, setTaskAssign, TASK_TEXT_MAX, TASK_NOTE_MAX, dueProgress, toggleTask, canToggleTask, canEditTask, canNoteTask, setTaskNote, startTask, canProgress } from '../composables/useTasks.js'
 import { can, staffNames, loadStaffNames, getSessions, isAdmin } from '../composables/useAuth.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
@@ -126,6 +127,13 @@ const picked = ref(null)     // 直す: やること1件（TaskRow を出す）
 // 備考: 直せない担当の人も書き足せる（直せる人は TaskRow の「直す」で）
 const pNote = ref('')
 watch(picked, t => { pNote.value = t?.note || '' })
+// いつかのものを始める（今日から進行中・User決定 2026-11-07）
+function startPicked() {
+  const t = picked.value
+  if (!t || !startTask(t.id)) return
+  picked.value = null
+  say(`「${t.text}」を始めました`)
+}
 function savePickedNote() { if (picked.value) setTaskNote(picked.value.id, pNote.value); picked.value = null }
 const progOpen = ref(null)
 const recOpen = ref(null)    // { focus } ルーティンの記録
@@ -169,11 +177,11 @@ onUnmounted(registerInnerLayerCloser(() => {
   return false
 }))
 
-// ── 追加（＋）: ただ1つの入口（TaskAddSheet・まず種類を選ぶ・User決定 2026-11-05）──
+// ── 追加（＋）: ただ1つの入口（TaskAddSheet・種類は入れた中身で決まる・User決定 2026-11-07）──
 const canCreate = computed(() => can('task.create'))
-const addSheet = ref(null)   // null | { startKind?, template? }
+const addSheet = ref(null)   // null | { startKind?, template?, checklist? }
 function openAdd(progress = false) { if (canCreate.value) addSheet.value = { startKind: progress === true ? 'progress' : '' } }
-const favOpen = ref(null)
+const ctOpen = ref(false)    // チェック表（ひな形）の画面
 const okMsg = ref('')
 let _okT = null
 function say(m) { okMsg.value = m; clearTimeout(_okT); _okT = setTimeout(() => { okMsg.value = '' }, 2600) }
@@ -263,7 +271,7 @@ async function favChecklist(cl) {
 
 <template>
   <div class="jp">
-    <JournalMonth :today="today" :focus="date" :selected="open ? date : ''" :info="dayInfo" @pick="pick" @settings="clPage = {}" />
+    <JournalMonth :today="today" :focus="date" :selected="open ? date : ''" :info="dayInfo" @pick="pick" @settings="clPage = {}" @templates="ctOpen = true" />
     <DayTimeline
       v-if="open && date" :key="date" :date="date" :today="today" :origin="origin" :timeline="timeline" :can-add="canCreate"
       @close="closeDay" @step="stepDay" @add="openAdd()" @check="check" @open="openItem" @memo="openMemo"
@@ -274,6 +282,8 @@ async function favChecklist(cl) {
       <div v-if="picked" class="jp-sheet-bg" @click.self="picked = null">
         <div class="jp-sheet" role="dialog" aria-label="やること">
           <TaskRow :task="picked" :show-date="picked.date < (date || today)" />
+          <TaskSteps v-if="!picked.kind && (picked.steps?.length || canProgress(picked))" :task="picked" />
+          <button v-if="!picked.date && !picked.progress && !picked.doneAt && canProgress(picked)" type="button" class="jp-start" @click="startPicked">始める</button>
           <template v-if="canNoteTask(picked) && !canEditTask(picked)">
             <label>備考<textarea v-model="pNote" rows="2" :maxlength="TASK_NOTE_MAX" class="jp-in jp-memo" placeholder="細かいこと・手順・連絡先など"></textarea></label>
             <div class="jp-row end"><button type="button" class="jp-mini" @click="picked = null">閉じる</button><button type="button" class="jp-save" @click="savePickedNote">保存</button></div>
@@ -303,10 +313,10 @@ async function favChecklist(cl) {
     />
     <TaskAddSheet
       v-if="addSheet" :date="addSheet.date || date || today" :start-kind="addSheet.startKind || ''" :template="addSheet.template || null"
-      :preset-time="addSheet.time || ''" :preset-who="addSheet.who || ''"
-      @close="addSheet = null" @added="onAdded" @favorites="addSheet = null; favOpen = true"
+      :checklist="addSheet.checklist || null" :preset-time="addSheet.time || ''" :preset-who="addSheet.who || ''"
+      @close="addSheet = null" @added="onAdded"
     />
-    <FavoritesSheet v-if="favOpen" @close="favOpen = null" @use="t => { favOpen = null; addSheet = { template: t } }" />
+    <ChecklistTemplatesPage v-if="ctOpen" @close="ctOpen = false" @use-checklist="t => { ctOpen = false; addSheet = { checklist: t } }" @use-template="t => { ctOpen = false; addSheet = { template: t } }" />
     <CopyDatesSheet
       v-if="copyOf" :title="copyOf.title" :sub="copyOf.sub" :source="copyOf.source" :who="copyOf.who"
       @close="copyOf = null" @copy="doCopy"
@@ -386,6 +396,7 @@ async function favChecklist(cl) {
 .jp-sheet-t { font-size: 16px; }
 .jp-sheet label { display: grid; gap: 3px; font-size: 11.5px; font-weight: 800; color: var(--text-muted); }
 .jp-in { width: 100%; min-height: 42px; border: 1px solid var(--border); border-radius: 10px; padding: 0 10px; font: inherit; font-size: 15px; background: var(--surface); color: var(--text); box-sizing: border-box; }
+.jp-start { min-height: 50px; border: none; border-radius: 14px; background: linear-gradient(135deg, #ca8a04, #a16207); color: #fff; font: inherit; font-size: 15px; font-weight: 900; cursor: pointer; }
 .jp-more { display: flex; flex-wrap: wrap; gap: 6px; border-top: 1px solid var(--border); padding-top: 10px; }
 .jp-more button { min-height: 40px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; font-weight: 800; padding: 0 12px; cursor: pointer; }
 .jp-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

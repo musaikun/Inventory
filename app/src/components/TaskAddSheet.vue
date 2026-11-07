@@ -1,62 +1,50 @@
 <script setup>
 /**
- * やることを足す、ただ1つの入口（User決定 2026-11-05・モック docs/mocks/task-create.html）。
- * - まず種類を選ぶ（やること・チェック表・ルーティン・進行中・いつか）。次の画面はその種類に要る欄だけ
- * - 項目のあるものは全部チェック表（1回／繰り返す）。ルーティンは項目なし（押せば済む1件）
- * - ★ お気に入り（店で共有のひな形）から選ぶと、種類と中身が入った状態で開く。日付だけ選べばよい
- * - 「お気に入りにも入れる」で、足すのと一緒にお気に入りにも入る
- * - スタッフも作れる（やることを作れる人）。管理者は、やること・進行中・いつかを「管理者だけ」にもできる
+ * 業務を追加する、ただ1つの入口（User決定 2026-11-07・キャンバス「業務の追加」①。2026-11-05 の「まず種類を選ぶ」を置き換えた）。
+ * 種類は選ばない。入れた中身で決まり、上に出す:
+ *   日付なし → いつか ／ 今日 → 本日 ／ 先の日 → 予定 ／ 締め切りあり → 「m/dまで」（進行中・始める日から毎日）／ 繰り返しあり → 繰り返し
+ * 欄は行で並べ、押すとその場で開く（日付・締め切りは月のカレンダー、繰り返しはつながった切り替え、担当・チェック表は一覧）。説明の文は置かない。
+ * チェック表（項目のひな形）は別の入口で作り、ここでは選んで付けるだけ。付けると:
+ *   本日・予定 → その日の1回きりのチェック表 ／ 繰り返し → 毎回その項目 ／ 締め切り・いつか → 子タスク
  */
 import LineIcon from './LineIcon.vue'
 import { ref, computed, onUnmounted } from 'vue'
 import { addTask, TASK_TEXT_MAX, TASK_NOTE_MAX } from '../composables/useTasks.js'
-import { saveChecklist, newItemId, CL_NAME_MAX, CL_ITEM_MAX, CL_ITEMS_MAX, CL_TIMES_MAX } from '../composables/useChecklists.js'
-import { templates, addTemplate, canAddTemplate, KIND_ICON, templateSummary } from '../composables/useTemplates.js'
-import { monthDaysLabel } from '../services/checklistSchedule.js'
+import { saveChecklist, newItemId, CL_NAME_MAX } from '../composables/useChecklists.js'
+import { checklistTemplates } from '../composables/useTemplates.js'
 import { staffNames, isAdmin } from '../composables/useAuth.js'
 import { isMeId } from '../composables/useDeviceId.js'
 import { localDateKey } from '../utils/localDate.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 
 const props = defineProps({
-  date: { type: String, default: '' },        // 1回のものの既定の日（空なら今日）
-  startKind: { type: String, default: '' },   // 種類を決めて開く（'progress' など）
-  template: { type: Object, default: null },  // お気に入りから開く
+  date: { type: String, default: '' },        // 既定の日（空なら今日）
+  startKind: { type: String, default: '' },   // 'someday' | 'progress' | 'task'（開いたときの形）
+  template: { type: Object, default: null },  // ★ お気に入りから開く
+  checklist: { type: Object, default: null }, // チェック表（ひな形）を付けて開く
   presetTime: { type: String, default: '' },  // 予定ボードのマスから（始まりの時刻）
   presetWho: { type: String, default: '' },   // 予定ボードのマスから（'all' | 'p:<id>'）
 })
-const emit = defineEmits(['close', 'added', 'favorites'])
+const emit = defineEmits(['close', 'added'])
 
-const KINDS = [
-  { k: 'task', icon: 'date', label: 'やること', sub: '日付と時刻を決めて1回（揚げ油の交換）' },
-  { k: 'checklist', icon: 'clipboard', label: 'チェック表', sub: '項目に✓を付けていく。1回でも毎日でも（閉店チェック）' },
-  { k: 'routine', icon: 'repeat', label: 'ルーティン', sub: '決まった日に押せば済む1件（冷蔵庫の温度）' },
-  { k: 'progress', icon: 'hourglass', label: '進行中', sub: '何日かかかる。済むまで毎日出る（修理の手配）' },
-  { k: 'someday', icon: 'inbox', label: 'いつか', sub: '日付を決めずにしまっておく（棚の整理）' },
-]
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 const today = localDateKey()
+const _md = k => { const d = new Date(k + 'T00:00:00'); return `${d.getMonth() + 1}/${d.getDate()}（${WEEK[d.getDay()]}）` }
+const _dayLabel = k => (k === today ? '今日' : k === localDateKey(new Date(Date.now() + 86400_000)) ? '明日' : _md(k))
 
-const kind = ref('')
-const kindInfo = computed(() => KINDS.find(x => x.k === kind.value))
-const name = ref(''), day = ref(props.date && props.date >= today ? props.date : today), time = ref(''), note = ref(''), noteOpen = ref(false)
+const name = ref(''), note = ref('')
+const day = ref(props.date && props.date >= today ? props.date : today)
+const time = ref(''), endTime = ref('')
 const deadline = ref('')
+const repeat = ref('none'), weekdays = ref([]), monthDays = ref([])
 const who = ref('all')
-const items = ref([])            // チェック表の項目 [{ id, text }]
-const itemDraft = ref('')
-const once = ref(true)           // チェック表: 1回（true）／繰り返す（false）
-const repeat = ref('daily'), weekdays = ref([]), monthDays = ref(['1']), dayDraft = ref('1')
-const times = ref([]), timeDraft = ref('')
-const fav = ref(false)
-// 予定ボード（2026-11-05）: 終わりの時刻（任意）と中身の種類（色）
-const endTime = ref('')
-const category = ref('')
-const CATS = [['', 'やること'], ['prep', '仕込み'], ['clean', '清掃'], ['order', '発注・納品']]
+const items = ref([]), itemsName = ref('')   // 付けたチェック表の項目と名前
+const adminsOnly = ref(false)
+const open = ref('')                         // 開いている行
 const err = ref(''), busy = ref(false)
 
 const people = computed(() => staffNames.value)
 const hasStaff = computed(() => people.value.some(p => !p.owner))
-// 担当は 全員／人（User決定 2026-10-28）。既定は自分、選べなければ全員。スタッフがいない店は担当の欄を出さない
 function _defaultWho() {
   if (!hasStaff.value) return 'all'
   const me = people.value.find(p => isMeId(p.id))
@@ -70,86 +58,115 @@ if (props.presetTime) {
   if (e < 24 * 60) endTime.value = `${String(Math.floor(e / 60)).padStart(2, '0')}:${String(e % 60).padStart(2, '0')}`
 }
 if (props.presetWho && (props.presetWho === 'all' || people.value.some(p => `p:${p.id}` === props.presetWho))) who.value = props.presetWho
+if (props.startKind === 'someday') day.value = ''
+if (props.startKind === 'progress') open.value = 'deadline'
 
-function choose(k) { kind.value = k; err.value = '' }
-function back() { kind.value = ''; err.value = '' }
-
-// お気に入りから: 種類と中身を入れて、その種類の画面へ（日付は使うときに選ぶ）
-function useTemplate(t) {
-  const d = t.data ?? {}
-  kind.value = t.kind
+function _setItems(src, label) {
+  items.value = (src ?? []).map(x => ({ id: newItemId(), text: x.text }))
+  itemsName.value = items.value.length ? label : ''
+}
+if (props.checklist) _setItems(props.checklist.data?.items, props.checklist.name)
+// ★ お気に入りから: 中身を入れる（日付は今の既定のまま）
+if (props.template) {
+  const t = props.template, d = t.data ?? {}
   name.value = t.name
-  note.value = d.note ?? ''; noteOpen.value = !!d.note
-  time.value = d.dueTime ?? ''
-  items.value = (d.items ?? []).map(x => ({ id: newItemId(), text: x.text }))
-  const rep = d.repeat ?? (t.kind === 'routine' ? 'daily' : 'none')
-  once.value = rep === 'none'
-  repeat.value = rep === 'none' ? 'daily' : rep
-  weekdays.value = rep === 'weekly' ? String(d.repeatDays ?? '').split(',').filter(Boolean).map(Number) : []
-  monthDays.value = rep === 'monthly' ? String(d.repeatDays ?? '').split(',').filter(Boolean) : ['1']
-  times.value = [...(d.dueTimes ?? [])]
-  if (t.kind === 'checklist' && once.value && times.value[0]) time.value = times.value[0]
+  note.value = d.note ?? ''
+  time.value = d.dueTime ?? d.dueTimes?.[0] ?? ''
+  if (d.items?.length) _setItems(d.items, t.name)
+  if (d.repeat && d.repeat !== 'none') {
+    repeat.value = d.repeat
+    if (d.repeat === 'weekly') weekdays.value = String(d.repeatDays ?? '').split(',').filter(Boolean).map(Number)
+    if (d.repeat === 'monthly') monthDays.value = String(d.repeatDays ?? '').split(',').filter(Boolean)
+  } else if (t.kind === 'routine') repeat.value = 'daily'
+  if (t.kind === 'someday') day.value = ''
+  if (t.kind === 'progress') open.value = 'deadline'
   if (d.assign?.mode === 'person' && people.value.some(p => p.id === d.assign.id)) who.value = `p:${d.assign.id}`
   else if (d.assign) who.value = 'all'
-  fav.value = false
-  err.value = ''
-}
-if (props.template) useTemplate(props.template)
-else if (props.startKind) kind.value = props.startKind
-
-// ── チェック表の項目 ──
-function addItem() {
-  const t = itemDraft.value.trim().slice(0, CL_ITEM_MAX)
-  if (!t || items.value.length >= CL_ITEMS_MAX) return
-  items.value = [...items.value, { id: newItemId(), text: t }]
-  itemDraft.value = ''
-}
-function removeItem(id) { items.value = items.value.filter(x => x.id !== id) }
-function moveItem(i, d) {
-  const a = [...items.value], j = i + d
-  if (j < 0 || j >= a.length) return
-  ;[a[i], a[j]] = [a[j], a[i]]
-  items.value = a
 }
 
-// ── 繰り返す（チェック表の「繰り返す」とルーティン）──
-const repeating = computed(() => kind.value === 'routine' || (kind.value === 'checklist' && !once.value))
+// ── 種類（入れた中身で決まる）──
+const kind = computed(() => {
+  if (repeat.value !== 'none') return { k: 'repeat', label: '繰り返し' }
+  if (deadline.value) return { k: 'progress', label: `${_md(deadline.value).replace(/（.）/, '')}まで` }
+  if (!day.value) return { k: 'someday', label: 'いつか' }
+  if (day.value === today) return { k: 'today', label: '本日' }
+  return { k: 'plan', label: '予定' }
+})
+
+// ── 月のカレンダー（日付・締め切り）──
+const calYm = ref({ y: 0, m: 0 })
+function openCal(id) {
+  const base = (id === 'deadline' ? deadline.value || day.value : day.value) || today
+  const d = new Date(base + 'T00:00:00')
+  calYm.value = { y: d.getFullYear(), m: d.getMonth() }
+}
+function stepCal(n) { const d = new Date(calYm.value.y, calYm.value.m + n, 1); calYm.value = { y: d.getFullYear(), m: d.getMonth() } }
+const calCells = computed(() => {
+  const { y, m } = calYm.value
+  const first = new Date(y, m, 1).getDay(), last = new Date(y, m + 1, 0).getDate()
+  const sel = open.value === 'deadline' ? deadline.value : day.value
+  const min = open.value === 'deadline' ? (day.value || today) : today
+  const out = []
+  for (let i = 0; i < first; i++) out.push({ key: `b${i}` })
+  for (let d = 1; d <= last; d++) {
+    const k = localDateKey(new Date(y, m, d))
+    out.push({ key: k, d, on: k === sel, today: k === today, off: k < min || (open.value === 'deadline' && k === min) })
+  }
+  return out
+})
+function pickDay(c) {
+  if (c.off) return
+  if (open.value === 'deadline') deadline.value = c.key
+  else {
+    day.value = c.key
+    if (deadline.value && deadline.value <= c.key) deadline.value = ''
+    if (repeat.value === 'weekly' && !weekdays.value.length) weekdays.value = [new Date(c.key + 'T00:00:00').getDay()]
+  }
+  open.value = ''
+}
+function toggleRow(id) {
+  open.value = open.value === id ? '' : id
+  if (id === 'day' || id === 'deadline') openCal(id)
+}
+function clearDay() { day.value = ''; deadline.value = ''; repeat.value = 'none'; time.value = ''; endTime.value = ''; open.value = '' }
+function clearDeadline() { deadline.value = ''; open.value = '' }
+
+// ── 繰り返し ──
+function setRepeat(r) {
+  repeat.value = r
+  if (r !== 'none') deadline.value = ''
+  const d = new Date((day.value || today) + 'T00:00:00')
+  if (r === 'weekly' && !weekdays.value.length) weekdays.value = [d.getDay()]
+  if (r === 'monthly' && !monthDays.value.length) monthDays.value = [String(d.getDate())]
+}
+function toggleWeekday(w) { weekdays.value = weekdays.value.includes(w) ? weekdays.value.filter(x => x !== w) : [...weekdays.value, w].sort() }
 const _mdSort = a => [...new Set(a)].sort((x, y) => (x === 'L' ? 99 : Number(x)) - (y === 'L' ? 99 : Number(y)))
-function toggleWeekday(d) { weekdays.value = weekdays.value.includes(d) ? weekdays.value.filter(x => x !== d) : [...weekdays.value, d].sort() }
-function addMonthDay() { monthDays.value = _mdSort([...monthDays.value, dayDraft.value]) }
-function toggleMonthEnd() { monthDays.value = monthDays.value.includes('L') ? monthDays.value.filter(x => x !== 'L') : _mdSort([...monthDays.value, 'L']) }
-function addTime() {
-  const t = timeDraft.value
-  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(t) || times.value.length >= CL_TIMES_MAX) return
-  times.value = [...new Set([...times.value, t])].sort()
-  timeDraft.value = ''
-}
-function removeTime(t) { times.value = times.value.filter(x => x !== t) }
+function toggleMonthDay(v) { monthDays.value = monthDays.value.includes(v) ? monthDays.value.filter(x => x !== v) : _mdSort([...monthDays.value, v]) }
 const repeatDays = computed(() => (repeat.value === 'weekly' ? weekdays.value.join(',') : repeat.value === 'monthly' ? monthDays.value.join(',') : null))
 const repeatOk = computed(() => repeat.value === 'daily' || (repeat.value === 'weekly' && weekdays.value.length) || (repeat.value === 'monthly' && monthDays.value.length))
-const whoName = computed(() => {
-  const v = who.value
-  return v.startsWith('p:') ? (people.value.find(p => p.id === v.slice(2))?.name || '') : '全員'
-})
-// 決めた内容を一文で（繰り返すもの）
-const sentence = computed(() => {
-  if (!repeating.value) return ''
-  const w = repeat.value === 'daily' ? '毎日' : repeat.value === 'weekly' ? (weekdays.value.length ? `毎週 ${weekdays.value.map(d => WEEK[d]).join('・')}` : '') : (monthDays.value.length ? `毎月${monthDaysLabel(monthDays.value.join(','))}` : '')
-  if (!w) return '曜日・日を選んでください'
-  const at = times.value.length ? ` ${times.value.join('・')} に` : ''
-  const n = name.value.trim() || '（名前）'
-  return `${w}${at}、${whoName.value}が「${n}」${kind.value === 'checklist' ? `（${items.value.length}項目）` : ''}をする`
+const repeatLabel = computed(() => {
+  if (repeat.value === 'daily') return '毎日'
+  if (repeat.value === 'weekly') return weekdays.value.length ? `毎週 ${weekdays.value.map(d => WEEK[d]).join('・')}` : '毎週'
+  if (repeat.value === 'monthly') return monthDays.value.length ? `毎月 ${monthDays.value.map(d => (d === 'L' ? '月末' : `${d}日`)).join('・')}` : '毎月'
+  return 'しない'
 })
 
+// ── 行 ──
+const whoName = computed(() => (who.value.startsWith('p:') ? (people.value.find(p => p.id === who.value.slice(2))?.name || '') : '全員'))
+const rows = computed(() => [
+  { id: 'day', icon: 'date', color: '#0e7490', label: '日付', value: day.value ? _dayLabel(day.value) : 'なし', set: !!day.value },
+  ...(day.value ? [{ id: 'time', icon: 'timer', color: '#0369a1', label: '時刻', value: time.value ? `${time.value}${endTime.value ? `〜${endTime.value}` : ''}` : 'なし', set: !!time.value }] : []),
+  ...(day.value && repeat.value === 'none' ? [{ id: 'deadline', icon: 'hourglass', color: '#ca8a04', label: '締め切り', value: deadline.value ? _dayLabel(deadline.value) : 'なし', set: !!deadline.value }] : []),
+  ...(day.value && !deadline.value ? [{ id: 'repeat', icon: 'repeat', color: '#059669', label: '繰り返し', value: repeatLabel.value, set: repeat.value !== 'none' }] : []),
+  ...(hasStaff.value ? [{ id: 'who', icon: 'user', color: '#7c3aed', label: '担当', value: whoName.value, set: true }] : []),
+  { id: 'list', icon: 'clipboard', color: '#db2777', label: 'チェック表', value: itemsName.value || 'なし', set: !!itemsName.value },
+  ...(isAdmin.value && repeat.value === 'none' && !(items.value.length && day.value && !deadline.value) ? [{ id: 'vis', icon: 'eye', color: '#475569', label: '見せる人', value: adminsOnly.value ? '管理者だけ' : 'みんな', set: adminsOnly.value }] : []),
+])
+function pickWho(v) { who.value = v; open.value = '' }
+function pickList(t) { if (t) _setItems(t.data?.items, t.name); else _setItems([], ''); open.value = '' }
+
 // ── 足す ──
-const canSubmit = computed(() => {
-  if (!name.value.trim() || busy.value) return false
-  if (kind.value === 'task') return !!day.value
-  if (kind.value === 'checklist') return items.value.length > 0 && (once.value ? !!day.value : repeatOk.value)
-  if (kind.value === 'routine') return repeatOk.value
-  return true
-})
-const visibilityChoice = computed(() => isAdmin.value && ['task', 'progress', 'someday'].includes(kind.value))
+const canSubmit = computed(() => !!name.value.trim() && !busy.value && (repeat.value === 'none' || repeatOk.value))
 function _assignTask() {
   const v = who.value
   return v.startsWith('p:') ? { mode: 'person', id: v.slice(2), name: whoName.value } : { mode: hasStaff.value ? 'all' : 'anyone' }
@@ -158,43 +175,33 @@ function _assignChecklist() {
   const v = who.value
   return v.startsWith('p:') ? { assign: 'person', assigneeId: v.slice(2), assigneeName: whoName.value } : { assign: 'anyone', assigneeId: null, assigneeName: null }
 }
-// お気に入りに入れる中身（日付は持たない）
-function _templateData() {
-  const v = who.value
-  const assign = v.startsWith('p:') ? { mode: 'person', id: v.slice(2), name: whoName.value } : { mode: 'all' }
-  if (kind.value === 'task') return { dueTime: time.value || undefined, note: note.value.trim() || undefined, assign }
-  if (kind.value === 'checklist') return once.value
-    ? { items: items.value, repeat: 'none', dueTimes: time.value ? [time.value] : [], assign }
-    : { items: items.value, repeat: repeat.value, repeatDays: repeatDays.value, dueTimes: times.value, assign }
-  if (kind.value === 'routine') return { repeat: repeat.value, repeatDays: repeatDays.value, dueTimes: times.value, assign }
-  return { note: note.value.trim() || undefined, assign }
-}
-async function submit(adminsOnly = false) {
-  if (!canSubmit.value) return
+async function submit() {
+  if (!canSubmit.value) { if (!name.value.trim()) err.value = '名前を入れてください'; return }
   err.value = ''
   const text = name.value.trim()
+  const k = kind.value.k
+  const visibility = adminsOnly.value ? 'admins' : null
   busy.value = true
   try {
-    const visibility = adminsOnly ? 'admins' : null
-    if (kind.value === 'task') {
-      if (!addTask(day.value, text, _assignTask(), time.value || null, { visibility, note: note.value, endTime: time.value && endTime.value > time.value ? endTime.value : null, category: category.value || null })) throw new Error('足せませんでした')
-    } else if (kind.value === 'progress') {
-      if (!addTask(today, text, _assignTask(), null, { visibility, progress: 'doing', deadline: deadline.value || null, note: note.value })) throw new Error('足せませんでした')
-    } else if (kind.value === 'someday') {
-      if (!addTask('', text, _assignTask(), null, { visibility, note: note.value })) throw new Error('足せませんでした')
-    } else {
+    if (k === 'repeat' || ((k === 'today' || k === 'plan') && items.value.length)) {
       await saveChecklist({
-        name: text.slice(0, CL_NAME_MAX),
-        items: kind.value === 'checklist' ? items.value : [],
-        repeat: repeating.value ? repeat.value : 'none',
-        repeatDays: repeating.value ? repeatDays.value : null,
-        startDate: repeating.value ? undefined : day.value,
-        dueTimes: repeating.value ? times.value : (time.value ? [time.value] : []),
+        name: text.slice(0, CL_NAME_MAX), items: items.value,
+        repeat: k === 'repeat' ? repeat.value : 'none',
+        repeatDays: k === 'repeat' ? repeatDays.value : null,
+        startDate: k === 'repeat' ? undefined : day.value,
+        dueTimes: time.value ? [time.value] : [],
         ..._assignChecklist(),
       })
+    } else {
+      const steps = items.value.map(x => ({ text: x.text }))
+      const ok = k === 'someday'
+        ? addTask('', text, _assignTask(), null, { visibility, note: note.value, steps })
+        : k === 'progress'
+          ? addTask(day.value, text, _assignTask(), null, { visibility, progress: 'doing', deadline: deadline.value, note: note.value, steps })
+          : addTask(day.value, text, _assignTask(), time.value || null, { visibility, note: note.value, endTime: time.value && endTime.value > time.value ? endTime.value : null })
+      if (!ok) throw new Error('足せませんでした')
     }
-    if (fav.value && canAddTemplate.value) await addTemplate(kind.value, text, _templateData()).catch(() => {})
-    emit('added', { kind: kind.value, name: text })
+    emit('added', { kind: k, name: text })
     emit('close')
   } catch (e) {
     err.value = e?.message || '保存できませんでした'
@@ -203,186 +210,158 @@ async function submit(adminsOnly = false) {
   }
 }
 
-onUnmounted(registerInnerLayerCloser(() => { if (kind.value && !props.startKind && !props.template) { back(); return true } emit('close'); return true }))
+onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; return true } emit('close'); return true }))
 </script>
 
 <template>
   <Teleport to="body">
     <div class="ta-bg" @click.self="emit('close')">
-      <section class="ta" role="dialog" :aria-label="kind ? `${kindInfo?.label}を足す` : '何を足す？'">
-        <!-- ① 種類を選ぶ -->
-        <template v-if="!kind">
-          <div class="ta-h"><b>何を足す？</b><button type="button" class="ta-x" @click="emit('close')">やめる</button></div>
-          <div class="ta-kinds">
-            <button v-for="x in KINDS" :key="x.k" type="button" class="ta-kind" :data-kind="x.k" @click="choose(x.k)">
-              <em aria-hidden="true"><LineIcon :name="x.icon" size="22" /></em><span><b>{{ x.label }}</b><small>{{ x.sub }}</small></span>
+      <form class="ta" role="dialog" aria-label="業務を追加" @submit.prevent="submit">
+        <div class="ta-h">
+          <button type="button" class="ta-x" @click="emit('close')">やめる</button>
+          <span :key="kind.label" :class="['ta-kind', kind.k]" data-test="kind">{{ kind.label }}</span>
+          <button type="submit" class="ta-go" :disabled="!canSubmit">追加</button>
+        </div>
+
+        <div class="ta-card">
+          <input v-model="name" type="text" class="ta-name" :maxlength="TASK_TEXT_MAX" aria-label="名前" placeholder="名前" />
+          <i class="ta-hr"></i>
+          <input v-model="note" type="text" class="ta-memo" :maxlength="TASK_NOTE_MAX" aria-label="メモ" placeholder="メモ" />
+        </div>
+
+        <div class="ta-card">
+          <template v-for="r in rows" :key="r.id">
+            <button type="button" :class="['ta-row', { open: open === r.id }]" :aria-expanded="open === r.id" :data-row="r.id" @click="toggleRow(r.id)">
+              <span class="ta-ic" :style="{ background: r.color }"><LineIcon :name="r.icon" size="17" /></span>
+              <span class="ta-lb">{{ r.label }}</span>
+              <span :class="['ta-v', { set: r.set }]">{{ r.value }}</span>
             </button>
-          </div>
-          <div class="ta-favh"><span><LineIcon name="star" /> お気に入りから</span><button v-if="templates.length" type="button" class="ta-link" @click="emit('favorites')">一覧 ›</button></div>
-          <div v-if="templates.length" class="ta-favs">
-            <button v-for="t in templates.slice(0, 8)" :key="t.id" type="button" :class="['ta-fav', t.kind]" :title="templateSummary(t)" @click="useTemplate(t)">
-              <i aria-hidden="true"><LineIcon name="star" /></i><LineIcon :name="KIND_ICON[t.kind]" size="1em" /> {{ t.name }}
-            </button>
-          </div>
-          <p v-else class="ta-empty">足すときに「お気に入りにも入れる」を選ぶと、ここから押すだけで足せます</p>
-        </template>
 
-        <!-- ② 種類ごとの欄 -->
-        <form v-else class="ta-form" @submit.prevent="!visibilityChoice && submit(false)">
-          <div class="ta-h">
-            <button v-if="!startKind" type="button" class="ta-back" aria-label="種類を選び直す" @click="back">‹</button>
-            <b><LineIcon v-if="kindInfo" :name="kindInfo.icon" /> {{ kindInfo?.label }}</b>
-            <button type="button" class="ta-x" @click="emit('close')">やめる</button>
-          </div>
-          <input v-model="name" type="text" class="ta-in" :maxlength="kind === 'checklist' || kind === 'routine' ? CL_NAME_MAX : TASK_TEXT_MAX"
-            :aria-label="kind === 'checklist' ? 'チェック表の名前' : 'やること'"
-            :placeholder="{ task: '例：揚げ油の交換', checklist: '例：閉店チェック', routine: '例：冷蔵庫の温度', progress: '例：製氷機の修理の手配', someday: '例：倉庫の棚の整理' }[kind]" />
+            <div v-if="open === r.id && (r.id === 'day' || r.id === 'deadline')" class="ta-cal">
+              <div class="ta-cal-h"><b>{{ calYm.y }}年{{ calYm.m + 1 }}月</b><button type="button" aria-label="前の月" @click="stepCal(-1)">‹</button><button type="button" aria-label="次の月" @click="stepCal(1)">›</button></div>
+              <div class="ta-cal-g">
+                <span v-for="w in WEEK" :key="w" class="wd">{{ w }}</span>
+                <template v-for="c in calCells" :key="c.key">
+                  <span v-if="!c.d"></span>
+                  <button v-else type="button" :class="['d', { on: c.on, today: c.today }]" :disabled="c.off" :data-day="c.key" @click="pickDay(c)">{{ c.d }}</button>
+                </template>
+              </div>
+              <button v-if="r.id === 'day' && day" type="button" class="ta-clear" @click="clearDay">日付なし（いつか）にする</button>
+              <button v-if="r.id === 'deadline' && deadline" type="button" class="ta-clear" @click="clearDeadline">締め切りを外す</button>
+            </div>
 
-          <!-- チェック表: 確かめること -->
-          <template v-if="kind === 'checklist'">
-            <span class="ta-lbl">確かめること</span>
-            <ol class="ta-items">
-              <li v-for="(it, i) in items" :key="it.id">
-                <span>{{ it.text }}</span>
-                <button type="button" :aria-label="`${it.text}を上へ`" :disabled="i === 0" @click="moveItem(i, -1)">↑</button>
-                <button type="button" :aria-label="`${it.text}を消す`" @click="removeItem(it.id)">✕</button>
-              </li>
-            </ol>
-            <div class="ta-add">
-              <input v-model="itemDraft" type="text" class="ta-in" :maxlength="CL_ITEM_MAX" aria-label="項目" placeholder="項目を足す（例：ガスの元栓）" @keydown.enter.prevent="addItem" />
-              <button type="button" class="ta-mini" :disabled="!itemDraft.trim()" @click="addItem">足す</button>
+            <div v-if="open === r.id && r.id === 'time'" class="ta-in-row">
+              <input v-model="time" type="time" aria-label="始まり" />
+              <span>〜</span>
+              <input v-model="endTime" type="time" aria-label="終わり" :min="time" :disabled="!time" />
+              <button v-if="time" type="button" class="ta-clear" @click="time = ''; endTime = ''; open = ''">外す</button>
             </div>
-            <div class="ta-seg" role="radiogroup" aria-label="いつ">
-              <button type="button" role="radio" :aria-checked="once" :class="{ on: once }" @click="once = true">1回</button>
-              <button type="button" role="radio" :aria-checked="!once" :class="{ on: !once }" @click="once = false">繰り返す</button>
-            </div>
-          </template>
 
-          <!-- 日付と時刻（1回のもの） -->
-          <div v-if="kind === 'task' || (kind === 'checklist' && once)" class="ta-row">
-            <label>日付<input v-model="day" type="date" class="ta-in" :min="today" /></label>
-            <label>時刻（任意）<input v-model="time" type="time" class="ta-in" /></label>
-          </div>
-          <template v-if="kind === 'task'">
-            <label v-if="time" class="ta-lb">終わり（任意・予定ボードで帯になる）<input v-model="endTime" type="time" class="ta-in" :min="time" aria-label="終わりの時刻" /></label>
-            <div class="ta-seg" role="radiogroup" aria-label="種類（色）">
-              <button v-for="c in CATS" :key="c[0]" type="button" role="radio" :aria-checked="category === c[0]" :class="['cat', c[0] || 'task', { on: category === c[0] }]" @click="category = c[0]">{{ c[1] }}</button>
+            <div v-if="open === r.id && r.id === 'repeat'" class="ta-sub">
+              <div class="ta-seg" role="radiogroup" aria-label="繰り返し">
+                <button v-for="x in [['none', 'しない'], ['daily', '毎日'], ['weekly', '毎週'], ['monthly', '毎月']]" :key="x[0]" type="button" role="radio" :aria-checked="repeat === x[0]" :class="{ on: repeat === x[0] }" @click="setRepeat(x[0])">{{ x[1] }}</button>
+              </div>
+              <div v-if="repeat === 'weekly'" class="ta-seg">
+                <button v-for="(w, i) in WEEK" :key="w" type="button" :aria-pressed="weekdays.includes(i)" :class="{ on: weekdays.includes(i) }" @click="toggleWeekday(i)">{{ w }}</button>
+              </div>
+              <div v-if="repeat === 'monthly'" class="ta-mdays">
+                <button v-for="n in 31" :key="n" type="button" :aria-pressed="monthDays.includes(String(n))" :class="{ on: monthDays.includes(String(n)) }" @click="toggleMonthDay(String(n))">{{ n }}</button>
+                <button type="button" class="end" :aria-pressed="monthDays.includes('L')" :class="{ on: monthDays.includes('L') }" @click="toggleMonthDay('L')">月末</button>
+              </div>
             </div>
-          </template>
 
-          <!-- 繰り返す -->
-          <template v-if="repeating">
-            <div class="ta-seg" role="radiogroup" aria-label="繰り返し">
-              <button v-for="r in [['daily', '毎日'], ['weekly', '曜日'], ['monthly', '毎月']]" :key="r[0]" type="button" role="radio"
-                :aria-checked="repeat === r[0]" :class="{ on: repeat === r[0] }" @click="repeat = r[0]">{{ r[1] }}</button>
+            <div v-if="open === r.id && r.id === 'who'" class="ta-list">
+              <button type="button" @click="pickWho('all')"><i class="av all">全</i><span>全員</span><b v-if="who === 'all'">✓</b></button>
+              <button v-for="p in people" :key="p.id" type="button" @click="pickWho(`p:${p.id}`)"><i class="av">{{ (p.name || '?').slice(0, 1) }}</i><span>{{ p.name }}</span><b v-if="who === `p:${p.id}`">✓</b></button>
             </div>
-            <div v-if="repeat === 'weekly'" class="ta-seg">
-              <button v-for="(w, d) in WEEK" :key="d" type="button" :class="{ on: weekdays.includes(d) }" :aria-pressed="weekdays.includes(d)" @click="toggleWeekday(d)">{{ w }}</button>
+
+            <div v-if="open === r.id && r.id === 'list'" class="ta-list">
+              <button type="button" @click="pickList(null)"><span>なし</span><b v-if="!itemsName">✓</b></button>
+              <button v-for="t in checklistTemplates" :key="t.id" type="button" @click="pickList(t)">
+                <span class="tl"><span>{{ t.name }}</span><small>{{ t.data.items.map(x => x.text).join('・') }}</small></span><b v-if="itemsName === t.name">✓</b>
+              </button>
+              <p v-if="!checklistTemplates.length" class="ta-none">チェック表はまだありません</p>
             </div>
-            <div v-if="repeat === 'monthly'" class="ta-seg">
-              <button v-for="d in monthDays" :key="d" type="button" class="on" @click="monthDays = monthDays.filter(x => x !== d)">{{ d === 'L' ? '月末' : `${d}日` }} ✕</button>
-              <select v-model="dayDraft" class="ta-in ta-sm" aria-label="足す日"><option v-for="n in 31" :key="n" :value="String(n)">{{ n }}日</option></select>
-              <button type="button" @click="addMonthDay">＋ 日</button>
-              <button type="button" :class="{ on: monthDays.includes('L') }" @click="toggleMonthEnd">月末</button>
-            </div>
-            <span class="ta-lbl">時刻（任意・1日に何回でも）</span>
-            <div class="ta-seg">
-              <button v-for="t in times" :key="t" type="button" class="on" :aria-label="`${t}を外す`" @click="removeTime(t)">{{ t }} ✕</button>
-              <input v-model="timeDraft" type="time" class="ta-in ta-sm" aria-label="足す時刻" />
-              <button type="button" :disabled="!timeDraft" @click="addTime">＋ 時刻</button>
+            <ul v-if="r.id === 'list' && items.length && open !== 'list'" class="ta-items">
+              <li v-for="it in items" :key="it.id">{{ it.text }}</li>
+            </ul>
+
+            <div v-if="open === r.id && r.id === 'vis'" class="ta-sub">
+              <div class="ta-seg" role="radiogroup" aria-label="見せる人">
+                <button type="button" role="radio" :aria-checked="!adminsOnly" :class="{ on: !adminsOnly }" @click="adminsOnly = false; open = ''">みんな</button>
+                <button type="button" role="radio" :aria-checked="adminsOnly" :class="{ on: adminsOnly }" @click="adminsOnly = true; open = ''">管理者だけ</button>
+              </div>
             </div>
           </template>
-
-          <!-- 進行中: 期限 -->
-          <template v-if="kind === 'progress'">
-            <label class="ta-lb">期限（任意）<input v-model="deadline" type="date" class="ta-in" :min="today" /></label>
-            <p class="ta-note pg"><LineIcon name="hourglass" /> 済むまで毎日「進行中」に出ます。止まったらアプリが知らせます</p>
-          </template>
-
-          <label v-if="hasStaff" class="ta-lb">担当
-            <select v-model="who" class="ta-in">
-              <option value="all">全員</option>
-              <option v-for="p in people" :key="p.id" :value="`p:${p.id}`">{{ p.name }}{{ isMeId(p.id) ? '（自分）' : '' }}</option>
-            </select>
-          </label>
-
-          <template v-if="kind === 'task' || kind === 'progress' || kind === 'someday'">
-            <textarea v-if="noteOpen" v-model="note" rows="2" :maxlength="TASK_NOTE_MAX" class="ta-in ta-memo" aria-label="備考" placeholder="備考（細かいこと・手順・連絡先など）"></textarea>
-            <button v-else type="button" class="ta-link" @click="noteOpen = true">＋ 備考</button>
-          </template>
-
-          <p v-if="sentence" class="ta-note">{{ sentence }}</p>
-          <p v-if="kind === 'routine'" class="ta-sub">項目に✓を付けたいときは <b><LineIcon name="clipboard" /> チェック表</b> で作ります</p>
-          <label v-if="canAddTemplate" class="ta-fav-chk"><input v-model="fav" type="checkbox" /> <LineIcon name="star" /> お気に入りにも入れる</label>
-          <p v-if="err" class="ta-err" role="alert">{{ err }}</p>
-
-          <div v-if="visibilityChoice" class="ta-acts">
-            <button type="button" class="ta-save" :disabled="!canSubmit" @click="submit(false)">みんなに見せて追加</button>
-            <button type="button" class="ta-save admins" :disabled="!canSubmit" @click="submit(true)"><LineIcon name="lock" /> 管理者だけで追加</button>
-          </div>
-          <button v-else type="submit" class="ta-save" :disabled="!canSubmit">
-            {{ kind === 'progress' ? '進行中として追加' : kind === 'checklist' ? `追加（${items.length}項目）` : '追加' }}
-          </button>
-        </form>
-      </section>
+        </div>
+        <p v-if="err" class="ta-err" role="alert">{{ err }}</p>
+      </form>
     </div>
   </Teleport>
 </template>
 
 <style scoped>
-.ta-bg { position: fixed; inset: 0; z-index: 130; background: rgba(6,34,43,.4); display: flex; align-items: flex-end; justify-content: center; }
-.ta { width: 100%; max-width: 600px; max-height: 92dvh; overflow-y: auto; background: var(--surface, #fff); border-radius: 20px 20px 0 0;
-  padding: 16px 16px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 10px; box-sizing: border-box; }
-.ta-form { display: grid; gap: 10px; }
-.ta-h { display: flex; align-items: center; gap: 6px; }
-.ta-h b { flex: 1; font-size: 16px; }
-.ta-x { border: none; background: none; color: var(--text-muted); font-weight: 700; font-size: 13px; cursor: pointer; min-height: 40px; padding: 0 4px; }
-.ta-back { border: none; background: var(--bg, #f3f6f8); border-radius: 8px; width: 34px; height: 34px; font-size: 18px; cursor: pointer; color: var(--text); }
-.ta-kinds { display: grid; gap: 7px; }
-.ta-kind { display: flex; gap: 10px; align-items: center; text-align: left; border: 1.5px solid var(--border); background: var(--surface); border-radius: 14px; padding: 10px 12px; cursor: pointer; font: inherit; color: var(--text); }
-.ta-kind:active { background: var(--bg, #f3f6f8); }
-.ta-kind em { font-style: normal; font-size: 22px; width: 32px; text-align: center; flex: none; }
-.ta-kind b { display: block; font-size: 14.5px; }
-.ta-kind small { font-size: 11.5px; color: var(--text-muted); font-weight: 700; line-height: 1.45; }
-.ta-favh { display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 800; color: var(--text-muted); }
-.ta-favs { display: flex; flex-wrap: wrap; gap: 6px; }
-.ta-fav { display: inline-flex; align-items: center; gap: 4px; border: 1.5px solid #fcd34d; background: #fffbeb; color: #78350f; border-radius: 999px; padding: 6px 11px; font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; }
-.ta-fav i { font-style: normal; font-size: 10px; color: #d97706; }
-.ta-fav.checklist { border-color: #c4b5fd; background: #f5f3ff; color: #4c1d95; }
-.ta-fav.routine { border-color: #99f6e4; background: #f0fdfa; color: #134e4a; }
-.ta-empty { margin: 0; font-size: 12px; color: var(--text-muted); line-height: 1.6; }
-.ta-link { border: none; background: none; color: var(--primary, #0e7490); font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; padding: 4px 0; justify-self: start; }
-.ta-in { width: 100%; min-height: 42px; border: 1px solid var(--border); border-radius: 10px; padding: 0 10px; font: inherit; font-size: 15px; background: var(--surface); color: var(--text); box-sizing: border-box; }
-.ta-sm { width: auto; min-height: 36px; font-size: 13px; }
-.ta-memo { padding: 8px 10px; min-height: 60px; resize: vertical; }
-.ta-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.ta-row label, .ta-lb { display: grid; gap: 3px; font-size: 11.5px; font-weight: 800; color: var(--text-muted); }
-.ta-lbl { font-size: 11.5px; font-weight: 800; color: var(--text-muted); }
-.ta-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.ta-items li { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 9px; padding: 4px 6px 4px 10px; font-size: 13.5px; font-weight: 700; }
-.ta-items li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.ta-items li span::before { content: '☐ '; color: #7c3aed; }
-.ta-items li button { border: none; background: none; color: var(--text-muted); font-size: 14px; min-width: 32px; min-height: 32px; cursor: pointer; }
-.ta-items li button:disabled { opacity: .3; }
-.ta-add { display: flex; gap: 6px; }
-.ta-mini { flex: none; min-height: 42px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font-weight: 800; padding: 0 14px; cursor: pointer; }
-.ta-mini:disabled { opacity: .5; }
-.ta-seg { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-.ta-seg button { border: 1px solid var(--border); background: var(--surface); border-radius: 9px; padding: 7px 11px; font: inherit; font-size: 12.5px; font-weight: 800; color: var(--text-muted); cursor: pointer; }
-.ta-seg button.on { background: #4f46e5; border-color: #4f46e5; color: #fff; }
-.ta-seg button:disabled { opacity: .5; }
-.ta-seg button.cat.on.task { background: #0e7490; border-color: #0e7490; }
-.ta-seg button.cat.on.prep { background: #7c3aed; border-color: #7c3aed; }
-.ta-seg button.cat.on.clean { background: #15803d; border-color: #15803d; }
-.ta-seg button.cat.on.order { background: #c2410c; border-color: #c2410c; }
-.ta-note { margin: 0; font-size: 12.5px; font-weight: 800; color: var(--primary, #0e7490); background: var(--primary-weak, #ecfeff); border-radius: 10px; padding: 8px 10px; line-height: 1.55; }
-.ta-note.pg { color: #b45309; background: #fffbeb; }
-.ta-sub { margin: 0; font-size: 12px; color: var(--text-muted); }
-.ta-sub b { color: #7c3aed; }
-.ta-fav-chk { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 800; color: #78350f; }
+.ta-bg { position: fixed; inset: 0; z-index: 130; background: rgba(6,34,43,.45); display: flex; align-items: flex-end; justify-content: center; }
+.ta { width: 100%; max-width: 600px; max-height: 92dvh; overflow-y: auto; background: #f3f7f9; border-radius: 22px 22px 0 0;
+  padding: 12px 14px calc(18px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 12px; box-sizing: border-box; }
+.ta-h { display: flex; align-items: center; min-height: 44px; }
+.ta-x, .ta-go { flex: none; min-width: 64px; min-height: 44px; border: none; background: none; font: inherit; font-size: 15px; cursor: pointer; }
+.ta-x { color: var(--text-muted); font-weight: 700; text-align: left; }
+.ta-go { color: var(--primary, #0e7490); font-weight: 900; text-align: right; }
+.ta-go:disabled { opacity: .4; cursor: default; }
+.ta-kind { margin: 0 auto; display: inline-flex; align-items: center; height: 30px; padding: 0 14px; border-radius: 999px; font-size: 13.5px; font-weight: 900; animation: ta-pop .2s ease-out; }
+.ta-kind.someday { background: #eef2ff; color: #4338ca; }
+.ta-kind.today { background: #e0f2fe; color: #0369a1; }
+.ta-kind.plan { background: #e6f5f8; color: #0b5f73; }
+.ta-kind.progress { background: #fef9c3; color: #a16207; }
+.ta-kind.repeat { background: #ecfdf5; color: #047857; }
+@keyframes ta-pop { from { transform: scale(.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ta-kind { animation: none; } }
+.ta-card { background: var(--surface, #fff); border-radius: 16px; overflow: hidden; }
+.ta-name, .ta-memo { width: 100%; box-sizing: border-box; border: none; background: transparent; padding: 0 16px; font: inherit; color: var(--text); }
+.ta-name { height: 54px; font-size: 17px; font-weight: 800; }
+.ta-memo { height: 44px; font-size: 14px; }
+.ta-name:focus, .ta-memo:focus { outline: none; }
+.ta-hr { display: block; height: 1px; background: #eef2f4; margin-left: 16px; }
+.ta-row { width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 16px; border: none; border-top: 1px solid #eef2f4; background: var(--surface, #fff); font: inherit; color: var(--text); cursor: pointer; text-align: left; }
+.ta-card > .ta-row:first-child { border-top: none; }
+.ta-row.open { background: #f7fbfc; }
+.ta-ic { flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: #fff; }
+.ta-lb { flex: 1; font-size: 15px; font-weight: 700; }
+.ta-v { font-size: 14.5px; font-weight: 600; color: #8aa0a8; }
+.ta-v.set { font-weight: 800; color: var(--primary, #0e7490); }
+.ta-cal { padding: 4px 14px 12px; display: grid; gap: 6px; }
+.ta-cal-h { display: flex; align-items: center; gap: 4px; }
+.ta-cal-h b { flex: 1; font-size: 14px; }
+.ta-cal-h button { width: 40px; height: 36px; border: none; background: none; font-size: 20px; font-weight: 800; color: var(--primary, #0e7490); cursor: pointer; }
+.ta-cal-g { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+.ta-cal-g .wd { font-size: 11px; font-weight: 800; color: #8aa0a8; padding: 4px 0; }
+.ta-cal-g .d { height: 38px; border: none; border-radius: 50%; background: none; font: inherit; font-size: 14px; font-weight: 600; color: var(--text); cursor: pointer; }
+.ta-cal-g .d.today { color: var(--primary, #0e7490); font-weight: 900; }
+.ta-cal-g .d.on { background: var(--primary, #0e7490); color: #fff; font-weight: 900; }
+.ta-cal-g .d:disabled { color: #c9d6db; cursor: default; }
+.ta-clear { justify-self: end; border: none; background: none; font: inherit; font-size: 13.5px; font-weight: 800; color: #b91c1c; cursor: pointer; min-height: 36px; }
+.ta-in-row { display: flex; align-items: center; gap: 8px; padding: 4px 16px 12px 56px; }
+.ta-in-row input { flex: 1; min-width: 0; min-height: 40px; border: 1px solid var(--border); border-radius: 10px; padding: 0 8px; font: inherit; font-size: 15px; background: var(--surface); color: var(--text); }
+.ta-sub { padding: 4px 14px 12px; display: grid; gap: 10px; }
+.ta-seg { display: flex; padding: 3px; border-radius: 11px; background: #eef2f4; }
+.ta-seg button { flex: 1; min-height: 34px; border: none; border-radius: 9px; background: transparent; font: inherit; font-size: 13.5px; font-weight: 800; color: #5b6f78; cursor: pointer; }
+.ta-seg button.on { background: #fff; color: var(--text); box-shadow: 0 1px 3px rgba(16,38,46,.15); }
+.ta-mdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.ta-mdays button { height: 34px; border: none; border-radius: 50%; background: none; font: inherit; font-size: 13px; font-weight: 700; color: var(--text); cursor: pointer; }
+.ta-mdays button.end { grid-column: span 2; border-radius: 999px; font-size: 12.5px; }
+.ta-mdays button.on { background: #059669; color: #fff; }
+.ta-list { padding-left: 56px; }
+.ta-list button { width: 100%; display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 6px 16px 6px 0; border: none; border-top: 1px solid #eef2f4; background: none; font: inherit; font-size: 14.5px; font-weight: 700; color: var(--text); cursor: pointer; text-align: left; }
+.ta-list button span { flex: 1; min-width: 0; }
+.ta-list .tl { display: flex; flex-direction: column; gap: 1px; }
+.ta-list .tl small { font-size: 11.5px; font-weight: 700; color: #8aa0a8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ta-list b { color: var(--primary, #0e7490); }
+.ta-list .av { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 12px; font-weight: 900; color: #fff; background: #0e7490; }
+.ta-list .av.all { background: #94a3b8; }
+.ta-none { margin: 0; padding: 10px 16px 12px 0; font-size: 13px; color: #8aa0a8; }
+.ta-items { list-style: none; margin: 0; padding: 0 16px 12px 56px; display: grid; gap: 4px; }
+.ta-items li { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #3d545d; }
+.ta-items li::before { content: ''; width: 12px; height: 12px; border-radius: 4px; border: 2px solid #9ccfdb; flex: none; }
 .ta-err { margin: 0; font-size: 12.5px; font-weight: 700; color: #b91c1c; }
-.ta-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.ta-save { min-height: 46px; border: none; border-radius: 12px; background: var(--grad-btn); color: #08323c; font-weight: 800; font-size: 14.5px; cursor: pointer; }
-.ta-save:disabled { opacity: .5; }
-.ta-save.admins { background: #475569; color: #fff; }
 </style>

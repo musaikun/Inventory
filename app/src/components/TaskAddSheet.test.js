@@ -1,4 +1,4 @@
-// やることを足す、ただ1つの入口（まず種類・チェック表・お気に入り・別の日にコピー。User決定 2026-11-05）
+// 業務を追加（種類は入れた中身で決まる・チェック表は別の入口で作って付ける・子タスク・いつか→始める。User決定 2026-11-07）
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createApp, h, nextTick } from 'vue'
 
@@ -22,74 +22,115 @@ beforeEach(() => { localStorage.clear(); sessionStorage.clear(); vi.resetModules
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null; document.body.innerHTML = '' })
 const sheet = () => document.body.querySelector('.ta')
 
-describe('種類から選ぶ追加の画面', () => {
-  it('最初は種類だけ。選ぶとその種類に要る欄だけが出る（‹ で選び直せる）', async () => {
+const row = id => sheet().querySelector(`[data-row="${id}"]`)
+const kindOf = () => sheet().querySelector('[data-test="kind"]').textContent
+async function pickCal(k) {
+  let c = sheet().querySelector(`.ta-cal [data-day="${k}"]`)
+  if (!c) { await click(sheet().querySelector('[aria-label="次の月"]')); c = sheet().querySelector(`.ta-cal [data-day="${k}"]`) }
+  await click(c)
+}
+const plus = n => { const d = new Date(); d.setDate(d.getDate() + n); return d }
+async function seedTemplates(list) {
+  const { STORAGE_KEYS } = await import('../utils/storageKeys.js')
+  localStorage.setItem(STORAGE_KEYS.taskTemplates, JSON.stringify(list))
+  vi.resetModules()
+}
+
+describe('業務を追加（種類は選ばない）', () => {
+  it('入れた中身で種類が変わる: 本日 → 予定 → m/dまで → いつか、繰り返し。説明の文は出さない', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
     const { default: Sheet } = await import('./TaskAddSheet.vue')
-    await mount(Sheet, { date: '2099-01-02' })
-    expect([...sheet().querySelectorAll('.ta-kind b')].map(e => e.textContent)).toEqual(['やること', 'チェック表', 'ルーティン', '進行中', 'いつか'])
-    expect(sheet().querySelector('input')).toBeNull()
-    await click(sheet().querySelector('.ta-kind[data-kind="someday"]'))
-    expect(sheet().querySelector('input[type=date]'), 'いつかに日付は無い').toBeNull()
-    await click(sheet().querySelector('.ta-back'))
-    await click(sheet().querySelector('.ta-kind[data-kind="task"]'))
-    expect(sheet().querySelector('input[type=date]').value).toBe('2099-01-02')
+    await mount(Sheet)
+    expect(kindOf()).toBe('本日')
+    expect(sheet().querySelector('.ta-kinds, .ta-note')).toBeNull()
+    await click(row('day')); await pickCal(localDateKey(plus(2)))
+    expect(kindOf()).toBe('予定')
+    await click(row('deadline')); await pickCal(localDateKey(plus(5)))
+    expect(kindOf()).toBe(`${plus(5).getMonth() + 1}/${plus(5).getDate()}まで`)
+    expect(row('repeat')).toBeNull()                    // 締め切りがあると繰り返しは出さない
+    await click(row('deadline')); await click(btn('締め切りを外す', sheet()))
+    await click(row('repeat')); await click(btn('毎週', sheet()))
+    expect(kindOf()).toBe('繰り返し')
+    expect(row('deadline')).toBeNull()
+    await click(btn('しない', sheet()))
+    await click(row('day')); await click(btn('日付なし', sheet()))
+    expect(kindOf()).toBe('いつか')
+    expect(row('deadline')).toBeNull()
   })
 
-  it('チェック表（1回）: 項目を足して、その日の1回きりの表を作る。項目が無いと足せない', async () => {
+  it('チェック表を付けた予定は、その日の1回きりのチェック表になる', async () => {
+    await seedTemplates([{ id: 'tp1', kind: 'checklist', name: '開店準備', data: { items: [{ id: 'a', text: '看板を出す' }, { id: 'b', text: 'レジを開ける' }] }, sort: 1 }])
+    const { localDateKey } = await import('../utils/localDate.js')
     const { default: Sheet } = await import('./TaskAddSheet.vue')
-    await mount(Sheet, { date: '2099-01-02' })
-    await click(sheet().querySelector('.ta-kind[data-kind="checklist"]'))
-    await type(sheet().querySelector('input[aria-label="チェック表の名前"]'), 'ケータリングの準備')
-    expect(btn('追加（0項目）').disabled).toBe(true)
-    for (const t of ['保冷バッグ', 'ラベル']) { await type(sheet().querySelector('input[aria-label="項目"]'), t); await click(btn('足す', sheet())) }
-    await click(btn('追加（2項目）'))
+    await mount(Sheet)
+    await type(sheet().querySelector('input[aria-label="名前"]'), '開店準備（貸切）')
+    await click(row('day')); await pickCal(localDateKey(plus(3)))
+    await click(row('list')); await click(btn('開店準備', sheet()))
+    expect([...sheet().querySelectorAll('.ta-items li')].map(e => e.textContent)).toEqual(['看板を出す', 'レジを開ける'])
+    await click(sheet().querySelector('.ta-go'))
     const { saveChecklistToD1 } = await import('../composables/useStore.js')
-    expect(saveChecklistToD1).toHaveBeenLastCalledWith(expect.objectContaining({
-      name: 'ケータリングの準備', repeat: 'none', startDate: '2099-01-02', items: [expect.objectContaining({ text: '保冷バッグ' }), expect.objectContaining({ text: 'ラベル' })],
-    }))
-    expect(events).toContain('close')
+    expect(saveChecklistToD1).toHaveBeenLastCalledWith(expect.objectContaining({ name: '開店準備（貸切）', repeat: 'none', startDate: localDateKey(plus(3)), items: [expect.objectContaining({ text: '看板を出す' }), expect.objectContaining({ text: 'レジを開ける' })] }))
   })
 
-  it('チェック表（繰り返す）: 曜日と時刻（何回でも）を選び、一文で言い直す。お気に入りにも入れられる', async () => {
+  it('締め切りとチェック表 → 進行中のやることに子タスクとして付く', async () => {
+    await seedTemplates([{ id: 'tp1', kind: 'checklist', name: '修理の手配', data: { items: [{ id: 'a', text: '業者に連絡' }, { id: 'b', text: '見積もり' }] }, sort: 1 }])
+    const { localDateKey } = await import('../utils/localDate.js')
+    const T = await import('../composables/useTasks.js')
     const { default: Sheet } = await import('./TaskAddSheet.vue')
     await mount(Sheet)
-    await click(sheet().querySelector('.ta-kind[data-kind="checklist"]'))
-    await type(sheet().querySelector('input[aria-label="チェック表の名前"]'), '閉店チェック')
-    await type(sheet().querySelector('input[aria-label="項目"]'), 'ガスの元栓'); await click(btn('足す', sheet()))
-    await click(btn('繰り返す'))
-    await click(btn('曜日'))
-    await click(btn('金')); await click(btn('土'))
-    const tm = sheet().querySelector('input[aria-label="足す時刻"]'); tm.value = '22:30'; tm.dispatchEvent(new Event('input')); await tick()
-    await click(btn('＋ 時刻'))
-    expect(sheet().querySelector('.ta-note').textContent).toContain('毎週 金・土 22:30 に、全員が「閉店チェック」（1項目）をする')
-    const fav = sheet().querySelector('.ta-fav-chk input'); fav.checked = true; fav.dispatchEvent(new Event('change')); await tick()
-    await click(btn('追加（1項目）'))
-    const { saveChecklistToD1, saveTemplateToD1 } = await import('../composables/useStore.js')
-    expect(saveChecklistToD1).toHaveBeenLastCalledWith(expect.objectContaining({ name: '閉店チェック', repeat: 'weekly', repeatDays: '5,6', dueTimes: ['22:30'] }))
-    expect(saveTemplateToD1).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'checklist', name: '閉店チェック', data: expect.objectContaining({ repeat: 'weekly', repeatDays: '5,6', dueTimes: ['22:30'] }) }))
+    await type(sheet().querySelector('input[aria-label="名前"]'), '製氷機の修理')
+    await click(row('deadline')); await pickCal(localDateKey(plus(4)))
+    await click(row('list')); await click(btn('修理の手配', sheet()))
+    await click(sheet().querySelector('.ta-go'))
+    const t = T.aliveTasks.value.find(x => x.text === '製氷機の修理')
+    expect(t).toMatchObject({ progress: 'doing', deadline: localDateKey(plus(4)) })
+    expect(t.steps.map(x => [x.text, x.done])).toEqual([['業者に連絡', false], ['見積もり', false]])
   })
 
-  it('ルーティンは項目なし（チェック表を案内する）', async () => {
+  it('★ お気に入りから開くと中身が入っている（繰り返しのもの）', async () => {
     const { default: Sheet } = await import('./TaskAddSheet.vue')
-    await mount(Sheet)
-    await click(sheet().querySelector('.ta-kind[data-kind="routine"]'))
-    expect(sheet().querySelector('input[aria-label="項目"]')).toBeNull()
-    expect(sheet().textContent).toContain('チェック表 で作ります')
+    await mount(Sheet, { template: { id: 'tp', kind: 'routine', name: 'ゴミ出し', data: { repeat: 'weekly', repeatDays: '1,4', dueTimes: ['22:00'] } } })
+    expect(sheet().querySelector('input[aria-label="名前"]').value).toBe('ゴミ出し')
+    expect(kindOf()).toBe('繰り返し')
+    expect(row('repeat').textContent).toContain('毎週 月・木')
+    expect(row('time').textContent).toContain('22:00')
+  })
+})
+
+describe('チェック表（別の入口）・子タスク・いつか→始める', () => {
+  it('チェック表を作り、「このチェック表で業務を追加」で付けて開く', async () => {
+    const { default: Journal } = await import('./JournalPage.vue')
+    await mount(Journal)
+    await click(host.querySelector('[aria-label="チェック表"]'))
+    const page = document.body.querySelector('.ct')
+    await click(btn('チェック表を作る', page))
+    const sh = document.body.querySelector('.ct-sh')
+    await type(sh.querySelector('input[aria-label="チェック表の名前"]'), '閉店チェック')
+    for (const x of ['ガスの元栓', '戸締まり']) { await type(sh.querySelector('input[aria-label="項目"]'), x); await click(sh.querySelector('[aria-label="項目を足す"]')) }
+    await click(btn('このチェック表で業務を追加', sh))
+    const { saveTemplateToD1 } = await import('../composables/useStore.js')
+    expect(saveTemplateToD1).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'checklist', name: '閉店チェック', data: { items: [expect.objectContaining({ text: 'ガスの元栓' }), expect.objectContaining({ text: '戸締まり' })] } }))
+    expect(row('list').textContent).toContain('閉店チェック')
+    expect([...sheet().querySelectorAll('.ta-items li')].map(e => e.textContent)).toEqual(['ガスの元栓', '戸締まり'])
   })
 
-  it('★ お気に入りから選ぶと、種類と中身が入った状態で開く（日付だけ選ぶ）', async () => {
-    const { templates } = await import('../composables/useTemplates.js')
-    const { STORAGE_KEYS } = await import('../utils/storageKeys.js')
-    localStorage.setItem(STORAGE_KEYS.taskTemplates, JSON.stringify([{ id: 'tp1', kind: 'checklist', name: '開店準備', data: { items: [{ id: 'a', text: '看板を出す' }, { id: 'b', text: 'レジを開ける' }], repeat: 'none', dueTimes: ['10:00'] }, sort: 1 }]))
-    vi.resetModules()
-    const { default: Sheet } = await import('./TaskAddSheet.vue')
-    await mount(Sheet, { date: '2099-03-03' })
-    expect(templates).toBeTruthy()
-    await click(btn('開店準備'))
-    expect(sheet().querySelector('input[aria-label="チェック表の名前"]').value).toBe('開店準備')
-    expect([...sheet().querySelectorAll('.ta-items li span')].map(e => e.textContent)).toEqual(['看板を出す', 'レジを開ける'])
-    expect(sheet().querySelector('input[type=time]').value).toBe('10:00')
-    expect(sheet().querySelector('input[type=date]').value).toBe('2099-03-03')
+  it('いつかのやることを開くと子タスクを足せ、「始める」で今日から進行中になる', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
+    const T = await import('../composables/useTasks.js')
+    T.addTask('', '換気扇の掃除')
+    const { default: Journal } = await import('./JournalPage.vue')
+    await mount(Journal)
+    await click(host.querySelector(`.jm-c[aria-label^="${localDateKey()}"]`))
+    const ad = [...host.querySelectorAll('.dt-ad')].find(x => x.textContent.includes('換気扇の掃除'))
+    await click(ad.querySelector('.dt-ct') || ad)
+    const sh = document.body.querySelector('.jp-sheet')
+    await type(sh.querySelector('input[aria-label="子タスク"]'), '業者に聞く')
+    await click(sh.querySelector('[aria-label="子タスクを足す"]'))
+    expect(T.aliveTasks.value.find(x => x.text === '換気扇の掃除').steps.map(x => x.text)).toEqual(['業者に聞く'])
+    await click(btn('業者に聞く', sh))
+    expect(T.aliveTasks.value.find(x => x.text === '換気扇の掃除').steps[0].done).toBe(true)
+    await click(btn('始める', sh))
+    expect(T.aliveTasks.value.find(x => x.text === '換気扇の掃除')).toMatchObject({ progress: 'doing', date: localDateKey() })
   })
 })
 
@@ -122,7 +163,7 @@ describe('別の日にコピー・お気に入りに入れる（日誌のやる�
 describe('予定ボードから（日誌・2026-11-05）', () => {
   const ptr = (el, type, x, y) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y }))
   const xAt = hm => { const [hh, mm] = hm.split(':').map(Number); return ((hh * 60 + mm) / 60 - 7) * 96 }
-  it('マスを押すと「やること」がその時間・30分で開き、終わりと種類（色）も保存する。掴んでずらすと時間が変わる', async () => {
+  it('マスを押すと追加の画面がその時間・30分で開き、終わりも保存する。掴んでずらすと時間が変わる', async () => {
     localStorage.setItem('_journal_view_v1', 'board')
     const { localDateKey } = await import('../utils/localDate.js')
     const T = await import('../composables/useTasks.js')
@@ -132,13 +173,11 @@ describe('予定ボードから（日誌・2026-11-05）', () => {
     await click(host.querySelector(`.jm-c[aria-label^="${today}"]`))
     const canvas = host.querySelector('.db-canvas')
     ptr(canvas, 'pointerdown', xAt('15:10'), 22 + 34); ptr(canvas, 'pointerup', xAt('15:10'), 22 + 34); await tick()
-    expect(sheet().querySelector('input[type=time]').value).toBe('15:00')
-    expect(sheet().querySelector('input[aria-label="終わりの時刻"]').value).toBe('15:30')
-    await type(sheet().querySelector('input[aria-label="やること"]'), '揚げ油の交換')
-    await click(btn('清掃', sheet()))
-    await click(btn('みんなに見せて追加'))
+    expect(sheet().querySelector('[data-row="time"]').textContent).toContain('15:00〜15:30')
+    await type(sheet().querySelector('input[aria-label="名前"]'), '揚げ油の交換')
+    await click(sheet().querySelector('.ta-go'))
     const t = T.aliveTasks.value.find(x => x.text === '揚げ油の交換')
-    expect(t).toMatchObject({ date: today, dueTime: '15:00', endTime: '15:30', category: 'clean' })
+    expect(t).toMatchObject({ date: today, dueTime: '15:00', endTime: '15:30' })
     const b = host.querySelector(`[data-block="${t.id}"]`)
     ptr(b, 'pointerdown', xAt('15:10'), 22 + 34); ptr(b, 'pointermove', xAt('15:10') + 48, 22 + 34); ptr(b, 'pointerup', xAt('15:10') + 48, 22 + 34); await tick()
     expect(T.aliveTasks.value.find(x => x.id === t.id)).toMatchObject({ dueTime: '15:30', endTime: '16:00' })

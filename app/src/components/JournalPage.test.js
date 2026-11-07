@@ -21,12 +21,15 @@ beforeEach(() => { localStorage.clear(); sessionStorage.clear(); vi.resetModules
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null; document.body.innerHTML = '' })
 
 
-// ＋ → 種類を選ぶ（追加はただ1つの入口・まず種類・User決定 2026-11-05）
-async function addOf(kind) {
+// ＋ → 業務を追加（種類は入れた中身で決まる・User決定 2026-11-07）
+async function addForm(name = '') {
   await click(host.querySelector('.dt-fab'))
-  await click(document.body.querySelector(`.ta-kind[data-kind="${kind}"]`))
-  return document.body.querySelector('.ta')
+  const form = document.body.querySelector('.ta')
+  if (name) { const t = form.querySelector('input[aria-label="名前"]'); t.value = name; t.dispatchEvent(new Event('input')); await tick() }
+  return form
 }
+const row = (form, id) => form.querySelector(`[data-row="${id}"]`)
+const kindOf = form => form.querySelector('[data-test="kind"]').textContent
 // 日を押して、その日のタイムラインを開く
 async function openDay(key) {
   await click(host.querySelector(`.jm-c[aria-label^="${key}"]`))
@@ -125,43 +128,41 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     expect(document.body.querySelector('.jp-sheet .tr').textContent).toContain(t.text)
   })
 
-  it('＋ → 種類「いつか」で追加。今日の終日に出る。管理者は見せ方を2つのボタンで選ぶ', async () => {
+  it('＋ → 日付を外すと「いつか」。今日の終日に出る', async () => {
     const { localDateKey } = await import('../utils/localDate.js')
     const T = await import('../composables/useTasks.js')
     const { default: JournalPage } = await import('./JournalPage.vue')
     await mount(JournalPage)
     await openDay(localDateKey())
-    const form = await addOf('someday')
-    const text = form.querySelector('input[type=text]')
-    text.value = 'メニュー表の作り直し'; text.dispatchEvent(new Event('input')); await tick()
-    await click(btn('みんなに見せて追加', form))
+    const form = await addForm('メニュー表の作り直し')
+    expect(kindOf(form)).toBe('本日')
+    await click(row(form, 'day'))
+    await click(btn('日付なし', form))
+    expect(kindOf(form)).toBe('いつか')
+    await click(form.querySelector('.ta-go'))
     expect(T.somedayTasks.value.map(t => t.text)).toEqual(['メニュー表の作り直し'])
     const ad = [...host.querySelectorAll('.dt-ad')].find(x => x.textContent.includes('メニュー表の作り直し'))
     expect(ad.textContent).toContain('いつか')
   })
 
-  it('管理者は追加のたびに「みんなに見せて追加」「管理者だけで追加」を選ぶ（チェックの付け忘れ・付けすぎを防ぐ・2026-10-19）', async () => {
+  it('管理者は「見せる人」の行で、みんな／管理者だけを選べる（既定はみんな）', async () => {
     const T = await import('../composables/useTasks.js')
     const { default: JournalPage } = await import('./JournalPage.vue')
     T.addTask(new Date().toISOString().slice(0, 10), 'x')   // 何もない店の画面にしない
     await mount(JournalPage)
     await openDay(new Date().toISOString().slice(0, 10))
-    const add = async (text, label) => {
-      const form = await addOf('task')
-      expect(form.textContent).not.toContain('管理者だけに見せる')   // チェックは無い
-      const input = form.querySelector('input[type=text]')
-      input.value = text; input.dispatchEvent(new Event('input')); await tick()
-      form.querySelector('form').dispatchEvent(new Event('submit', { cancelable: true })); await tick()
-      expect(document.body.querySelector('.ta'), 'Enter では決めない（どちらに見せるか選ばせる）').not.toBeNull()
-      await click(btn(label, form))
-    }
-    await add('面談の準備', '管理者だけで追加')
-    await add('冷蔵庫の掃除', 'みんなに見せて追加')
+    let form = await addForm('面談の準備')
+    await click(row(form, 'vis'))
+    await click(btn('管理者だけ', form))
+    await click(form.querySelector('.ta-go'))
+    form = await addForm('冷蔵庫の掃除')
+    expect(row(form, 'vis').textContent).toContain('みんな')
+    form.dispatchEvent(new Event('submit', { cancelable: true })); await tick()   // Enter でも足せる
     const vis = Object.fromEntries(T.aliveTasks.value.map(t => [t.text, t.visibility ?? null]))
     expect(vis).toEqual({ x: null, 面談の準備: 'admins', 冷蔵庫の掃除: null })
   })
 
-  it('進行中: 種類「⏳ 進行中」で作る。次に見る日は選ばず、済むまで毎日終日に出る。期限切れにもならない（押すと経過のシート）', async () => {
+  it('進行中: 締め切りを入れると「m/dまで」の進行中。済むまで毎日終日に出て、期限切れにもならない（押すと経過のシート）', async () => {
     const { localDateKey } = await import('../utils/localDate.js')
     const T = await import('../composables/useTasks.js')
     T.addTask(localDateKey(new Date(Date.now() - 2 * 86400_000)), '看板の張り替え', null, null, { progress: 'doing' })
@@ -174,15 +175,17 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     await click(ad.querySelector('.dt-ct'))
     expect(document.body.querySelector('.ps')).not.toBeNull()
     await click(document.body.querySelector('.ps-x'))
-    // 作る（種類「進行中」）
-    const form = await addOf('progress')
-    const t = form.querySelector('input[aria-label="やること"]')
-    t.value = '製氷機の修理'; t.dispatchEvent(new Event('input')); await tick()
-    expect(form.textContent).not.toContain('日付')
-    expect(form.textContent).not.toContain('次に見る')   // 次に見る日は選ばない（User決定 2026-10-28）
-    await click(btn('みんなに見せて追加', form))
+    const form = await addForm('製氷機の修理')
+    await click(row(form, 'deadline'))
+    const due = localDateKey(new Date(Date.now() + 3 * 86400_000))
+    let cell = form.querySelector(`.ta-cal [data-day="${due}"]`)
+    if (!cell) { await click(form.querySelector('[aria-label="次の月"]')); cell = form.querySelector(`.ta-cal [data-day="${due}"]`) }
+    await click(cell)
+    expect(kindOf(form)).toMatch(/^\d+\/\d+まで$/)
+    expect(form.textContent).not.toContain('次に見る')
+    await click(form.querySelector('.ta-go'))
     const { saveTaskToD1 } = await import('../composables/useStore.js')
-    expect(saveTaskToD1).toHaveBeenLastCalledWith(expect.objectContaining({ text: '製氷機の修理', progress: 'doing', date: localDateKey() }))
+    expect(saveTaskToD1).toHaveBeenLastCalledWith(expect.objectContaining({ text: '製氷機の修理', progress: 'doing', date: localDateKey(), deadline: due }))
     expect(host.querySelector('.dt').textContent).toContain('製氷機の修理')
   })
 
@@ -251,36 +254,32 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     await mount(JournalPage)
     staffNames.value = [{ id: 'o1', name: 'オーナー', owner: true }, { id: 's1', name: '佐藤' }]   // 読み込み（ログインなしは空）の後に置く
     await openDay(localDateKey())
-    const form = await addOf('task')
-    const sel = form.querySelector('select.ta-in:not([aria-label])')
-    expect([...sel.options].map(o => o.textContent)).toEqual(['全員', 'オーナー', '佐藤'])
-    expect(sel.value).toBe('all')
+    const form = await addForm()
+    expect(row(form, 'who').textContent).toContain('全員')
+    await click(row(form, 'who'))
+    expect([...form.querySelectorAll('.ta-list button span')].map(e => e.textContent)).toEqual(['全員', 'オーナー', '佐藤'])
   })
 
-  it('備考: 追加のときに書け（＋ 備考）、タイムラインの行に📝で出る。担当の人も書き足せる', async () => {
+  it('メモ: 追加のときに書け、タイムラインの行に出る。担当の人も書き足せる', async () => {
     const { localDateKey } = await import('../utils/localDate.js')
     const T = await import('../composables/useTasks.js')
     const { default: JournalPage } = await import('./JournalPage.vue')
     await mount(JournalPage)
     await openDay(localDateKey())
-    const form = await addOf('task')
-    const text = form.querySelector('input[aria-label="やること"]')
-    text.value = '製氷機の点検'; text.dispatchEvent(new Event('input')); await tick()
-    await click(btn('備考', form))
-    const note = form.querySelector('textarea[aria-label="備考"]')
+    const form = await addForm('製氷機の点検')
+    const note = form.querySelector('input[aria-label="メモ"]')
     note.value = '業者 03-1234-5678'; note.dispatchEvent(new Event('input')); await tick()
-    await click(btn('みんなに見せて追加', form))
+    await click(form.querySelector('.ta-go'))
     const t = T.aliveTasks.value.find(x => x.text === '製氷機の点検')
     expect(t.note).toBe('業者 03-1234-5678')
     const { saveTaskToD1 } = await import('../composables/useStore.js')
     expect(saveTaskToD1).toHaveBeenLastCalledWith(expect.objectContaining({ note: '業者 03-1234-5678' }))
     expect(host.querySelector('.dt .dt-note').textContent).toContain('業者 03-1234-5678')
-    // 直す（作った人）: TaskRow の備考
     expect(T.setTaskNote(t.id, '業者に連絡済み')).toBeTruthy()
     expect(T.aliveTasks.value.find(x => x.id === t.id).note).toBe('業者に連絡済み')
   })
 
-  it('ルーティン: 月の🔁から見本で始める。「＋」の種類「🔁 ルーティン」でも作れる', async () => {
+  it('ルーティン: 月の🔁から見本で始める。「＋」で繰り返しを選ぶと繰り返しになる', async () => {
     const { default: JournalPage } = await import('./JournalPage.vue')
     await mount(JournalPage)
     await click(host.querySelector('[aria-label="ルーティンの設定"]'))
@@ -292,16 +291,17 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     const { localDateKey } = await import('../utils/localDate.js')
     const dt = await openDay(localDateKey())
     expect(dt.textContent).toContain('開店チェック')
-    const form = await addOf('routine')
-    const t = form.querySelector('input[aria-label="やること"]')
-    t.value = 'ゴミ出し'; t.dispatchEvent(new Event('input')); await tick()
+    const form = await addForm('ゴミ出し')
+    await click(row(form, 'repeat'))
     await click(btn('毎月', form))
     await click(btn('月末', form))
-    expect(form.querySelector('.ta-note').textContent).toContain('毎月1日・月末')
+    expect(row(form, 'repeat').textContent).toContain('月末')
+    expect(kindOf(form)).toBe('繰り返し')
     await click(btn('毎日', form))
-    await click(btn('追加', form))
+    await click(form.querySelector('.ta-go'))
     expect(saveChecklistToD1).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'ゴミ出し', items: [], repeat: 'daily' }))
   })
+
   it('棚卸の中断が4回を超えたら1行にたたむ（押すと開く）。帯は斜線のまま', async () => {
     const at = hm => new Date(`2026-10-20T${hm}:00`).getTime()
     const ps = [['11:05', '11:20'], ['12:10', '12:30'], ['13:00', '13:02'], ['13:30', '13:50'], ['15:20', '16:02']].map(([f, t]) => ({ from: at(f), to: at(t) }))
