@@ -162,6 +162,7 @@ const rows = computed(() => [
   { id: 'list', icon: 'clipboard', color: '#db2777', label: 'チェック表', value: itemsName.value || 'なし', set: !!itemsName.value },
   ...(isAdmin.value && repeat.value === 'none' && !(items.value.length && day.value && !deadline.value) ? [{ id: 'vis', icon: 'eye', color: '#475569', label: '見せる人', value: adminsOnly.value ? '管理者だけ' : 'みんな', set: adminsOnly.value }] : []),
 ])
+const modalTitle = computed(() => rows.value.find(r => r.id === open.value)?.label || '')
 function pickWho(v) { who.value = v; open.value = '' }
 function pickList(t) { if (t) _setItems(t.data?.items, t.name); else _setItems([], ''); open.value = '' }
 
@@ -231,68 +232,74 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
 
         <div class="ta-card">
           <template v-for="r in rows" :key="r.id">
-            <button type="button" :class="['ta-row', { open: open === r.id }]" :aria-expanded="open === r.id" :data-row="r.id" @click="toggleRow(r.id)">
+            <button type="button" class="ta-row" aria-haspopup="dialog" :data-row="r.id" @click="toggleRow(r.id)">
               <span class="ta-ic" :style="{ background: r.color }"><LineIcon :name="r.icon" size="17" /></span>
               <span class="ta-lb">{{ r.label }}</span>
               <span :class="['ta-v', { set: r.set }]">{{ r.value }}</span>
             </button>
 
-            <div v-if="open === r.id && (r.id === 'day' || r.id === 'deadline')" class="ta-cal">
-              <div class="ta-cal-h"><b>{{ calYm.y }}年{{ calYm.m + 1 }}月</b><button type="button" aria-label="前の月" @click="stepCal(-1)">‹</button><button type="button" aria-label="次の月" @click="stepCal(1)">›</button></div>
-              <div class="ta-cal-g">
-                <span v-for="w in WEEK" :key="w" class="wd">{{ w }}</span>
-                <template v-for="c in calCells" :key="c.key">
-                  <span v-if="!c.d"></span>
-                  <button v-else type="button" :class="['d', { on: c.on, today: c.today }]" :disabled="c.off" :data-day="c.key" @click="pickDay(c)">{{ c.d }}</button>
-                </template>
-              </div>
-              <button v-if="r.id === 'day' && day" type="button" class="ta-clear" @click="clearDay">日付なし（いつか）にする</button>
-              <button v-if="r.id === 'deadline' && deadline" type="button" class="ta-clear" @click="clearDeadline">締め切りを外す</button>
-            </div>
-
-            <div v-if="open === r.id && r.id === 'time'" class="ta-in-row">
-              <input v-model="time" type="time" aria-label="始まり" />
-              <span>〜</span>
-              <input v-model="endTime" type="time" aria-label="終わり" :min="time" :disabled="!time" />
-              <button v-if="time" type="button" class="ta-clear" @click="time = ''; endTime = ''; open = ''">外す</button>
-            </div>
-
-            <div v-if="open === r.id && r.id === 'repeat'" class="ta-sub">
-              <div class="ta-seg" role="radiogroup" aria-label="繰り返し">
-                <button v-for="x in [['none', 'しない'], ['daily', '毎日'], ['weekly', '毎週'], ['monthly', '毎月']]" :key="x[0]" type="button" role="radio" :aria-checked="repeat === x[0]" :class="{ on: repeat === x[0] }" @click="setRepeat(x[0])">{{ x[1] }}</button>
-              </div>
-              <div v-if="repeat === 'weekly'" class="ta-seg">
-                <button v-for="(w, i) in WEEK" :key="w" type="button" :aria-pressed="weekdays.includes(i)" :class="{ on: weekdays.includes(i) }" @click="toggleWeekday(i)">{{ w }}</button>
-              </div>
-              <div v-if="repeat === 'monthly'" class="ta-mdays">
-                <button v-for="n in 31" :key="n" type="button" :aria-pressed="monthDays.includes(String(n))" :class="{ on: monthDays.includes(String(n)) }" @click="toggleMonthDay(String(n))">{{ n }}</button>
-                <button type="button" class="end" :aria-pressed="monthDays.includes('L')" :class="{ on: monthDays.includes('L') }" @click="toggleMonthDay('L')">月末</button>
-              </div>
-            </div>
-
-            <div v-if="open === r.id && r.id === 'who'" class="ta-list">
-              <button type="button" @click="pickWho('all')"><i class="av all">全</i><span>全員</span><b v-if="who === 'all'">✓</b></button>
-              <button v-for="p in people" :key="p.id" type="button" @click="pickWho(`p:${p.id}`)"><i class="av">{{ (p.name || '?').slice(0, 1) }}</i><span>{{ p.name }}</span><b v-if="who === `p:${p.id}`">✓</b></button>
-            </div>
-
-            <div v-if="open === r.id && r.id === 'list'" class="ta-list">
-              <button type="button" @click="pickList(null)"><span>なし</span><b v-if="!itemsName">✓</b></button>
-              <button v-for="t in checklistTemplates" :key="t.id" type="button" @click="pickList(t)">
-                <span class="tl"><span>{{ t.name }}</span><small>{{ t.data.items.map(x => x.text).join('・') }}</small></span><b v-if="itemsName === t.name">✓</b>
-              </button>
-              <button type="button" class="ta-manage" @click="emit('templates')"><LineIcon name="pencil" size="15" /><span>チェック表を作る・直す</span></button>
-            </div>
-            <ul v-if="r.id === 'list' && items.length && open !== 'list'" class="ta-items">
+            <ul v-if="r.id === 'list' && items.length" class="ta-items">
               <li v-for="it in items" :key="it.id">{{ it.text }}</li>
             </ul>
-
-            <div v-if="open === r.id && r.id === 'vis'" class="ta-sub">
-              <div class="ta-seg" role="radiogroup" aria-label="見せる人">
-                <button type="button" role="radio" :aria-checked="!adminsOnly" :class="{ on: !adminsOnly }" @click="adminsOnly = false; open = ''">みんな</button>
-                <button type="button" role="radio" :aria-checked="adminsOnly" :class="{ on: adminsOnly }" @click="adminsOnly = true; open = ''">管理者だけ</button>
-              </div>
-            </div>
           </template>
+        </div>
+
+        <!-- 行の中身はモーダルで選ぶ（一覧の中で開くと見づらい・User決定 2026-11-07） -->
+        <div v-if="open" class="ta-mbg" @click.self="open = ''">
+          <section class="ta-modal" role="dialog" :aria-label="modalTitle">
+            <div class="ta-mh"><b>{{ modalTitle }}</b><button type="button" class="ta-done" @click="open = ''">完了</button></div>
+              <div v-if="open === 'day' || open === 'deadline'" class="ta-cal">
+                <div class="ta-cal-h"><b>{{ calYm.y }}年{{ calYm.m + 1 }}月</b><button type="button" aria-label="前の月" @click="stepCal(-1)">‹</button><button type="button" aria-label="次の月" @click="stepCal(1)">›</button></div>
+                <div class="ta-cal-g">
+                  <span v-for="w in WEEK" :key="w" class="wd">{{ w }}</span>
+                  <template v-for="c in calCells" :key="c.key">
+                    <span v-if="!c.d"></span>
+                    <button v-else type="button" :class="['d', { on: c.on, today: c.today }]" :disabled="c.off" :data-day="c.key" @click="pickDay(c)">{{ c.d }}</button>
+                  </template>
+                </div>
+                <button v-if="open === 'day' && day" type="button" class="ta-clear" @click="clearDay">日付なし（いつか）にする</button>
+                <button v-if="open === 'deadline' && deadline" type="button" class="ta-clear" @click="clearDeadline">締め切りを外す</button>
+              </div>
+
+              <div v-if="open === 'time'" class="ta-in-row">
+                <input v-model="time" type="time" aria-label="始まり" />
+                <span>〜</span>
+                <input v-model="endTime" type="time" aria-label="終わり" :min="time" :disabled="!time" />
+                <button v-if="time" type="button" class="ta-clear" @click="time = ''; endTime = ''; open = ''">外す</button>
+              </div>
+
+              <div v-if="open === 'repeat'" class="ta-sub">
+                <div class="ta-seg" role="radiogroup" aria-label="繰り返し">
+                  <button v-for="x in [['none', 'しない'], ['daily', '毎日'], ['weekly', '毎週'], ['monthly', '毎月']]" :key="x[0]" type="button" role="radio" :aria-checked="repeat === x[0]" :class="{ on: repeat === x[0] }" @click="setRepeat(x[0])">{{ x[1] }}</button>
+                </div>
+                <div v-if="repeat === 'weekly'" class="ta-seg">
+                  <button v-for="(w, i) in WEEK" :key="w" type="button" :aria-pressed="weekdays.includes(i)" :class="{ on: weekdays.includes(i) }" @click="toggleWeekday(i)">{{ w }}</button>
+                </div>
+                <div v-if="repeat === 'monthly'" class="ta-mdays">
+                  <button v-for="n in 31" :key="n" type="button" :aria-pressed="monthDays.includes(String(n))" :class="{ on: monthDays.includes(String(n)) }" @click="toggleMonthDay(String(n))">{{ n }}</button>
+                  <button type="button" class="end" :aria-pressed="monthDays.includes('L')" :class="{ on: monthDays.includes('L') }" @click="toggleMonthDay('L')">月末</button>
+                </div>
+              </div>
+
+              <div v-if="open === 'who'" class="ta-list">
+                <button type="button" @click="pickWho('all')"><i class="av all">全</i><span>全員</span><b v-if="who === 'all'">✓</b></button>
+                <button v-for="p in people" :key="p.id" type="button" @click="pickWho(`p:${p.id}`)"><i class="av">{{ (p.name || '?').slice(0, 1) }}</i><span>{{ p.name }}</span><b v-if="who === `p:${p.id}`">✓</b></button>
+              </div>
+
+              <div v-if="open === 'list'" class="ta-list">
+                <button type="button" @click="pickList(null)"><span>なし</span><b v-if="!itemsName">✓</b></button>
+                <button v-for="t in checklistTemplates" :key="t.id" type="button" @click="pickList(t)">
+                  <span class="tl"><span>{{ t.name }}</span><small>{{ t.data.items.map(x => x.text).join('・') }}</small></span><b v-if="itemsName === t.name">✓</b>
+                </button>
+                <button type="button" class="ta-manage" @click="emit('templates')"><LineIcon name="pencil" size="15" /><span>チェック表を作る・直す</span></button>
+              </div>
+              <div v-if="open === 'vis'" class="ta-sub">
+                <div class="ta-seg" role="radiogroup" aria-label="見せる人">
+                  <button type="button" role="radio" :aria-checked="!adminsOnly" :class="{ on: !adminsOnly }" @click="adminsOnly = false; open = ''">みんな</button>
+                  <button type="button" role="radio" :aria-checked="adminsOnly" :class="{ on: adminsOnly }" @click="adminsOnly = true; open = ''">管理者だけ</button>
+                </div>
+              </div>
+          </section>
         </div>
         <p v-if="err" class="ta-err" role="alert">{{ err }}</p>
       </form>
@@ -325,11 +332,18 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
 .ta-hr { display: block; height: 1px; background: #eef2f4; margin-left: 16px; }
 .ta-row { width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 16px; border: none; border-top: 1px solid #eef2f4; background: var(--surface, #fff); font: inherit; color: var(--text); cursor: pointer; text-align: left; }
 .ta-card > .ta-row:first-child { border-top: none; }
-.ta-row.open { background: #f7fbfc; }
+
 .ta-ic { flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: #fff; }
 .ta-lb { flex: 1; font-size: 15px; font-weight: 700; }
 .ta-v { font-size: 14.5px; font-weight: 600; color: #8aa0a8; }
 .ta-v.set { font-weight: 800; color: var(--primary, #0e7490); }
+.ta-mbg { position: fixed; inset: 0; z-index: 140; background: rgba(6,34,43,.35); display: flex; align-items: flex-end; justify-content: center; }
+.ta-modal { width: 100%; max-width: 600px; max-height: 80dvh; overflow-y: auto; box-sizing: border-box; background: var(--surface, #fff); border-radius: 20px 20px 0 0; padding: 8px 0 calc(16px + env(safe-area-inset-bottom)); animation: ta-up .2s ease-out; }
+@keyframes ta-up { from { transform: translateY(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ta-modal { animation: none; } }
+.ta-mh { display: flex; align-items: center; min-height: 48px; padding: 0 8px 0 16px; border-bottom: 1px solid #eef2f4; margin-bottom: 6px; }
+.ta-mh b { flex: 1; font-size: 16px; }
+.ta-done { min-width: 64px; min-height: 44px; border: none; background: none; font: inherit; font-size: 15px; font-weight: 900; color: var(--primary, #0e7490); cursor: pointer; }
 .ta-cal { padding: 4px 14px 12px; display: grid; gap: 6px; }
 .ta-cal-h { display: flex; align-items: center; gap: 4px; }
 .ta-cal-h b { flex: 1; font-size: 14px; }
@@ -341,7 +355,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
 .ta-cal-g .d.on { background: var(--primary, #0e7490); color: #fff; font-weight: 900; }
 .ta-cal-g .d:disabled { color: #c9d6db; cursor: default; }
 .ta-clear { justify-self: end; border: none; background: none; font: inherit; font-size: 13.5px; font-weight: 800; color: #b91c1c; cursor: pointer; min-height: 36px; }
-.ta-in-row { display: flex; align-items: center; gap: 8px; padding: 4px 16px 12px 56px; }
+.ta-in-row { display: flex; align-items: center; gap: 8px; padding: 8px 16px 12px; }
 .ta-in-row input { flex: 1; min-width: 0; min-height: 40px; border: 1px solid var(--border); border-radius: 10px; padding: 0 8px; font: inherit; font-size: 15px; background: var(--surface); color: var(--text); }
 .ta-sub { padding: 4px 14px 12px; display: grid; gap: 10px; }
 .ta-seg { display: flex; padding: 3px; border-radius: 11px; background: #eef2f4; }
@@ -351,7 +365,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
 .ta-mdays button { height: 34px; border: none; border-radius: 50%; background: none; font: inherit; font-size: 13px; font-weight: 700; color: var(--text); cursor: pointer; }
 .ta-mdays button.end { grid-column: span 2; border-radius: 999px; font-size: 12.5px; }
 .ta-mdays button.on { background: #059669; color: #fff; }
-.ta-list { padding-left: 56px; }
+.ta-list { padding-left: 16px; }
 .ta-list button { width: 100%; display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 6px 16px 6px 0; border: none; border-top: 1px solid #eef2f4; background: none; font: inherit; font-size: 14.5px; font-weight: 700; color: var(--text); cursor: pointer; text-align: left; }
 .ta-list button span { flex: 1; min-width: 0; }
 .ta-list .tl { display: flex; flex-direction: column; gap: 1px; }
