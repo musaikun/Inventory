@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // docs/・ルートの Markdown にある相対リンク（ファイル）の切れを検出する。
 // 外部URL・アンカーのみのリンク・docs/export/（履歴）は対象外。
-// あわせて AGENTS.md「主要ファイル」のツリーに載ったファイルが実在するかを見る。
+// あわせて AGENTS.md「主要ファイル」のツリーに載ったファイルが実在するか、
+// セッション記録（docs/quality-foundation/sessions/）のファイル名が決まった形か（D-033）を見る。
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 
@@ -44,8 +45,19 @@ else {
   }
 }
 
+// セッション記録のファイル名: YYYY-MM-DD-HHMM-<slug>.md（UTC・slugは英小文字・数字・ハイフン）
+const SESSIONS = 'docs/quality-foundation/sessions'
+if (existsSync(join(root, SESSIONS))) {
+  for (const n of readdirSync(join(root, SESSIONS))) {
+    if (n === 'README.md') continue
+    if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])-([01]\d|2[0-3])[0-5]\d-[a-z0-9]+(-[a-z0-9]+)*\.md$/.test(n)) {
+      broken.push(`${SESSIONS}/${n}: ファイル名は YYYY-MM-DD-HHMM-<slug>.md（sessions/README.md）`)
+    }
+  }
+}
+
 if (broken.length) {
-  console.error(`リンク切れ ${broken.length}件:\n` + broken.join('\n'))
+  console.error(`docs検査で ${broken.length}件:\n` + broken.join('\n'))
   process.exit(1)
 }
-console.log(`リンク切れ 0件（${files.length} files）`)
+console.log(`docs検査 OK（リンク切れ0件・${files.length} files）`)

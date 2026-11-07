@@ -473,3 +473,15 @@
 - 提案からの変更: `GET /history`を`report`だけにすると既定のスタッフの在庫ページ・日誌が空になるため`count`も許す。
   `POST /orders`は入力中から保存するため`order.finish`でなく`order.draft`。`POST /movements`は納品の取り込みのため`item.admin`も許す。
 - 適用: `worker/src/index.js`、`app/src/composables/useStore.js`、[`tasks/DOC-004.md`](tasks/DOC-004.md)
+
+## D-033 — セッションの記録は1件1ファイルにする
+
+- 日付: 2026-11-07
+- 状態: 採用
+- 決定者: User
+- 判断: 作業の記録は`docs/quality-foundation/sessions/YYYY-MM-DD-HHMM-<slug>.md`（UTC）に1件1ファイルで足す。
+  既存のファイルは書き換えない。`session-log.md`は入口と2026-11-07までの月別archive索引だけにし、追記しない。
+  D-029の「session logは当月分だけ・月替わりにarchive」を置き換える。
+- 理由: 全セッションが`session-log.md`の先頭に追記していたため、並行ブランチのmergeが毎回そこで競合した
+  （2026-11-07、`develop`と`ccr-fa4fb21d-d68lyu`の合流で発生）。
+- 残る共有ファイル: `app/package.json`のversion（D-026）。CIでの採番に変えるかは未決。

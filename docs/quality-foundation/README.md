@@ -13,7 +13,7 @@
 ## 作業開始時に読む順番
 
 読む順番は [`AGENTS.md`](../../AGENTS.md) の「読む順番（段階的に読む）」を正とします（→ D-029）。
-毎回読むのは docs索引・[`task-list.md`](task-list.md)・[`session-log.md`](session-log.md)の先頭数件だけで、
+毎回読むのは docs索引・[`task-list.md`](task-list.md)・[`sessions/`](sessions/)の新しい先頭数件だけで、
 次は作業に応じて読みます。
 
 - [`web-release-readiness.md`](web-release-readiness.md) — 現在のWeb release gate
@@ -26,7 +26,7 @@
 2026-08の3セッション用[`cc-session-plan.md`](cc-session-plan.md)は完了済み作業の履歴です。
 現在の実装指示には使用しません。
 
-`session-log.md`は当月分だけ、[`../proposals.md`](../proposals.md)は2026-09以降を現行fileに置き、
+作業の記録は[`sessions/`](sessions/)に1件1ファイル（D-033。2026-11-07より前は`session-log.md`から辿るarchive）、[`../proposals.md`](../proposals.md)は2026-09以降を現行fileに置き、
 それ以前を[`archive/`](archive/)へ月別保存しています。archiveは履歴証拠であり、現在仕様へ書き換えません。
 
 Google Playへ着手する場合だけ[`google-play-readiness.md`](google-play-readiness.md)、

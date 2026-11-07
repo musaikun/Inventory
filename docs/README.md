@@ -94,7 +94,7 @@ Play専用資料は削除せず、A1着手時に公式要件を再確認して�
 - `docs/quality-foundation/tasks/completed-*.md`
 - `docs/export/**`
 
-`session-log.md`は当月分だけ（D-029）、`proposals.md`は2026-09以降を現行fileに残し、それ以前を
+作業の記録は2026-11-07から`quality-foundation/sessions/`に1件1ファイル（D-033）。それより前の`session-log.md`と、`proposals.md`の2026-08以前は
 `quality-foundation/archive/`の月別snapshotに保存します。`intake-reviews.md`を含め、
 過去entryは改変せず、新しい記録を現行fileの上に追記します。
 

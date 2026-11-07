@@ -36,6 +36,10 @@ jobs:
             app/package-lock.json
             worker/package-lock.json
 
+      # リンク切れ・主要ファイル一覧の実在・セッション記録のファイル名（ci.yml と同じ検査）
+      - name: Docs check
+        run: node scripts/check-docs-links.mjs
+
       - name: Install and test Worker
         working-directory: worker
         run: |

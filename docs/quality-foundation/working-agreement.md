@@ -37,7 +37,7 @@
 2. API、DB、認可、ユーザー操作、運用が変わった場合は関連文書を同じタスクで更新する（D-028）。
 3. `task-list.md` の状態を `レビュー待ち` または `完了` にする。完了した `tasks/<ID>.md` はそのまま残し、
    `task-list.md` の「完了」表へ行を移す（詳細fileの移動・集約はしない）。
-4. `session-log.md` の先頭へ、変更、検証、残件、次の一手を追記する。
+4. `sessions/` に新しいファイルを作り、変更、検証、残件、次の一手を書く（D-033）。
 5. 未追跡ファイルと意図しない差分がないか `git status` で確認する。
 
 現在のWeb release判定は`web-release-readiness.md`を使用し、production URLのUser確認を必須とします。

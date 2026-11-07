@@ -124,6 +124,10 @@ command/step、環境、未検証範囲を残します。
 
 ## 現行CIの検証範囲
 
+**develop以外のbranchとPR**は`ci.yml`（2026-11-07追加）が、Worker test・App test/build・docs検査を3 jobで並列に回します。
+deployはせず、secretsも使いません。並行セッションのbranchが壊れていても`develop`へ合流するまで分からなかったためです。
+`develop-preview.yml`も、testの前に同じdocs検査（`node scripts/check-docs-links.mjs`）を行います。
+
 `develop-preview.yml`と`pro-review.yml`は、Node 24で次を実行します。
 
 | 対象 | workflowの実行 | 実際の範囲 |
@@ -236,7 +240,9 @@ migration履歴tableではなくschema sentinel方式を使うため、適用状
 ## 仕組みのファイル
 
 ```
-.github/workflows/develop-preview.yml  # developのtest / build / Pages preview
+.github/workflows/ci.yml               # develop以外のbranch・PRのtest / build / docs検査（deployなし）
+.github/workflows/develop-preview.yml  # developのdocs検査 / test / build / Pages preview
+scripts/check-docs-links.mjs  # docs検査（リンク切れ・主要ファイル一覧・セッション記録のファイル名）
 .github/workflows/pro-review.yml       # 手動のPro Review frontend更新
 scripts/migrate.sh            # D1 マイグレーション（センチネル方式・手動backend deploy用）
 scripts/deploy.sh             # 手動デプロイ（migrate.sh を呼ぶ）

@@ -28,7 +28,7 @@ D-027により、当面は実使用で不足している機能と不具合修正
 - 完了済みsessionは削除不可。進行中の破棄はmigration 0018で24時間復元でき、期限後に関連dataごとpurgeする。
 - 共有結果は完了から3日間、URLを知る人へ単価・小計・合計を含む読み取り専用レポートを表示する。
 - migrationは0018まで存在する。productionの適用状態、Pages/Worker、CORS、smokeはrelease前に再確認する。
-- 直近の自動test/build実績は[`session-log.md`](quality-foundation/session-log.md)を対象commit付きで参照し、
+- 直近の自動test/build実績は[`sessions/`](quality-foundation/sessions/)を対象commit付きで参照し、
   このoverviewへ固定件数を複製しない。
 
 ## 実装スナップショット（2026-08-04・履歴）

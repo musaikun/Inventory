@@ -16,7 +16,7 @@
 1. このファイル
 2. [`docs/README.md`](docs/README.md) — docs全体の索引・正本の表・情報の優先順位
 3. [`docs/quality-foundation/task-list.md`](docs/quality-foundation/task-list.md) — **状態の正本**（進捗ボード）
-4. [`docs/quality-foundation/session-log.md`](docs/quality-foundation/session-log.md) の**先頭から数件だけ** — 直近の作業と再開地点
+4. [`docs/quality-foundation/sessions/`](docs/quality-foundation/sessions/) の**新しい数件だけ**（`ls docs/quality-foundation/sessions/ | tail -5`） — 直近の作業と再開地点
 
 ### 段階2 — 作業の種類に応じて読む
 
@@ -92,7 +92,7 @@ rename・削除したら同じcommitでこの一覧も直す。
 - **共有タスク**: 着手前に `task-list.md` の状態を `進行中`、担当を自分にする。進行中・未着手・保留P0/P1の
   作業記録は `tasks/<ID>.md` へ。優先度・状態・担当は `task-list.md` だけに置く（詳細fileへ複製しない）
 - 同じタスクを複数agentが同時に編集しない。ユーザーの既存差分を保持し、担当外の変更を巻き戻さない
-- **完了時**: 検証結果を `tasks/<ID>.md` に、変更・検証・残件・次の一手を `session-log.md` の先頭に追記する
+- **完了時**: 検証結果を `tasks/<ID>.md` に、変更・検証・残件・次の一手を `docs/quality-foundation/sessions/` の新しいファイルに書く
 - **現在の優先（2026-09-30 User → D-027）**: 機能の不足と実使用の不具合の修正を、公開gateより優先する。
   公開gateは廃止せず後回し。Stripe、trial、TWA、Google Play提出は保留
 - **新機能・仕様変更**: [`docs/feature-checklist.md`](docs/feature-checklist.md)（共通DoD）でセルフチェックしてから完了とする。
@@ -145,8 +145,10 @@ rename・削除したら同じcommitでこの一覧も直す。
 
 詳細は [`docs/sync-spec.md`](docs/sync-spec.md)。
 
-## session log の運用
+## セッション記録の運用（D-033）
 
-- `session-log.md` には**当月分だけ**を置く。月が変わったら前月分を
-  `docs/quality-foundation/archive/session-log-YYYY-MM.md` へ移し、末尾の「履歴archive」索引に足す（→ D-029）
+- 記録は**1件1ファイル**で `docs/quality-foundation/sessions/YYYY-MM-DD-HHMM-<slug>.md`（UTC）に足す。
+  書き方は [`sessions/README.md`](docs/quality-foundation/sessions/README.md)
+- 既存のファイルは書き換えない。`session-log.md` には追記しない（入口と2026-11-07までのarchive索引だけ）
 - 1件は再開に必要な事実だけ（User の依頼、原因、変更、検証、version、残件）。会話の全文を書かない
+- 全セッションが同じ行を書き換えるファイルは `app/package.json` の version だけが残っている（D-026）
