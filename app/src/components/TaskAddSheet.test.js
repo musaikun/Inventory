@@ -55,7 +55,13 @@ describe('業務を追加（種類は選ばない）', () => {
     await click(btn('しない', sheet()))
     await click(row('day')); await click(btn('日付なし', sheet()))
     expect(kindOf()).toBe('いつか')
-    expect(row('deadline')).toBeNull()
+    // 日付なしでも締め切りだけ入れられる → 今日から進行中（User決定 2026-11-07）
+    await click(row('deadline')); await pickCal(localDateKey(plus(3)))
+    expect(kindOf()).toBe(`${plus(3).getMonth() + 1}/${plus(3).getDate()}まで`)
+    await type(sheet().querySelector('input[aria-label="名前"]'), '備品の確認')
+    await click(sheet().querySelector('.ta-go'))
+    const T = await import('../composables/useTasks.js')
+    expect(T.aliveTasks.value.find(x => x.text === '備品の確認')).toMatchObject({ progress: 'doing', date: localDateKey(), deadline: localDateKey(plus(3)) })
   })
 
   it('チェック表を付けた予定は、その日の1回きりのチェック表になる', async () => {

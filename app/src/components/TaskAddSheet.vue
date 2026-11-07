@@ -2,7 +2,7 @@
 /**
  * 業務を追加する、ただ1つの入口（User決定 2026-11-07・キャンバス「業務の追加」①。2026-11-05 の「まず種類を選ぶ」を置き換えた）。
  * 種類は選ばない。入れた中身で決まり、上に出す:
- *   日付なし → いつか ／ 今日 → 本日 ／ 先の日 → 予定 ／ 締め切りあり → 「m/dまで」（進行中・始める日から毎日）／ 繰り返しあり → 繰り返し
+ *   日付なし → いつか ／ 今日 → 本日 ／ 先の日 → 予定 ／ 締め切りあり → 「m/dまで」（進行中・始める日から毎日。日付なしで締め切りだけなら今日から・User決定 2026-11-07）／ 繰り返しあり → 繰り返し
  * 欄は行で並べ、押すとその場で開く（日付・締め切りは月のカレンダー、繰り返しはつながった切り替え、担当・チェック表は一覧）。説明の文は置かない。
  * チェック表（項目のひな形）は別の入口で作り、ここでは選んで付けるだけ。付けると:
  *   本日・予定 → その日の1回きりのチェック表 ／ 繰り返し → 毎回その項目 ／ 締め切り・いつか → 子タスク
@@ -128,7 +128,7 @@ function toggleRow(id) {
   open.value = open.value === id ? '' : id
   if (id === 'day' || id === 'deadline') openCal(id)
 }
-function clearDay() { day.value = ''; deadline.value = ''; repeat.value = 'none'; time.value = ''; endTime.value = ''; open.value = '' }
+function clearDay() { day.value = ''; repeat.value = 'none'; time.value = ''; endTime.value = ''; open.value = '' }   // 締め切りは残す（締め切りだけの進行中）
 function clearDeadline() { deadline.value = ''; open.value = '' }
 
 // ── 繰り返し ──
@@ -156,7 +156,7 @@ const whoName = computed(() => (who.value.startsWith('p:') ? (people.value.find(
 const rows = computed(() => [
   { id: 'day', icon: 'date', color: '#0e7490', label: '日付', value: day.value ? _dayLabel(day.value) : 'なし', set: !!day.value },
   ...(day.value ? [{ id: 'time', icon: 'timer', color: '#0369a1', label: '時刻', value: time.value ? `${time.value}${endTime.value ? `〜${endTime.value}` : ''}` : 'なし', set: !!time.value }] : []),
-  ...(day.value && repeat.value === 'none' ? [{ id: 'deadline', icon: 'hourglass', color: '#ca8a04', label: '締め切り', value: deadline.value ? _dayLabel(deadline.value) : 'なし', set: !!deadline.value }] : []),
+  ...(repeat.value === 'none' ? [{ id: 'deadline', icon: 'hourglass', color: '#ca8a04', label: '締め切り', value: deadline.value ? _dayLabel(deadline.value) : 'なし', set: !!deadline.value }] : []),
   ...(day.value && !deadline.value ? [{ id: 'repeat', icon: 'repeat', color: '#059669', label: '繰り返し', value: repeatLabel.value, set: repeat.value !== 'none' }] : []),
   ...(hasStaff.value ? [{ id: 'who', icon: 'user', color: '#7c3aed', label: '担当', value: whoName.value, set: true }] : []),
   { id: 'list', icon: 'clipboard', color: '#db2777', label: 'チェック表', value: itemsName.value || 'なし', set: !!itemsName.value },
@@ -197,7 +197,7 @@ async function submit() {
       const ok = k === 'someday'
         ? addTask('', text, _assignTask(), null, { visibility, note: note.value, steps })
         : k === 'progress'
-          ? addTask(day.value, text, _assignTask(), null, { visibility, progress: 'doing', deadline: deadline.value, note: note.value, steps })
+          ? addTask(day.value || today, text, _assignTask(), null, { visibility, progress: 'doing', deadline: deadline.value, note: note.value, steps })
           : addTask(day.value, text, _assignTask(), time.value || null, { visibility, note: note.value, endTime: time.value && endTime.value > time.value ? endTime.value : null })
       if (!ok) throw new Error('足せませんでした')
     }
