@@ -1,0 +1,186 @@
+<title>店の今カード</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* ホームに「店の今」カードを足す案。①今日の流れ（人×時間の小さなガント・今の線）②進行中（締め切りまでの棒）③みんなでやるもの（全員のチェック表の進み）。
+     今のホーム（HomeTop.vue）の見た目に合わせた明るい1テーマ */
+  :root {
+    color-scheme: light;
+    --page:#d3dfe3; --bg:#eef5f7; --surface:#ffffff; --text:#12303a; --text-muted:#4c6a72; --faint:#94a3b8; --line:#e2ecef;
+    --primary:#0e7490; --priw:#ecfeff; --late:#dc2626; --latew:#fef2f2; --warn:#b45309; --warnw:#fffbeb; --ok:#16a34a; --okw:#f0fdf4; --plan:#3b82f6; --planw:#eff6ff;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:var(--page); color:var(--text);
+    padding-block:20px 32px; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px));
+    display:flex; gap:28px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
+  .side { max-width:340px; display:grid; gap:10px; font-size:13px; line-height:1.7; color:var(--text-muted); }
+  .side h1 { font-size:19px; color:var(--text); } .side b { color:var(--text); }
+  .side ul { display:grid; gap:3px; } .side li { margin-left:18px; }
+  .ctl { background:var(--surface); border-radius:12px; padding:10px 12px; display:grid; gap:6px; }
+  .ctl label { font-size:12px; font-weight:800; color:var(--text); display:flex; justify-content:space-between; }
+  .ctl input { width:100%; accent-color:var(--primary); }
+  .phone { width:375px; max-width:100%; height:780px; background:var(--bg); border-radius:30px; overflow:hidden; display:flex; flex-direction:column;
+    box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; }
+  .scr { flex:1; overflow-y:auto; overflow-x:hidden; padding-bottom:20px; }
+  .hero { position:relative; min-height:150px; padding:16px 18px 70px; color:#e6fbff; overflow:hidden;
+    background:radial-gradient(120% 90% at 85% 10%, #0f4c5c 0%, #0a3340 45%, #06222b 100%); }
+  .hero svg { position:absolute; right:-80px; top:-10px; opacity:.85; }
+  .brand { position:relative; font-weight:900; letter-spacing:.08em; font-size:15px; display:flex; gap:8px; align-items:center; }
+  .brand small { font-size:11px; font-weight:700; padding:3px 9px; border-radius:999px; background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.18); letter-spacing:0; }
+  .hero b { position:relative; display:block; margin-top:12px; font-size:18px; }
+  .card { position:relative; z-index:1; margin:0 14px; background:var(--surface); border-radius:20px; padding:14px; box-shadow:0 8px 22px rgba(6,34,43,.1); display:grid; gap:10px; }
+  .card.top { margin-top:-58px; }
+  .card + .card { margin-top:12px; }
+  .ch { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:800; color:var(--text-muted); }
+  .ch b { color:var(--text); font-size:14.5px; } .ch i { margin-left:auto; font-style:normal; color:var(--primary); font-size:12px; }
+  .cnt { display:flex; gap:5px; flex-wrap:wrap; }
+  .cnt span { font-size:11px; font-weight:900; border-radius:999px; padding:2px 8px; }
+  .cnt .l { background:var(--latew); color:var(--late); } .cnt .m { background:var(--priw); color:var(--primary); }
+  .sec { display:flex; align-items:center; gap:6px; font-size:11.5px; font-weight:900; color:var(--text-muted); padding-top:4px; }
+  .sec::after { content:''; flex:1; height:1px; background:var(--line); }
+  /* ① 今日の流れ */
+  .gt { display:grid; grid-template-columns:62px 1fr; column-gap:4px; row-gap:5px; position:relative; }
+  .gt-ax { grid-column:2; position:relative; height:14px; font-size:9.5px; font-weight:800; color:var(--faint); }
+  .gt-ax span { position:absolute; transform:translateX(-50%); }
+  .gt-who { font-size:11.5px; font-weight:800; display:flex; align-items:center; gap:4px; overflow:hidden; white-space:nowrap; }
+  .av { width:20px; height:20px; border-radius:50%; background:#e2e8f0; display:inline-flex; align-items:center; justify-content:center; font-size:10px; font-weight:900; flex:none; }
+  .gt-row { position:relative; height:24px; background:repeating-linear-gradient(90deg, transparent 0 calc(100%/8 - 1px), #eef3f5 calc(100%/8 - 1px) calc(100%/8)); border-radius:6px; }
+  .bar { position:absolute; top:3px; bottom:3px; border-radius:6px; font-size:10px; font-weight:800; color:#fff; padding:0 5px; display:flex; align-items:center; overflow:hidden; white-space:nowrap; }
+  .bar.done { background:var(--ok); } .bar.late { background:var(--late); } .bar.plan { background:var(--plan); } .bar.now { background:var(--primary); box-shadow:0 0 0 2px #a5f3fc; }
+  .now-l { position:absolute; top:14px; bottom:0; width:2px; background:var(--late); z-index:2; pointer-events:none; }
+  .now-l::before { content:attr(data-t); position:absolute; top:-14px; left:50%; transform:translateX(-50%); font-size:9.5px; font-weight:900; color:var(--late); background:var(--surface); padding:0 2px; }
+  .leg { display:flex; gap:10px; flex-wrap:wrap; font-size:10.5px; font-weight:700; color:var(--text-muted); }
+  .leg i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:3px; vertical-align:-1px; }
+  /* ② 進行中 */
+  .pg { display:grid; gap:9px; }
+  .pg-r { display:grid; gap:4px; }
+  .pg-t { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:800; }
+  .pg-t span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pg-t small { font-size:11px; color:var(--text-muted); font-weight:800; white-space:nowrap; }
+  .pg-b { position:relative; height:10px; border-radius:5px; background:#eef3f5; }
+  .pg-b i { position:absolute; left:0; top:0; bottom:0; border-radius:5px; background:var(--primary); }
+  .pg-b em { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--late); }
+  .pg-r.stuck .pg-b i { background:#f59e0b; } .pg-r.over .pg-b i { background:var(--late); }
+  .flag { font-size:10px; font-weight:900; border-radius:6px; padding:1px 6px; background:#f59e0b; color:#fff; } .flag.r { background:var(--late); }
+  .pg-m { display:flex; justify-content:space-between; font-size:10.5px; font-weight:700; color:var(--faint); }
+  /* ③ みんなで */
+  .tm { display:grid; gap:8px; }
+  .tm-r { display:grid; grid-template-columns:1fr auto; gap:4px 8px; align-items:center; }
+  .tm-r b { font-size:13px; } .tm-r small { font-size:11.5px; font-weight:900; color:var(--primary); font-variant-numeric:tabular-nums; }
+  .tm-avs { grid-column:1 / -1; display:flex; gap:4px; flex-wrap:wrap; }
+  .tm-avs .av { width:24px; height:24px; font-size:11px; }
+  .tm-avs .av.ok { background:var(--ok); color:#fff; }
+  .tm-avs .av.no { background:#fff; border:1.5px dashed #cbd5e1; color:var(--faint); }
+  .tm-bar { grid-column:1 / -1; height:6px; border-radius:3px; background:#eef3f5; overflow:hidden; } .tm-bar i { display:block; height:100%; background:var(--ok); }
+  .rows { display:grid; border-top:1px solid var(--line); }
+  .rw { display:grid; grid-template-columns:62px 1fr auto; gap:8px; align-items:baseline; padding:7px 0; border-bottom:1px solid var(--line); font-size:13px; }
+  .rw:last-child { border-bottom:none; padding-bottom:0; }
+  .rw em { font-style:normal; font-size:10.5px; font-weight:900; border-radius:6px; text-align:center; padding:1px 0; }
+  .rw em.over { background:#b91c1c; color:#fff; } .rw em.late { background:var(--latew); color:var(--late); } .rw em.n { color:var(--primary); }
+  .rw span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:700; } .rw small { font-size:11px; color:var(--text-muted); font-weight:800; }
+  .nav { display:flex; background:var(--surface); border-top:1px solid var(--line); padding:6px 0 10px; }
+  .nav span { flex:1; font-size:10.5px; font-weight:800; color:var(--faint); text-align:center; } .nav span.on { color:var(--primary); }
+</style>
+
+<div class="side">
+  <h1>ホームに「店の今」</h1>
+  <div>今の「今日のやること」の下に、カードを1枚足す案です。下のつまみで時刻を動かすと、今の線と帯の色が変わります。</div>
+  <div class="ctl"><label>今の時刻<span id="tlabel"></span></label><input type="range" id="tnow" min="600" max="1380" step="10" value="880" aria-label="今の時刻"></div>
+  <ul>
+    <li><b>① 今日の流れ</b>：人×時間の小さなガント。済み＝緑・遅れ＝赤・今やっている＝濃い青・これから＝青。押すと予定ボード</li>
+    <li><b>② 進行中</b>：何日かかかるもの。作った日→締め切りの棒に今日の印、手順の進み。止まっている（5日）は黄、締め切り過ぎは赤</li>
+    <li><b>③ みんなでやるもの</b>：「全員」のチェック表。済んだ人は緑の丸、まだの人は点線の丸</li>
+  </ul>
+  <div style="font-size:12px">WBS・スクラムの3列は入れない（店の業務では階層が浅く、スマホでは横幅が足りない）。</div>
+</div>
+
+<div class="phone">
+  <div class="scr">
+    <div class="hero">
+      <svg width="300" height="220" viewBox="0 0 300 220" aria-hidden="true"><defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#2563eb"/><stop offset=".55" stop-color="#22d3ee"/><stop offset="1" stop-color="#34d399"/></linearGradient></defs><ellipse cx="150" cy="115" rx="120" ry="58" transform="rotate(-18 150 115)" fill="none" stroke="url(#g)" stroke-width="3.5"/></svg>
+      <div class="brand">タナオロ <small>見本の店</small></div>
+      <b>11月8日（日）</b>
+    </div>
+
+    <div class="card top">
+      <div class="ch"><b>今日のやること</b><i>業務管理を開く ›</i></div>
+      <div class="cnt" id="cnt"></div>
+      <div class="rows" id="rows"></div>
+    </div>
+
+    <div class="card">
+      <div class="ch"><b>店の今</b><i>予定ボード ›</i></div>
+      <div class="sec">① 今日の流れ</div>
+      <div class="gt" id="gt"></div>
+      <div class="leg"><span><i style="background:var(--ok)"></i>済み</span><span><i style="background:var(--primary)"></i>今</span><span><i style="background:var(--late)"></i>遅れ</span><span><i style="background:var(--plan)"></i>これから</span></div>
+      <div class="sec">② 進行中</div>
+      <div class="pg" id="pg"></div>
+      <div class="sec">③ みんなでやるもの</div>
+      <div class="tm" id="tm"></div>
+    </div>
+  </div>
+  <nav class="nav"><span class="on">ホーム</span><span>在庫</span><span>業務管理</span><span>レポート</span><span>設定</span></nav>
+</div>
+
+<script>
+const H0 = 10 * 60, H1 = 23 * 60   // 10:00〜23:00
+const P = { 高木: '高', 佐藤: '佐', 山田: '山', 鈴木: '鈴' }
+// [人, 名前, 始, 終, 済んだ時刻(null=まだ)]
+const BLOCKS = [
+  ['高木', '仕込み', 600, 690, 690], ['高木', '発注の確認', 900, 930, null], ['高木', '締め', 1290, 1350, null],
+  ['佐藤', 'ランチ', 690, 840, 840], ['佐藤', '揚げ油の交換', 870, 900, null], ['佐藤', 'ディナー', 1020, 1290, null],
+  ['山田', '片付け', 840, 900, null], ['山田', '検品', 960, 990, null],
+  ['鈴木', '清掃', 1230, 1320, null],
+]
+const PROG = [
+  { t: '製氷機の修理の手配', who: '佐藤', start: '11/4', end: '11/12', pos: .5, steps: [2, 4], stuck: false },
+  { t: '冷蔵庫の棚にラベル', who: '担当なし', start: '11/1', end: '11/15', pos: .5, steps: [0, 3], stuck: true },
+  { t: '新メニューの試作', who: '高木', start: '10/28', end: '11/7', pos: 1.1, steps: [3, 5], stuck: false },
+]
+const hm = m => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`
+const x = m => ((Math.max(H0, Math.min(H1, m)) - H0) / (H1 - H0)) * 100
+function state(b, now) {
+  if (b[4] != null && b[4] <= now) return 'done'
+  if (b[2] <= now && now < b[3]) return 'now'
+  if (b[3] <= now) return 'late'
+  return 'plan'
+}
+function render() {
+  const now = +document.getElementById('tnow').value
+  document.getElementById('tlabel').textContent = hm(now)
+  // 今日のやること（上のカード・ホームに今あるもの）
+  const late = BLOCKS.filter(b => state(b, now) === 'late')
+  document.getElementById('cnt').innerHTML = `<span class="l">期限切れ 1</span>${late.length ? `<span class="l">遅れ ${late.length}</span>` : ''}<span class="m">自分の 2</span>`
+  const rows = [['over', '期限切れ', '発注書の確認（昨日）', '高木'], ...late.slice(0, 2).map(b => ['late', `遅れ ${now - b[3]}分`, b[1], b[0]]),
+    ...BLOCKS.filter(b => state(b, now) === 'plan').sort((a, b) => a[2] - b[2]).slice(0, 2).map(b => ['n', hm(b[2]), b[1], b[0]])]
+  document.getElementById('rows').innerHTML = rows.slice(0, 4).map(r => `<div class="rw"><em class="${r[0]}">${r[1]}</em><span>${r[2]}</span><small>${r[3]}</small></div>`).join('')
+  // ① 今日の流れ
+  const axis = [10, 12, 14, 16, 18, 20, 22].filter(h => Math.abs(x(h * 60) - x(now)) > 7).map(h => `<span style="left:${x(h * 60)}%">${h}</span>`).join('')
+  let html = `<span></span><div class="gt-ax">${axis}</div>`
+  for (const who of Object.keys(P)) {
+    const bs = BLOCKS.filter(b => b[0] === who)
+    html += `<span class="gt-who"><span class="av">${P[who]}</span>${who}</span><div class="gt-row">${bs.map(b => {
+      const st = state(b, now), l = x(b[2]), w = Math.max(2.5, x(b[3]) - l)
+      return `<span class="bar ${st}" style="left:${l}%;width:${w}%" title="${b[1]} ${hm(b[2])}〜${hm(b[3])}">${w > 9 ? b[1] : ''}</span>`
+    }).join('')}</div>`
+  }
+  html += `<span class="now-l" data-t="${hm(now)}" style="left:calc(66px + (100% - 66px) * ${x(now) / 100})"></span>`
+  document.getElementById('gt').innerHTML = html
+  // ② 進行中
+  document.getElementById('pg').innerHTML = PROG.map(p => {
+    const over = p.pos > 1
+    return `<div class="pg-r${p.stuck ? ' stuck' : ''}${over ? ' over' : ''}">
+      <div class="pg-t"><span>${p.t}</span>${p.stuck ? '<span class="flag" style="flex:none">止まっている</span>' : ''}${over ? '<span class="flag r" style="flex:none">締め切り過ぎ</span>' : ''}<small>${p.who}・手順 ${p.steps[0]}/${p.steps[1]}</small></div>
+      <div class="pg-b"><i style="width:${(p.steps[0] / p.steps[1]) * 100}%"></i><em style="left:${Math.min(100, p.pos * 100)}%"></em></div>
+      <div class="pg-m"><span>${p.start}</span><span>今日</span><span>${p.end}まで</span></div></div>`
+  }).join('')
+  // ③ みんなでやるもの
+  const team = [['開店チェック', 5, 5, ['高', '佐', '山', '鈴']], ['ランチ後の片付け', 2, 6, ['山']], ['閉店チェック', 0, 8, []]]
+  const done1 = now >= 900 ? ['山', '佐'] : ['山']
+  team[1][1] = now >= 900 ? 4 : 2; team[1][3] = done1
+  document.getElementById('tm').innerHTML = team.map(([n, d, t, ok]) => `<div class="tm-r"><b>${n}</b><small>${d}/${t}</small>
+    <div class="tm-bar"><i style="width:${(d / t) * 100}%"></i></div>
+    <div class="tm-avs">${['高', '佐', '山', '鈴'].map(a => `<span class="av ${ok.includes(a) ? 'ok' : 'no'}">${a}</span>`).join('')}</div></div>`).join('')
+}
+document.getElementById('tnow').addEventListener('input', render)
+render()
+</script>
