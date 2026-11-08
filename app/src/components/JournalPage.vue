@@ -139,7 +139,7 @@ const timeline = computed(() => {
   ] : []
   return buildDayTimeline({
     date: d, today, tasks: _plain(d), lists: checklistsForDay(d), records: recordsOn(d), live,
-    late: isToday ? overdueTasks(today) : [], carry: isToday ? carriedTasks(today) : [], progress: isToday ? dueProgress(today) : [],
+    late: isToday ? overdueTasks(today) : [], carry: isToday ? carriedTasks(today) : [], progress: isToday ? dueProgress(today) : progressOn(d),
     note: getNote(d)?.text || '', someday: isToday ? somedayTasks.value : [],
   })
 })
@@ -187,6 +187,11 @@ const progSpans = computed(() => progressTasks.value.map(t => {
   const state = t.deadline && t.deadline < today ? 'over' : isStale(t) ? 'stale' : t.progress === 'waiting' ? 'wait' : 'doing'
   return { id: t.id, text: t.text, start, end, state, future: start > today }
 }))
+// その日に帯がかかっている進行中（日を押したときにも出す・User 2026-11-08）
+function progressOn(d) {
+  const ids = new Set(progSpans.value.filter(s => s.start <= d && d <= s.end).map(s => s.id))
+  return progressTasks.value.filter(t => ids.has(t.id))
+}
 function openSpan(id) { progOpen.value = progressTasks.value.find(t => t.id === id) ?? null }
 // 外から頼まれた中身を開く（無くなっていれば日だけ）
 function _openOutside(it) {

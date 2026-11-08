@@ -79,6 +79,11 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     const lb = spans.find(s => s.textContent.includes('ラベル貼り'))
     expect(label(lb)).toContain(`${md(localDateKey())}〜${md(localDateKey())}`)
     expect(host.querySelectorAll('.jm-c .tag.dl').length, '〆の札は出さない').toBe(0)
+    // 帯がかかっている日を押すと、その日の中身にも出る（今日以外の日も）
+    await click(host.querySelector(`.jm-c[aria-label^="${k(4)}"]`))
+    expect(host.querySelector('.dt').textContent).toContain('月末書類準備')
+    expect(host.querySelector('.dt').textContent).not.toContain('ラベル貼り')   // 締め切りなしは今日まで
+    await click(host.querySelector('[aria-label="月にもどる"]'))
     await click(doc[0])
     expect(document.body.textContent).toContain('月末書類準備')
     expect(document.body.querySelector('.ps, [aria-label*="進行中"]')).not.toBeNull()

@@ -65,7 +65,7 @@ const initial = n => (n || '?').slice(0, 1)
 
     <template v-if="prog.items.length">
       <span class="hn-sec">進行中</span>
-      <button v-for="p in prog.items" :key="p.id" type="button" :class="['hn-pg', { over: p.over, stale: p.stale }]" :data-id="p.id" :aria-label="`${p.text}を開く`" @click="onItem({ type: 'progress', id: p.id }, $event)">
+      <button v-for="p in prog.items" :key="p.id" type="button" :class="['hn-pg', p.over ? 'over' : p.stale ? 'stale' : p.waiting ? 'wait' : 'doing', { fut: p.future }]" :data-id="p.id" :aria-label="`${p.text}を開く`" @click="onItem({ type: 'progress', id: p.id }, $event)">
         <span class="hn-pt">
           <span class="t">{{ p.text }}</span>
           <em v-if="p.over" class="r">締め切り過ぎ</em><em v-else-if="p.stale">止まっている</em><em v-else-if="p.waiting" class="w">待ち</em>
@@ -105,12 +105,15 @@ const initial = n => (n || '?').slice(0, 1)
 .hn-pg:active { background: #f3f8fa; }
 .hn-pt { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; font-weight: 800; }
 .hn-pt .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hn-pt em { flex: none; font-style: normal; font-size: 10px; font-weight: 900; border-radius: 6px; padding: 1px 6px; background: #f59e0b; color: #fff; }
-.hn-pt em.r { background: #dc2626; } .hn-pt em.w { background: #64748b; }
+.hn-pt em { flex: none; font-style: normal; font-size: 10px; font-weight: 900; border-radius: 6px; padding: 1px 6px; background: var(--c); color: #fff; }
 .hn-pt small { flex: none; font-size: 11px; font-weight: 800; color: var(--text-muted); }
-.hn-pb { position: relative; height: 10px; border-radius: 5px; background: #eef3f5; }
-.hn-pb i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; background: #0e7490; }
-.hn-pg.stale .hn-pb i { background: #f59e0b; } .hn-pg.over .hn-pb i { background: #dc2626; }
-.hn-pb b { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: #dc2626; }
+/* 色は業務管理のカレンダーの帯と同じ（User 2026-11-08）: 進行中 青・待ち 灰・止まっている 黄・締め切り過ぎ 赤。未開始は薄く。
+   棒の地はその色を薄く、塗りは手順の進み。今日の印は濃い線 */
+.hn-pg { --c: #3b82f6; --w: #dbeafe; }
+.hn-pg.wait { --c: #64748b; --w: #e2e8f0; } .hn-pg.stale { --c: #d97706; --w: #fdecc8; } .hn-pg.over { --c: #dc2626; --w: #fde2e2; }
+.hn-pg.fut .hn-pb { opacity: .55; }
+.hn-pb { position: relative; height: 10px; border-radius: 5px; background: var(--w); }
+.hn-pb i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; background: var(--c); }
+.hn-pb b { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: #12303a; }
 .hn-pm { display: flex; justify-content: space-between; font-size: 10.5px; font-weight: 700; color: #94a3b8; }
 </style>
