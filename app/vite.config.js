@@ -85,8 +85,8 @@ export default defineConfig({
       useCredentials: isProReview,
       includeAssets: ['icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png'],
       manifest: {
-        name: 'タナオロ',
-        short_name: 'タナオロ',
+        name: 'pantops',
+        short_name: 'pantops',
         description: '飲食店の棚卸を音声でスピード入力。複数端末リアルタイム同期対応。',
         theme_color: '#f6fafb',
         background_color: '#061317',

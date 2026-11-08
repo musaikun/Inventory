@@ -73,7 +73,7 @@ privacy policyに明記します。
 - [x] privacy policyをapp内から閲覧可能（ランディング画面下部と「各種設定」→「法的情報・サポート」）
 - [ ] Play Consoleに公開HTTPS URLを登録（canonical host確定後・`DS-08`）
 - [x] PDFではなく、公開・非geofence・閲覧者が編集できないページ（静的HTML。未ログインでHTTP 200を確認）
-- [x] app名またはdeveloper/entity名を表示（`タナオロ` / musaikun）
+- [x] app名またはdeveloper/entity名を表示（`pantops` / musaikun）
 - [x] privacy問い合わせ先を表示（統一contactの最終確定は`DS-08`）
 - [x] 収集、利用、共有、保存、削除をdata type別に説明
 - [x] PostHogを含む第三者SDKの収集・共有を確認（依存ごと除去し、legal文面からも削除）
@@ -87,7 +87,7 @@ privacy policyに明記します。
 
 reviewer向け手順書: [`play-reviewer-guide.md`](play-reviewer-guide.md)（Play Consoleへ貼る本文と社内実機チェック）
 
-- 2026-07-26: TWAでの価格・決済導線の非露出をcode確認済み（実機確認は未）。アプリ名は`タナオロ`へ統一済み。
+- 2026-07-26: TWAでの価格・決済導線の非露出をcode確認済み（実機確認は未）。アプリ名は`pantops`へ統一済み。
   test店舗のcredentialsと公開URLがUser未確定のため、下記はcheckしない。
 
 - [ ] signed TWA buildとDigital Asset Linksを確認

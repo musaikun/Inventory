@@ -87,7 +87,7 @@ const _md = key => { const [, m, d] = key.split('-').map(Number); return `${m}/$
 const _dowJa = ms => '日月火水木金土'[new Date(ms).getUTCDay()]
 const _when = n => (n === 0 ? '今日' : n === 1 ? '明日' : `${n}日後`)
 
-const _payload = (body, tag) => ({ title: 'タナオロ', body, tag, url: '/' })
+const _payload = (body, tag) => ({ title: 'pantops', body, tag, url: '/' })
 
 /**
  * いま送る通知を決める（1端末ぶん）。

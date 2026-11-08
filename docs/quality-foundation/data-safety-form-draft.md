@@ -9,7 +9,7 @@
 
 ## 1. このdraftの前提
 
-- 対象はGoogle Playへ提出するタナオロの公開build。
+- 対象はGoogle Playへ提出するpantopsの公開build。
 - 第三者analyticsは使用しない。`posthog-js`は依存から除去し、analytics callは送信しない実装とした。
 - 現行Appのfile importは端末内でparseし、原fileをserverへ送信しない。Appから未使用だったWorker `/pdf`
   endpointは2026-10-08に削除した（DS-07）。

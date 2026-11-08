@@ -12,7 +12,7 @@ import PasswordReveal from './PasswordReveal.vue'
 
 // Google Play の公開Web削除リソースは store listing 上のアプリ名（＝PWA manifest の name）と
 // 一致している必要がある。表示名を変える場合は vite.config.js の manifest と併せて更新する。
-const APP_NAME = 'タナオロ'
+const APP_NAME = 'pantops'
 // 公開legalページ（app/public/*.html）。同じ Pages 配信なので相対URLで到達でき、
 // preview / 本番 / 独自ドメインのどれでもリンクが壊れない。Play Console へ登録する
 // 絶対URLは canonical host 確定後（DS-08）に User が設定する。

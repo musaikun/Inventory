@@ -1,4 +1,4 @@
-// タナオロ アイコン生成スクリプト
+// pantops アイコン生成スクリプト
 // node generate-icons.mjs で実行
 import { createCanvas } from 'canvas'
 import { writeFileSync } from 'fs'

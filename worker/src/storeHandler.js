@@ -571,7 +571,7 @@ export async function handleRoomResult(db, code, sessionId) {
 
   const result = _sanitizeForGuest(target)
 
-  // ホーム（タナオロのトップ）と同じ並びで見せるため、店舗の**いまの**品目設定から並びを渡す
+  // ホーム（pantopsのトップ）と同じ並びで見せるため、店舗の**いまの**品目設定から並びを渡す
   // （User報告 2026-10-01：閲覧画面のジャンル順がトップと違った）。スナップショットに残した並びは
   // 完了した時点のもので、古い記録には無い（無いと品目リストの並び順で代用になり、ずれる）。
   try {

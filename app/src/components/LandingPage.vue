@@ -33,7 +33,7 @@ async function onStart() {
       <!-- ロゴ -->
       <div class="lp-logo">
         <span class="lp-logo-icon"><LineIcon name="clipboard" /></span>
-        <span class="lp-logo-name">タナオロ</span>
+        <span class="lp-logo-name">pantops</span>
         <span class="lp-version">v{{ version }}<template v-if="buildSha"> ({{ buildSha }})</template></span>
       </div>
 

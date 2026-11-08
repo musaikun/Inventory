@@ -58,7 +58,7 @@ describe('公開削除ページ（画面）', () => {
     expect(el.querySelector('#dap-code')).toBeTruthy()
     expect(el.querySelector('#dap-pin')).toBeTruthy()
     // アプリ名（Play listing と一致）と復元不能の明示
-    expect(el.textContent).toContain('タナオロ')
+    expect(el.textContent).toContain('pantops')
     expect(el.textContent).toContain('削除すると元に戻せません')
     // 未ログインでは削除ボタンは出さない
     expect(el.textContent).not.toContain('アカウント削除に進む')

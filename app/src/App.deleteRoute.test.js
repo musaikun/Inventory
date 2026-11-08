@@ -54,7 +54,7 @@ describe('App の起動ルート', () => {
 
     // 公開削除ページの本文（アプリ名・削除申請・ログイン欄）が描画される
     expect(el.textContent).toContain('アカウント削除の申請')
-    expect(el.textContent).toContain('タナオロ')
+    expect(el.textContent).toContain('pantops')
     expect(el.querySelector('#dap-code')).toBeTruthy()
     expect(el.querySelector('#dap-pin')).toBeTruthy()
   })

@@ -69,7 +69,7 @@ describe('公開legalページ: 配信物としての存在と体裁', () => {
   it.each([...ALL_HTML, ...LEGAL_DOCS])('%s はアプリ名と統一した問い合わせ先を示す', (p) => {
     const text = read(p)
     // Play の要件: 公開リソースに store listing のアプリ名（または開発者名）を示す
-    expect(text).toContain('タナオロ')
+    expect(text).toContain('pantops')
     expect(text).toContain(CONTACT)
     expect(text).not.toContain(OTHER_CONTACT)
   })

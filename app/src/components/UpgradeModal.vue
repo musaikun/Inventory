@@ -17,7 +17,7 @@ useEscapeKey(() => emit('close'))
       <div class="sheet-handle"></div>
 
       <div class="upgrade-badge">PRO</div>
-      <div class="upgrade-title">タナオロ プロプラン</div>
+      <div class="upgrade-title">pantops プロプラン</div>
 
       <div v-if="reason" class="upgrade-reason">{{ reason }}</div>
 
@@ -28,7 +28,7 @@ useEscapeKey(() => emit('close'))
       </ul>
 
       <div class="upgrade-twa-note">
-        <strong>タナオロPRO</strong>は将来Webで提供予定です。<br>
+        <strong>pantops PRO</strong>は将来Webで提供予定です。<br>
         現在はアプリ内で契約・決済できず、自動的に課金されることもありません。
       </div>
 

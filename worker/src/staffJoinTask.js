@@ -27,7 +27,7 @@ export async function createJoinTask(db, code, staffId, name) {
   await db.prepare(`
     INSERT OR IGNORE INTO tasks (id, shop_code, task_date, body, created_by, created_by_id, created_at, updated_at,
       assign_mode, assignee_id, assignee_name, kind, ref_id, visibility)
-    VALUES (?, ?, ?, ?, 'タナオロ', 'system', ?, ?, 'person', ?, ?, ?, ?, 'admins')
+    VALUES (?, ?, ?, ?, 'pantops', 'system', ?, ?, 'person', ?, ?, ?, ?, 'admins')
   `).bind(`t_join_${staffId}`, code, _dayJst(), joinTaskText(name), now, now, who.id, who.name, JOIN_KIND, staffId).run()
   return who
 }

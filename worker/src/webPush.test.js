@@ -16,9 +16,9 @@ function deviceKeys() {
 describe('webPush', () => {
   it('端末側（http_ece）で復号できる', async () => {
     const { ecdh, sub, auth } = deviceKeys()
-    const body = await encryptPayload(JSON.stringify({ title: 'タナオロ', body: '通知のテスト🔔' }), sub)
+    const body = await encryptPayload(JSON.stringify({ title: 'pantops', body: '通知のテスト🔔' }), sub)
     const plain = ece.decrypt(Buffer.from(body), { version: 'aes128gcm', privateKey: ecdh, authSecret: auth })
-    expect(JSON.parse(plain.toString('utf8'))).toEqual({ title: 'タナオロ', body: '通知のテスト🔔' })
+    expect(JSON.parse(plain.toString('utf8'))).toEqual({ title: 'pantops', body: '通知のテスト🔔' })
   })
 
   it('VAPID の JWT は公開鍵で検証でき、aud は送り先のオリジン', async () => {

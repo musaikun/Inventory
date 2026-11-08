@@ -4151,7 +4151,7 @@ function dismissReview() {
     <Transition name="onboard">
       <div v-if="showOnboarding" class="onboard-overlay" @click.self="dismissOnboarding">
         <div class="onboard-card">
-          <div class="onboard-title">タナオロの使い方</div>
+          <div class="onboard-title">pantopsの使い方</div>
           <ol class="onboard-steps">
             <!-- 声で数えるは推さない（User決定 2026-10-19）。みんなで同時に数えるを先に -->
             <li class="onboard-step">
@@ -4222,7 +4222,7 @@ function dismissReview() {
 
         <!-- 評価ステップ -->
         <template v-if="reviewStep === 'rating'">
-          <div class="feedback-title">タナオロはいかがですか？</div>
+          <div class="feedback-title">pantopsはいかがですか？</div>
           <p class="feedback-desc">3回目の棚卸が完了しました。使い心地を教えてください。</p>
           <div class="review-stars">
             <button

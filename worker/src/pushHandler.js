@@ -146,7 +146,7 @@ export async function sendTestPush(env, shopCode, body) {
   const sub = await env.DB.prepare('SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE shop_code = ? AND endpoint = ?')
     .bind(shopCode, endpoint).first()
   if (!sub) return { _status: 404, code: 'not_subscribed', error: 'この端末は通知を受け取る設定になっていません' }
-  const status = await _send(env, sub, { title: 'タナオロ', body: '通知のテストです。この端末で受け取れています🔔', tag: 'test', url: '/' })
+  const status = await _send(env, sub, { title: 'pantops', body: '通知のテストです。この端末で受け取れています🔔', tag: 'test', url: '/' })
   if (status >= 200 && status < 300) return { ok: true }
   if (status === 404 || status === 410) {
     return { _status: 410, code: 'subscription_gone', error: 'この端末の通知の受け付けが無効になっていました。もう一度ONにしてください' }
@@ -300,7 +300,7 @@ export async function notifyTaskAdded(env, shopCode, task, exceptEndpoint = '') 
     if (admins && !admins.has(sub.actor_id)) continue
     if (assignee && sub.actor_id === assignee) continue   // 担当の人には notifyTaskAssigned が別に送る
     await _send(env, sub, {
-      title: 'タナオロ',
+      title: 'pantops',
       body:  `${who}がやることを追加しました：${when}${task?.text ?? ''}`,
       tag:   'task',
       url:   '/',
@@ -322,7 +322,7 @@ export async function notifyTaskAssigned(env, shopCode, task, exceptEndpoint = '
   ).bind(shopCode, task.assigneeId).all()
   for (const sub of (subs ?? [])) {
     if (exceptEndpoint && sub.endpoint === exceptEndpoint) continue
-    await _send(env, sub, { title: 'タナオロ', body: `あなたの担当になりました：${_taskWhen(task)}${task.text ?? ''}`, tag: 'task-assigned', url: '/' })
+    await _send(env, sub, { title: 'pantops', body: `あなたの担当になりました：${_taskWhen(task)}${task.text ?? ''}`, tag: 'task-assigned', url: '/' })
   }
 }
 
@@ -337,7 +337,7 @@ export async function notifyStaffJoin(env, shopCode, name, assigneeId = null) {
     'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE shop_code = ? AND actor_id = ?',
   ).bind(shopCode, to).all()
   for (const sub of (subs ?? [])) {
-    await _send(env, sub, { title: 'タナオロ', body: joinTaskText(name), tag: 'staff-join', url: '/' })
+    await _send(env, sub, { title: 'pantops', body: joinTaskText(name), tag: 'staff-join', url: '/' })
   }
 }
 
@@ -375,7 +375,7 @@ export async function remindStaleProgress(env, nowMs = Date.now()) {
       'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE shop_code = ? AND actor_id = ?',
     ).bind(t.shop_code, to).all()
     for (const sub of (subs ?? [])) {
-      await _send(env, sub, { title: 'タナオロ', body: `${Math.floor(idle)}日 動きがありません：${t.body}`, tag: `stale-${t.id}`, url: '/' })
+      await _send(env, sub, { title: 'pantops', body: `${Math.floor(idle)}日 動きがありません：${t.body}`, tag: `stale-${t.id}`, url: '/' })
     }
   }
   return sent
@@ -398,7 +398,7 @@ export async function remindJoinTasks(env, nowMs = Date.now()) {
       'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE shop_code = ? AND actor_id = ?',
     ).bind(t.shop_code, t.assignee_id).all()
     for (const sub of (subs ?? [])) {
-      await _send(env, sub, { title: 'タナオロ', body: `まだ決まっていません：${t.body}`, tag: `staff-join-${t.id}`, url: '/' })
+      await _send(env, sub, { title: 'pantops', body: `まだ決まっていません：${t.body}`, tag: `staff-join-${t.id}`, url: '/' })
     }
   }
   return rows.length

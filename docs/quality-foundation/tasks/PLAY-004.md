@@ -19,10 +19,10 @@
   `LandingPage` が「無料版＋PRO契約済みログイン入口」を出すのみ。
   ※この監査時点の構成。2026-07-28のD-016対応後も `twaMode` 分岐の土台は残っている。
   A1再開時に実際の配布artifactで価格・外部購入導線が露出しないことを再照合する。
-- **P0相当の指摘: アプリ名が5表記に分裂。** manifest=`タナオロ`／`index.html` title=`棚卸入力`／
+- **P0相当の指摘: アプリ名が5表記に分裂。** manifest=`pantops`／`index.html` title=`棚卸入力`／
   apple-mobile-web-app-title=`棚卸`／`AuthPage`・`HomeScreen`=`棚卸管理`／`LandingPage`・
-  `StoreSetupModal`=`棚卸アプリ`／`UpgradeModal`・onboarding・公開削除ページ=`タナオロ`。
-  store listing名とアプリ内表示・削除リソースの名称一致はPlay要件のため、`タナオロ`へ統一が必要。
+  `StoreSetupModal`=`棚卸アプリ`／`UpgradeModal`・onboarding・公開削除ページ=`pantops`。
+  store listing名とアプリ内表示・削除リソースの名称一致はPlay要件のため、`pantops`へ統一が必要。
 - **reviewer導線: 条件付きで可。** 削除導線は「設定→各種設定→アカウントの削除」で、
   `_showGeneral && isAuthenticated && !isGuest`（`SettingsModal.vue:360`）。**未ログインでは不可視**のため
   reviewer用test店舗の認証情報が必須。公開Web `?delete-account` は未ログインでも到達可でreview手順に使える。
@@ -35,7 +35,7 @@
 ## 前半の実施(2026-07-26 / レビュー待ち)
 
 - **名称統一を実施**。`index.html`(title / apple-mobile-web-app-title)、`AuthPage.vue`、`HomeScreen.vue`、
-  `LandingPage.vue`、`StoreSetupModal.vue` を `タナオロ` へ。`app/` 配下の旧表記(`棚卸管理`/`棚卸アプリ`/
+  `LandingPage.vue`、`StoreSetupModal.vue` を `pantops` へ。`app/` 配下の旧表記(`棚卸管理`/`棚卸アプリ`/
   `棚卸入力`/`棚卸`)は残存0。manifest(`vite.config.js`)・公開削除ページと5表記すべてが一致した。
 - **reviewer手順書を作成**: [`../play-reviewer-guide.md`](../play-reviewer-guide.md)。Play Consoleへ貼る本文、
   社内実機チェック9手順、削除2経路、権限の発生条件、TWA課金非露出の根拠、未確定項目の一覧。

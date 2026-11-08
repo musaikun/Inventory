@@ -115,7 +115,7 @@ function onLoginPinInput(e) {
   <div class="auth-page">
     <div class="auth-card">
       <div class="auth-logo"><LineIcon name="store" /></div>
-      <h1 class="auth-title">タナオロ</h1>
+      <h1 class="auth-title">pantops</h1>
       <p class="auth-subtitle">店舗アカウントでログインして<br>セッション履歴を管理できます</p>
 
       <!-- タブ切り替え -->

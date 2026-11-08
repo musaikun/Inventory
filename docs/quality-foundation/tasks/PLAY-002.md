@@ -41,13 +41,13 @@
   完了表示）。build 成功・削除 unit test 16 緑。privacy/terms/support URL は設定値化（PLAY-003 確定待ち）。
 - Deliverable B Codex独立レビュー（2026-07-26）: **changes requested**。
   - 公開routeの優先判定、未loginからの認証、承認済み削除flow再利用は妥当。
-  - 修正1: `APP_NAME='棚卸管理'`をGoogle Play listing/PWA/法務文書の正式名「タナオロ」と一致させる。
+  - 修正1: `APP_NAME='棚卸管理'`をGoogle Play listing/PWA/法務文書の正式名「pantops」と一致させる。
   - 修正2: 新規route/viewの専用回帰test（未認証でのroute優先表示、login入力/遷移）を追加する。
   - 公開前gate: `PLAY-003`でprivacy/terms/supportのHTTPS URLと、7日tombstone/receipt、D1 backup、
     security recordの保持文面を確定・反映する。
   - 検証: App 582 tests passed、既知`TEST-001`のみ1 failed。production build成功。
     local URLのHTTP応答は確認、browser接続なしのため目視/click/mobile実機は未実施。
-- Deliverable B レビュー対応(2026-07-26): 修正1=`APP_NAME`を manifest と同じ「タナオロ」へ（公開ページのみ。
+- Deliverable B レビュー対応(2026-07-26): 修正1=`APP_NAME`を manifest と同じ「pantops」へ（公開ページのみ。
   AuthPage/HomeScreen の「棚卸管理」表記は混在のままで統一は `PLAY-004`／User 判断）。修正2=URL判定を
   `utils/startupRoute.js` へ切り出し、`startupRoute.test.js` 7件＋`DeleteAccountPage.login.test.js` 3件を追加
   （@vue/test-utils は導入せず描画非依存でテスト）。削除経路 5 files / 35 tests passed・build 成功。
@@ -210,7 +210,7 @@
 **D. 公開Web削除ページ（未ログイン）**
 
 19. **ログアウト状態またはシークレットウィンドウ**で `<公開URL>/?delete-account` を開く。
-20. アプリ名「タナオロ」と削除対象の説明が読めること。
+20. アプリ名「pantops」と削除対象の説明が読めること。
 21. 店舗コード・PINを入力してログイン → 削除対象アカウントが表示されること。
 22. 画面下部の「プライバシーポリシー」「利用規約」「お問い合わせ」の3リンクが**未ログインでも開ける**こと。
 23. 以降は A-3 以降と同じ。

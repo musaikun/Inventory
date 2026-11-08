@@ -19,7 +19,7 @@ describe('StartupSplash', () => {
   it('読み込みが早くても最低1.6秒は出し、名前を出してから閉じる', async () => {
     vi.useFakeTimers()
     const done = await mount(ref(true))
-    expect(host.querySelector('.ss-name').textContent).toContain('タナオロ')
+    expect(host.querySelector('.ss-name').textContent).toContain('pantops')
     vi.advanceTimersByTime(1500)
     expect(done).not.toHaveBeenCalled()
     vi.advanceTimersByTime(200)

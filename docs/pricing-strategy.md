@@ -24,7 +24,7 @@ trial終了時のAndroid app文言は[D-021](quality-foundation/decisions.md#d-0
 - Google Play版はconsumption-onlyとする。
 - Play内にStripe Checkout、外部購入link、購入CTAを置かない。
 - Stripe提供前にWeb購入面とPlay配布artifact/originの分離方法を確定する。
-- アプリ名は無料版/Pro版に分けず「タナオロ」とする。
+- アプリ名は無料版/Pro版に分けず「pantops」とする。
 
 Webから登録したaccountへのtrial適用と、Stripe/backendの単独公開順は未決です。
 D-016との置換関係は
@@ -49,7 +49,7 @@ Stripe提供開始前に負荷試験と利用状況を見て確定する。
 
 ## この形を採用する理由
 
-- 無料利用者も複数端末同期を体験でき、タナオロの中核価値を理解できる。固定台数上限は現在設けない。
+- 無料利用者も複数端末同期を体験でき、pantopsの中核価値を理解できる。固定台数上限は現在設けない。
 - 課金境界を基本機能の有無ではなく、端末数・品目数・履歴という運用規模に置ける。
 - W1で課金・配布面の複雑さを切り離し、Web品質と運用を先に検証できる。
 - Android trialは自動課金へ接続しないため、無料体験と有料契約の意思を分離できる。

@@ -51,7 +51,7 @@ const activeView = computed(() =>
     <div class="dt-nav-brand">
       <span class="dt-nav-logo" aria-hidden="true"><LineIcon name="clipboard" /></span>
       <span class="dt-nav-brand-text">
-        <span class="dt-nav-name">タナオロ</span>
+        <span class="dt-nav-name">pantops</span>
         <span v-if="shopCode" class="dt-nav-shop">店舗 {{ shopCode }}</span>
       </span>
     </div>

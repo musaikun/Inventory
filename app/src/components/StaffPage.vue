@@ -134,7 +134,7 @@ async function copyUrl() {
   catch (_) { copied.value = 'コピーできませんでした。下のリンクを長押しして選んでください' }
 }
 async function shareUrl() {
-  try { await navigator.share({ text: `タナオロに参加してください（10分で使えなくなります）\n${issued.value.url}` }) } catch (_) {}
+  try { await navigator.share({ text: `pantopsに参加してください（10分で使えなくなります）\n${issued.value.url}` }) } catch (_) {}
 }
 const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
 async function revoke(inv) { await revokeStaffInvite(inv.id).catch(() => {}); if (issued.value?.id === inv.id) issued.value = null; load() }

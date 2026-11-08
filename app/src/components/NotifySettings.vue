@@ -15,15 +15,15 @@ import { NOTIFY_LIST } from '../services/notifyPrefs.js'
 const reason = computed(() => {
   if (!pushSupported || isIosBrowserTab()) {
     return isIosBrowserTab()
-      ? 'iPhone・iPadでは、ホーム画面に追加したタナオロから開くと通知を受け取れます'
+      ? 'iPhone・iPadでは、ホーム画面に追加したpantopsから開くと通知を受け取れます'
       : 'このブラウザは通知に対応していません'
   }
   if (pushError.value === 'blocked' || (!pushSubscribed.value && isPushBlocked())) {
-    return 'この端末で通知がブロックされています。ブラウザ（またはホーム画面のアプリ）のサイト設定で、タナオロの通知を「許可」にしてから、もう一度ONにしてください'
+    return 'この端末で通知がブロックされています。ブラウザ（またはホーム画面のアプリ）のサイト設定で、pantopsの通知を「許可」にしてから、もう一度ONにしてください'
   }
   if (pushError.value === 'server') return '通知を送る準備がサーバーでまだできていません。時間をおいて、もう一度ONにしてください'
-  if (pushError.value === 'timeout-permission') return '通知の許可の確認が出ませんでした。端末の設定でタナオロの通知を「許可」にしてから、もう一度ONにしてください'
-  if (pushError.value === 'timeout-sw') return 'アプリの準備が終わっていませんでした。タナオロを一度閉じて開き直してから、もう一度ONにしてください'
+  if (pushError.value === 'timeout-permission') return '通知の許可の確認が出ませんでした。端末の設定でpantopsの通知を「許可」にしてから、もう一度ONにしてください'
+  if (pushError.value === 'timeout-sw') return 'アプリの準備が終わっていませんでした。pantopsを一度閉じて開き直してから、もう一度ONにしてください'
   if (pushError.value === 'timeout-subscribe') return '端末の通知の受け付けが返ってきませんでした。時間をおいて、もう一度ONにしてください'
   if (pushError.value === 'timeout-network') return 'サーバーから返事がありませんでした。通信を確かめて、もう一度ONにしてください'
   if (pushError.value === 'failed') return '通知をONにできませんでした。通信を確かめて、もう一度ONにしてください'
