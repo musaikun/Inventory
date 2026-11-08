@@ -113,10 +113,14 @@ describe('業務を追加（種類は選ばない）', () => {
     await type(sheet().querySelector('input[aria-label="名前"]'), '開店準備（貸切）')
     await click(row('day')); await pickCal(localDateKey(plus(3)))
     await click(row('list')); await click(btn('開店準備', sheet()))
-    expect([...sheet().querySelectorAll('.ta-items li')].map(e => e.textContent)).toEqual(['看板を出す', 'レジを開ける'])
+    const shown = () => [...sheet().querySelectorAll('.ta-items li span')].map(e => e.textContent)
+    expect(shown()).toEqual(['看板を出す', 'レジを開ける'])
+    // この業務の中だけで並べ替えられる（⋮⋮・上下キー。2026-11-08）
+    sheet().querySelector('.ta-handle').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })); await tick()
+    expect(shown()).toEqual(['レジを開ける', '看板を出す'])
     await click(sheet().querySelector('.ta-go'))
     const { saveChecklistToD1 } = await import('../composables/useStore.js')
-    expect(saveChecklistToD1).toHaveBeenLastCalledWith(expect.objectContaining({ name: '開店準備（貸切）', repeat: 'none', startDate: localDateKey(plus(3)), items: [expect.objectContaining({ text: '看板を出す' }), expect.objectContaining({ text: 'レジを開ける' })] }))
+    expect(saveChecklistToD1).toHaveBeenLastCalledWith(expect.objectContaining({ name: '開店準備（貸切）', repeat: 'none', startDate: localDateKey(plus(3)), items: [expect.objectContaining({ text: 'レジを開ける' }), expect.objectContaining({ text: '看板を出す' })] }))
   })
 
   it('締め切りとチェック表 → 進行中のやることに子タスクとして付く', async () => {
@@ -162,7 +166,7 @@ describe('チェック表（別の入口）・子タスク・いつか→始め�
     const { saveTemplateToD1 } = await import('../composables/useStore.js')
     expect(saveTemplateToD1).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'checklist', name: '閉店チェック', data: { items: [expect.objectContaining({ text: 'ガスの元栓' }), expect.objectContaining({ text: '戸締まり' })] } }))
     expect(row('list').textContent).toContain('閉店チェック')
-    expect([...sheet().querySelectorAll('.ta-items li')].map(e => e.textContent)).toEqual(['ガスの元栓', '戸締まり'])
+    expect([...sheet().querySelectorAll('.ta-items li span')].map(e => e.textContent)).toEqual(['ガスの元栓', '戸締まり'])
   })
 
   it('いつかのやることを開くと子タスクを足せ、「始める」で今日から進行中になる', async () => {

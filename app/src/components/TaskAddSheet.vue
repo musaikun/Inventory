@@ -18,6 +18,7 @@ import { staffNames, isAdmin } from '../composables/useAuth.js'
 import { isMeId } from '../composables/useDeviceId.js'
 import { localDateKey } from '../utils/localDate.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
+import { useListDragReorder } from '../composables/useListDragReorder.js'
 
 const props = defineProps({
   date: { type: String, default: '' },        // 既定の日（空なら今日）
@@ -182,6 +183,20 @@ const rows = computed(() => [
 ])
 const modalTitle = computed(() => rows.value.find(r => r.id === open.value)?.label || '')
 function pickWho(v) { who.value = v; open.value = '' }
+// 付けたチェック表の項目を、この業務の中だけで並べ替える（⋮⋮ を長押し・上下キー。ひな形は変えない・User 2026-11-08）
+const itemsEl = ref(null)
+const itemDrag = useListDragReorder({
+  listEl: itemsEl,
+  rowSelector: '.ta-it',
+  keyAttr: 'id',
+  currentOrder: () => items.value.map(x => x.id),
+  commitOrder: ids => {
+    const by = new Map(items.value.map(x => [x.id, x]))
+    items.value = ids.map(id => by.get(id)).filter(Boolean)
+  },
+})
+function onItemDown(e) { if (e.target.closest?.('.ta-handle')) itemDrag.onDown(e) }
+onUnmounted(() => itemDrag.cleanup())
 function pickList(t) { if (t) _setItems(t.data?.items, t.name); else _setItems([], ''); open.value = '' }
 
 // ── 足す ──
@@ -256,8 +271,13 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
               <span :class="['ta-v', { set: r.set }]">{{ r.value }}</span>
             </button>
 
-            <ul v-if="r.id === 'list' && items.length" class="ta-items">
-              <li v-for="it in items" :key="it.id">{{ it.text }}</li>
+            <ul v-if="r.id === 'list' && items.length" :ref="el => { itemsEl = el }" class="ta-items"
+              @pointerdown="onItemDown" @pointermove="itemDrag.onMove" @pointerup="itemDrag.onUp"
+              @pointercancel="itemDrag.onUp" @lostpointercapture="itemDrag.onUp" @touchmove="itemDrag.onTouchMove">
+              <li v-for="(it, i) in items" :key="it.id" :data-id="it.id" :class="['ta-it', { many: items.length > 1 }]">
+                <button v-if="items.length > 1" type="button" class="ta-handle" :aria-label="`${it.text} を運ぶ。現在 ${i + 1} 番目。上下矢印キーで移動`" @keydown="itemDrag.onKeydown($event, it.id)">⋮⋮</button>
+                <span>{{ it.text }}</span>
+              </li>
             </ul>
           </template>
         </div>
@@ -405,5 +425,10 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
 .ta-items { list-style: none; margin: 0; padding: 0 16px 12px 56px; display: grid; gap: 4px; }
 .ta-items li { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #3d545d; }
 .ta-items li::before { content: ''; width: 12px; height: 12px; border-radius: 4px; border: 2px solid #9ccfdb; flex: none; }
+.ta-items li.many { margin-left: -36px; }
+.ta-items li.many::before { display: none; }
+.ta-items li.holding { color: var(--primary, #0e7490); }
+.ta-items li.drag { background: #fff; border-radius: 10px; box-shadow: 0 8px 20px rgba(6,34,43,.18); position: relative; z-index: 2; }
+.ta-handle { flex: none; width: 36px; min-height: 36px; border: none; background: none; color: #8aa0a8; font-size: 15px; letter-spacing: -3px; cursor: grab; touch-action: none; }
 .ta-err { margin: 0; font-size: 12.5px; font-weight: 700; color: #b91c1c; }
 </style>
