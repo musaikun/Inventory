@@ -112,7 +112,7 @@ onBeforeUnmount(() => { timers.forEach(clearTimeout) })
           :style="{ strokeDashoffset: 520 * (1 - shownProgress) }" />
       </svg>
     </div>
-    <div class="ss-name">{{ APP_NAME }}<small>{{ APP_TAGLINE }}</small></div>
+    <div class="ss-name">{{ APP_NAME }}<small v-if="APP_TAGLINE">{{ APP_TAGLINE }}</small></div>
   </div>
 </template>
 
