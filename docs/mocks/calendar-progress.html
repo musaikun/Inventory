@@ -1,0 +1,163 @@
+<title>進行中のカレンダー表示</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* 業務管理の月のカレンダー（JournalMonth）に、進行中（何日かかかるもの）を連日の帯で出す案。明るい1テーマ */
+  :root {
+    color-scheme: light;
+    --page:#d3dfe3; --surface:#ffffff; --text:#12303a; --muted:#4c6a72; --faint:#94a3b8; --line:#e3ecef; --bg:#f4f7f8;
+    --pri:#0e7490; --blue:#3b82f6; --bluew:#dbeafe; --warn:#d97706; --warnw:#fef3c7; --late:#dc2626; --latew:#fee2e2;
+    --plan:#5b33b6; --planw:#efe9fd; --ok:#22a55a; --part:#e89b0c;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:var(--page); color:var(--text);
+    padding-block:20px 32px; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px));
+    display:flex; gap:28px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
+  .side { max-width:340px; display:grid; gap:10px; font-size:13px; line-height:1.7; color:var(--muted); }
+  .side h1 { font-size:19px; color:var(--text); } .side b { color:var(--text); }
+  .side ul { display:grid; gap:3px; } .side li { margin-left:18px; }
+  .sw { display:flex; gap:5px; background:var(--surface); border-radius:12px; padding:8px; }
+  .sw button { flex:1; border:1.5px solid #cfdde2; background:var(--surface); border-radius:9px; padding:7px 4px; font:inherit; font-size:12px; font-weight:800; color:var(--muted); cursor:pointer; }
+  .sw button.on { border-color:var(--pri); background:#ecfeff; color:var(--pri); }
+  .phone { width:375px; max-width:100%; height:760px; background:var(--surface); border-radius:30px; overflow:hidden; display:flex; flex-direction:column;
+    box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; position:relative; }
+  .mh { display:flex; align-items:center; padding:12px 12px 6px; gap:6px; }
+  .mh b { font-size:24px; font-weight:900; } .mh small { font-size:13px; font-weight:800; color:var(--muted); margin-left:4px; }
+  .mh span { flex:1; }
+  .mh button { width:40px; height:34px; border:none; border-radius:10px; background:#eef4f6; font-size:18px; font-weight:900; color:var(--text); }
+  .wd { display:grid; grid-template-columns:repeat(7,1fr); text-align:center; font-size:11px; font-weight:800; color:var(--muted); padding:4px 0; border-bottom:1px solid var(--line); }
+  .wd span:first-child { color:#dc2626; } .wd span:last-child { color:#2563eb; }
+  .weeks { flex:1; display:grid; grid-auto-rows:1fr; min-height:0; }
+  .wk { position:relative; display:grid; grid-template-columns:repeat(7,1fr); border-bottom:1px solid var(--line); }
+  .c { border-right:1px solid var(--line); padding:3px 3px 4px; display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .c:last-child { border-right:none; }
+  .c.out { background:#f6f9fa; } .c.out .dn { color:#b8c6cc; }
+  .dn { font-size:13px; font-weight:800; line-height:20px; height:20px; }
+  .c.sun .dn { color:#dc2626; } .c.sat .dn { color:#2563eb; }
+  .c.today .dn { display:inline-flex; width:20px; justify-content:center; border-radius:50%; background:var(--pri); color:#fff; }
+  .dr { display:flex; align-items:baseline; gap:2px; min-width:0; height:20px; }
+  .hol { font-size:8px; font-weight:800; color:#dc2626; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  .lane { height:14px; flex:none; }   /* 帯の場所（帯は週の上に重ねて描く） */
+  .tag { font-size:9px; font-weight:800; border-radius:4px; padding:0 3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; background:var(--planw); color:var(--plan); border:1px dashed #b9a6ee; line-height:14px; }
+  .tag.dl { background:var(--latew); color:var(--late); border:none; }
+  .st { margin-top:auto; height:5px; border-radius:3px; }
+  .st.y { background:var(--ok); } .st.p { background:var(--part); } .st.x { background:#dc3b3b; } .st.f { background:var(--blue); }
+  /* 連日の帯 */
+  .band { position:absolute; height:14px; border-radius:5px; font-size:9.5px; font-weight:800; color:#fff; padding:0 5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    line-height:14px; border:none; font-family:inherit; cursor:pointer; text-align:left; }
+  .band.doing { background:var(--blue); } .band.stale { background:var(--warn); } .band.over { background:var(--late); } .band.wait { background:#64748b; }
+  .band.cont-l { border-top-left-radius:0; border-bottom-left-radius:0; }
+  .band.cont-r { border-top-right-radius:0; border-bottom-right-radius:0; }
+  .band.fut { opacity:.55; }
+  .more { position:absolute; font-size:9px; font-weight:900; color:var(--muted); }
+  .leg { display:flex; flex-wrap:wrap; gap:4px 10px; padding:7px 10px 10px; border-top:1px solid var(--line); font-size:10px; font-weight:700; color:var(--muted); }
+  .leg i { display:inline-block; width:12px; height:6px; border-radius:3px; margin-right:3px; vertical-align:1px; }
+  /* 詳細のシート */
+  .sh { position:absolute; inset:0; background:rgba(6,34,43,.4); display:flex; align-items:flex-end; z-index:5; }
+  .sh[hidden] { display:none; }
+  .sh-b { width:100%; background:var(--surface); border-radius:20px 20px 0 0; padding:14px 16px 20px; display:grid; gap:10px; }
+  .sh-h { display:flex; align-items:center; gap:8px; } .sh-h b { flex:1; font-size:16px; }
+  .sh-h button { border:none; background:none; font:inherit; font-weight:800; color:var(--muted); font-size:13px; cursor:pointer; }
+  .pill { font-size:11px; font-weight:900; border-radius:6px; padding:2px 8px; color:#fff; }
+  .kv { display:grid; grid-template-columns:70px 1fr; gap:6px 10px; font-size:13px; } .kv span:nth-child(odd) { color:var(--muted); font-weight:800; font-size:12px; }
+  .bar { position:relative; height:10px; border-radius:5px; background:#eef3f5; } .bar i { position:absolute; left:0; top:0; bottom:0; border-radius:5px; background:var(--pri); }
+  .bar em { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--late); }
+  .steps { display:grid; gap:4px; font-size:13px; } .steps span::before { content:'☐ '; color:var(--muted); } .steps span.d::before { content:'☑ '; color:var(--ok); } .steps span.d { color:var(--muted); text-decoration:line-through; }
+  button:focus-visible { outline:3px solid #a5f3fc; outline-offset:1px; }
+</style>
+
+<div class="side">
+  <h1>進行中をカレンダーに</h1>
+  <div>業務管理の月のカレンダーに、進行中（何日かかかるもの）を<b>実施日から締め切りまでの帯</b>で出す案です。帯を押すと中身が出ます。</div>
+  <div class="sw" id="sw"></div>
+  <ul>
+    <li>帯は日付のすぐ下。週をまたぐと行ごとに切り、続きは角を落とす</li>
+    <li>色: 進行中＝青・待ち＝灰・止まっている（5日動きなし）＝黄・締め切り過ぎ＝赤。まだ始まっていないものは薄く</li>
+    <li>締め切りの日のマスに <b>〆</b> の札</li>
+    <li>1週に帯は2本まで。あふれたら「ほか n」（押すとその週の一覧）</li>
+    <li>締め切りの無い進行中は、実施日から今日までの帯（終わりが決まっていない）</li>
+  </ul>
+</div>
+
+<div class="phone">
+  <div class="mh"><b>11月</b><small>2026</small><span></span><button>‹</button><button>›</button></div>
+  <div class="wd"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
+  <div class="weeks" id="weeks"></div>
+  <div class="leg"><span><i style="background:var(--blue)"></i>進行中</span><span><i style="background:#64748b"></i>待ち</span><span><i style="background:var(--warn)"></i>止まっている</span><span><i style="background:var(--late)"></i>締め切り過ぎ</span><span><i style="background:var(--ok);height:5px"></i>全部済み</span><span><i style="background:var(--blue);height:5px"></i>予定あり</span></div>
+  <div class="sh" id="sh" hidden></div>
+</div>
+
+<script>
+const TODAY = 8
+// 実施日〜締め切り（11月の日。0以下・31以上は前後の月）
+const PROG = [
+  { id: 1, t: 'メニュー切り替え', s: 2, e: 18, st: 'doing', who: 'ホスト', steps: [['試作', 1], ['原価', 1], ['写真', 0], ['POS登録', 0]] },
+  { id: 2, t: 'マニュアル差し替え', s: 8, e: 19, st: 'stale', who: '全員', steps: [['下書き', 0]] },
+  { id: 3, t: '製氷機の修理', s: 4, e: 7, st: 'over', who: '佐藤', steps: [['連絡', 1], ['見積もり', 0]] },
+  { id: 4, t: '月末書類準備', s: 20, e: 30, st: 'doing', who: '全員', steps: [] },
+  { id: 5, t: 'テスト 期限月', s: 20, e: 25, st: 'wait', who: 'ホスト', steps: [['書類を待つ', 0]] },
+  { id: 6, t: '冷蔵庫の棚にラベル', s: 10, e: null, st: 'doing', who: '担当なし', steps: [] },
+]
+const HOL = { 3: '文化の日', 23: '勤労感謝の日' }
+const TAGS = { 2: ['発注'], 25: ['業務…', 'テスト'] }
+const STATUS = { 1: 'y', 2: 'y', 4: 'p', 5: 'y', 6: 'x', 7: 'y', 25: 'f', 26: 'f' }
+const ST = { doing: ['進行中', 'var(--blue)'], wait: ['待ち', '#64748b'], stale: ['止まっている', 'var(--warn)'], over: ['締め切り過ぎ', 'var(--late)'] }
+let mode = 'band'
+function render() {
+  document.getElementById('sw').innerHTML = [['band', '帯で出す（案）'], ['none', '今（帯なし）']].map(([k, l]) => `<button class="${mode === k ? 'on' : ''}" data-m="${k}">${l}</button>`).join('')
+  // 2026年11月1日は日曜
+  const first = 1, weeks = []
+  for (let w = 0; w < 5; w++) weeks.push(Array.from({ length: 7 }, (_, i) => w * 7 + i + first))
+  const deadlines = new Set(PROG.filter(p => p.e).map(p => p.e))
+  document.getElementById('weeks').innerHTML = weeks.map((days, wi) => {
+    const lanes = []
+    if (mode === 'band') {
+      for (const p of PROG) {
+        const end = p.e ?? TODAY
+        const a = Math.max(p.s, days[0]), b = Math.min(end, days[6])
+        if (a > b) continue
+        lanes.push({ p, a, b })
+      }
+      lanes.sort((x, y) => (x.p.st === 'over' ? -1 : 0) - (y.p.st === 'over' ? -1 : 0) || x.p.s - y.p.s)
+    }
+    const shown = lanes.slice(0, 2), rest = lanes.length - shown.length
+    const cells = days.map((d, i) => {
+      const out = d > 30
+      const dd = out ? d - 30 : d
+      const tags = !out ? [...(TAGS[d] || [])] : []
+      if (mode === 'band' && !out && deadlines.has(d)) tags.unshift('〆')
+      return `<div class="c${out ? ' out' : ''}${i === 0 ? ' sun' : ''}${i === 6 ? ' sat' : ''}${d === TODAY ? ' today' : ''}">
+        <span class="dr"><span class="dn">${dd}</span>${HOL[d] && !out ? `<span class="hol">${HOL[d]}</span>` : ''}</span>
+        ${mode === 'band' ? '<span class="lane"></span><span class="lane"></span>' : ''}
+        ${tags.slice(0, 2).map(t => `<span class="tag${t === '〆' ? ' dl' : ''}">${t}</span>`).join('')}
+        ${STATUS[d] && !out ? `<i class="st ${STATUS[d]}"></i>` : ''}</div>`
+    }).join('')
+    const top = HOL[days.find(d => HOL[d])] ? 0 : 0
+    const bands = shown.map((l, k) => {
+      const left = ((l.a - days[0]) / 7) * 100, width = ((l.b - l.a + 1) / 7) * 100
+      const contL = l.a > l.p.s, contR = l.b < (l.p.e ?? TODAY)
+      const fut = l.p.s > TODAY
+      return `<button class="band ${l.p.st}${contL ? ' cont-l' : ''}${contR ? ' cont-r' : ''}${fut ? ' fut' : ''}" data-id="${l.p.id}"
+        style="left:calc(${left}% + 2px);width:calc(${width}% - 4px);top:${24 + k * 16}px">${contL ? '… ' : ''}${l.p.t}</button>`
+    }).join('')
+    const more = rest > 0 ? `<span class="more" style="right:4px;top:${24 + 2 * 16}px">ほか${rest}</span>` : ''
+    return `<div class="wk">${cells}${bands}${more}</div>`
+  }).join('')
+}
+function openSheet(id) {
+  const p = PROG.find(x => x.id === id), [label, color] = ST[p.st]
+  const total = p.e ? p.e - p.s : null, pos = total ? Math.min(1, Math.max(0, (TODAY - p.s) / total)) : null
+  const done = p.steps.filter(s => s[1]).length
+  const sh = document.getElementById('sh'); sh.hidden = false
+  sh.innerHTML = `<div class="sh-b"><div class="sh-h"><b>${p.t}</b><span class="pill" style="background:${color}">${label}</span><button id="cx">閉じる</button></div>
+    <div class="kv"><span>担当</span><span>${p.who}</span><span>実施日</span><span>11/${p.s}</span><span>締め切り</span><span>${p.e ? `11/${p.e}` : 'なし'}</span><span>手順</span><span>${p.steps.length ? `${done}/${p.steps.length}` : 'なし'}</span></div>
+    ${pos !== null ? `<div class="bar"><i style="width:${p.steps.length ? done / p.steps.length * 100 : 0}%"></i><em style="left:${pos * 100}%"></em></div>` : ''}
+    ${p.steps.length ? `<div class="steps">${p.steps.map(s => `<span class="${s[1] ? 'd' : ''}">${s[0]}</span>`).join('')}</div>` : ''}</div>`
+  document.getElementById('cx').onclick = () => { sh.hidden = true }
+}
+document.addEventListener('click', e => {
+  const m = e.target.closest('[data-m]'); if (m) { mode = m.dataset.m; render(); return }
+  const b = e.target.closest('.band'); if (b) { openSheet(+b.dataset.id); return }
+  if (e.target.id === 'sh') e.target.hidden = true
+})
+render()
+</script>
