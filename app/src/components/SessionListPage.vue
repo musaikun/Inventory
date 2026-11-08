@@ -581,8 +581,11 @@ onUnmounted(registerInnerLayerCloser(() => {
 .home-panels > .home-panel { flex: 1 0 auto; }
 .home-panel.slide-l { animation: home-slide-l .22s ease-out; }
 .home-panel.slide-r { animation: home-slide-r .22s ease-out; }
-@keyframes home-slide-l { from { transform: translateX(24px); opacity: .4; } to { transform: none; opacity: 1; } }
-@keyframes home-slide-r { from { transform: translateX(-24px); opacity: .4; } to { transform: none; opacity: 1; } }
+/* transform は使わない: 動いている間、中の position: fixed（＋のボタン）が画面ではなく面に付いて、
+   ずれた所に出てから下へ動く（User 2026-11-08）。相対位置の left で滑らせる */
+.home-panel.slide-l, .home-panel.slide-r { position: relative; }
+@keyframes home-slide-l { from { left: 24px; opacity: .4; } to { left: 0; opacity: 1; } }
+@keyframes home-slide-r { from { left: -24px; opacity: .4; } to { left: 0; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .home-panel.slide-l, .home-panel.slide-r { animation: none; } }
 .home-head {
   flex: none; z-index: 3; display: flex; align-items: center; gap: 8px;
