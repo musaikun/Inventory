@@ -289,6 +289,8 @@ async function favChecklist(cl) {
 <template>
   <div class="jp">
     <JournalMonth :today="today" :focus="date" :selected="open ? date : ''" :info="dayInfo" @pick="pick" />
+    <!-- カレンダーからも＋で追加（日付は追加の画面で選ぶ。既定は今日・User 2026-11-08） -->
+    <button v-if="canCreate && !open" type="button" class="jp-fab" aria-label="業務を追加" @click="addSheet = { date: today }">＋</button>
     <DayTimeline
       v-if="open && date" :key="date" :date="date" :today="today" :origin="origin" :timeline="timeline" :can-add="canCreate && date >= today"
       @close="closeDay" @step="stepDay" @add="openAdd()" @check="check" @open="openItem" @memo="openMemo"
@@ -357,6 +359,9 @@ async function favChecklist(cl) {
 .jp-add2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .jp-add2 .jp-save { width: 100%; min-height: 46px; }
 .jp-save.admins { background: #475569; color: #fff; }
+/* 月の下の凡例は＋の分だけ左へ寄せる（重ならないように） */
+.jp :deep(.jm-leg) { padding-right: 76px; justify-content: flex-start; padding-left: 12px; }
+.jp-fab { position: absolute; right: 14px; bottom: 10px; z-index: 3; width: 56px; height: 56px; border: none; border-radius: 50%; background: var(--grad-btn, #0e7490); color: #08323c; font-size: 28px; display: grid; place-items: center; cursor: pointer; box-shadow: 0 8px 18px rgba(14,116,144,.35); }
 .jp { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 480px; overflow: hidden; background: var(--surface); }
 .jp-toast { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 9; background: #fef2f2; border-radius: 10px; padding: 8px 10px; }
 .jp-memo { min-height: 84px; padding: 8px 10px; resize: none; }

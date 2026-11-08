@@ -59,6 +59,25 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     if (sameMonth) expect(host.querySelector(`.jm-c[aria-label^="${yday}"] .st.x`)).not.toBeNull()
   })
 
+  it('カレンダーの画面からも＋で業務を追加できる（今日で開き、日付は追加の画面で選ぶ・2026-11-08）', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
+    const T = await import('../composables/useTasks.js')
+    const { default: JournalPage } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    expect(host.querySelector('.dt'), 'カレンダーのまま').toBeNull()
+    await click(host.querySelector('.jp-fab'))
+    const form = document.body.querySelector('.ta')
+    expect(form.querySelector('[data-test="kind"]').textContent).toBe('本日')
+    const t = form.querySelector('input[aria-label="名前"]'); t.value = '備品の発注'; t.dispatchEvent(new Event('input')); await tick()
+    await click(form.querySelector('.ta-go'))
+    expect(T.aliveTasks.value.find(x => x.text === '備品の発注')).toMatchObject({ date: localDateKey() })
+    expect(document.body.querySelector('.ta')).toBeNull()
+    expect(host.querySelector('.jp-fab'), '日を開いている間は日の＋だけ').not.toBeNull()
+    await click(host.querySelector(`.jm-c[aria-label^="${localDateKey()}"]`))
+    expect(host.querySelector('.jp-fab')).toBeNull()
+    expect(host.querySelector('.dt-fab')).not.toBeNull()
+  })
+
   it('先の予定は名前の札と青い帯。繰り返し（毎週）の日にも出る。毎日のものは出さない。3つ以上は「ほかn」（2026-11-08）', async () => {
     const { localDateKey } = await import('../utils/localDate.js')
     const T = await import('../composables/useTasks.js')
