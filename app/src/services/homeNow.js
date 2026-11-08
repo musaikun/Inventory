@@ -37,13 +37,13 @@ export function todayFlow({ tasks = [], checklists = [], now, isDone = t => !!t.
     const start = _m(t.dueTime)
     const end = t.endTime && _m(t.endTime) > start ? _m(t.endTime) : start + DEFAULT_MIN
     const hasEnd = !!t.endTime && _m(t.endTime) > start
-    items.push({ key: t.id, text: t.text, start, end, lateAt: hasEnd ? end : start, done: isDone(t), ...who(t) })
+    items.push({ key: t.id, ref: { type: 'task', id: t.id }, text: t.text, start, end, lateAt: hasEnd ? end : start, done: isDone(t), ...who(t) })
   }
   for (const r of checklists) {
     for (const s of r.slots) {
       if (!s.slot) continue
       const start = _m(s.slot)
-      items.push({ key: `cl:${r.cl.id}:${s.slot}`, text: r.cl.name, start, end: start + DEFAULT_MIN, lateAt: start, done: s.complete, ...who(r.cl) })
+      items.push({ key: `cl:${r.cl.id}:${s.slot}`, ref: { type: 'list', clId: r.cl.id, slot: s.slot }, text: r.cl.name, start, end: start + DEFAULT_MIN, lateAt: start, done: s.complete, ...who(r.cl) })
     }
   }
   if (!items.length) return { rows: [], from: 0, to: 0, now: nowM, more: 0 }
@@ -51,7 +51,7 @@ export function todayFlow({ tasks = [], checklists = [], now, isDone = t => !!t.
   const by = new Map()
   for (const it of items) {
     if (!by.has(it.rowKey)) by.set(it.rowKey, { key: it.rowKey, name: it.rowName, blocks: [] })
-    by.get(it.rowKey).blocks.push({ key: it.key, text: it.text, start: it.start, end: it.end, state: blockState(it, nowM) })
+    by.get(it.rowKey).blocks.push({ key: it.key, ref: it.ref, text: it.text, start: it.start, end: it.end, state: blockState(it, nowM) })
   }
   const rows = [...by.values()]
   for (const r of rows) r.blocks.sort((a, b) => a.start - b.start)

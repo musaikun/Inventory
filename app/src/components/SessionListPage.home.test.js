@@ -307,6 +307,23 @@ describe('レポートタブ（整理後）', () => {
 })
 
 describe('トップ（ホーム）とやること（User決定 2026-10-07）', () => {
+  it('ホームの2枚は行き先が違う: 今日のやること → 今日の一覧、店の今の見出し → 今日の予定ボード、店の今の業務 → その業務の中身（2026-11-08）', async () => {
+    const T = await import('../composables/useTasks.js')
+    const { localDateKey } = await import('../utils/localDate.js')
+    T.addTask(localDateKey(), '揚げ油の交換', null, '00:00', { endTime: '23:55' })
+    await mountPage()
+    await click(host.querySelector('.ht-today'))
+    expect(host.querySelector('.bnav button.on').textContent).toContain('業務管理')
+    expect(host.querySelector('.dt-body'), '今日の一覧').not.toBeNull()
+    expect(host.querySelector('.db-canvas')).toBeNull()
+    await click(btn(host.querySelector('.bnav'), 'ホーム'))
+    await click(host.querySelector('.hn-h'))
+    expect(host.querySelector('.db-canvas'), '今日の予定ボード').not.toBeNull()
+    await click(btn(host.querySelector('.bnav'), 'ホーム'))
+    await click(host.querySelector('.hn-bar'))
+    expect(document.body.querySelector('.jp-sheet'), 'その業務の中身').not.toBeNull()
+    expect(document.body.querySelector('.jp-sheet').textContent).toContain('揚げ油の交換')
+  })
   it('開くとトップ。今日のやることの要約を押すと日誌のリスト。ショートカットで各タブへ', async () => {
     const T = await import('../composables/useTasks.js')
     const { localDateKey } = await import('../utils/localDate.js')

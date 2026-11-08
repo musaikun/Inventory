@@ -51,7 +51,7 @@ import ManagerDashboard from './ManagerDashboard.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import HomeFooterNav from './HomeFooterNav.vue'
 import HomeTop from './HomeTop.vue'
-import JournalPage, { openJournalDay } from './JournalPage.vue'
+import JournalPage, { openJournalDay, openJournalItem } from './JournalPage.vue'
 import { localDateKey } from '../utils/localDate.js'
 import MasterManagePage from './MasterManagePage.vue'
 import AppMark from './AppMark.vue'
@@ -80,7 +80,10 @@ const tab = _persistedTab
 const tabsNow = () => ['home', 'sessions', 'calendar', 'report', 'dashboard'].filter(x => x !== 'report' || canSeeReport.value)
 const slideDir = ref('')                       // 'l' | 'r'（切り替えの動きの向き）
 // トップの「今日のやること」→ 日誌のリスト
-function openJournalList() { openJournalDay(localDateKey()); goTab('calendar') }
+// ホームの2枚は行き先を分ける（User 2026-11-08）: 今日のやること → 今日の一覧 ／ 店の今 → 今日の予定ボード・押した業務の中身
+function openJournalList() { openJournalDay(localDateKey(), { view: 'list' }); goTab('calendar') }
+function openJournalBoard() { openJournalDay(localDateKey(), { view: 'board' }); goTab('calendar') }
+function openJournalOne(item) { openJournalItem(localDateKey(), item); goTab('calendar') }
 function goTab(next) {
   const tabs = tabsNow()
   if (!tabs.includes(next) || next === tab.value) return
@@ -364,6 +367,8 @@ onUnmounted(registerInnerLayerCloser(() => {
         @order="openOrderSheet"
         @resume="resume"
         @open-todo="openJournalList"
+        @open-board="openJournalBoard"
+        @open-item="openJournalOne"
       />
     </div>
 

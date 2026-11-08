@@ -3,8 +3,12 @@ import { ref } from 'vue'
 // 日誌で見ている日（外＝ホームや棚卸の詳細からもこの日を指定して開く）。'' は今日
 export const journalDate = ref('')
 // 日誌を開いたときは月のカレンダー（User決定 2026-11-05）。外から「この日を開いて」と頼まれたときだけ、その日を開いて始める
-let _openOnMount = false
-export function openJournalDay(d) { journalDate.value = d; _openOnMount = true }
+let _openOnMount = false, _viewOnMount = '', _itemOnMount = null
+/** その日を開く。view を渡すとその日の見せ方（'board' 予定ボード / 'list' 一覧）で始める（好みとしては残さない） */
+export function openJournalDay(d, { view = '' } = {}) { journalDate.value = d; _openOnMount = true; _viewOnMount = view }
+/** その日を開いて、さらに中身のシートも開く（ホームの「店の今」から・User 2026-11-08）
+ *  item: { type: 'task'|'progress', id } | { type: 'list', clId, slot } */
+export function openJournalItem(d, item) { openJournalDay(d); _itemOnMount = item }
 </script>
 
 <script setup>
@@ -30,9 +34,9 @@ import ChecklistTemplatesPage from './ChecklistTemplatesPage.vue'
 import TaskSteps from './TaskSteps.vue'
 import CopyDatesSheet from './CopyDatesSheet.vue'
 import { addTemplate, canAddTemplate, pullTemplates } from '../composables/useTemplates.js'
-import { pullChecklists, checklistsForDay, saveChecklist, newItemId, markChecklistItem, canMarkChecklist, canUnmark } from '../composables/useChecklists.js'
+import { pullChecklists, checklists, checklistsForDay, saveChecklist, newItemId, markChecklistItem, canMarkChecklist, canUnmark } from '../composables/useChecklists.js'
 import { monthDaysLabel, isSimple, WHOLE } from '../services/checklistSchedule.js'
-import { tasksOn, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, editTask, setTaskAssign, TASK_TEXT_MAX, TASK_NOTE_MAX, dueProgress, toggleTask, canToggleTask, canEditTask, canNoteTask, setTaskNote, startTask, canProgress, canRemoveTask, removeTask } from '../composables/useTasks.js'
+import { tasksOn, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, editTask, setTaskAssign, TASK_TEXT_MAX, TASK_NOTE_MAX, dueProgress, toggleTask, canToggleTask, canEditTask, canNoteTask, setTaskNote, startTask, canProgress, canRemoveTask, removeTask, aliveTasks, progressTasks } from '../composables/useTasks.js'
 import { can, staffNames, loadStaffNames, getSessions, isAdmin } from '../composables/useAuth.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
@@ -58,11 +62,16 @@ const today = localDateKey()
 const date = journalDate
 const open = ref(_openOnMount && !!date.value)
 _openOnMount = false
+const viewOnce = ref(_viewOnMount)   // 外から頼まれた見せ方（最初の1日だけ）
+_viewOnMount = ''
+const _item0 = _itemOnMount
+_itemOnMount = null
 const origin = ref(null)
 watch(date, v => { if (v) open.value = true })
 function pick(d, o) { origin.value = o; date.value = d; open.value = true }
-function closeDay() { open.value = false }
+function closeDay() { open.value = false; viewOnce.value = '' }
 function stepDay(n) {
+  viewOnce.value = ''
   const d = new Date((date.value || today) + 'T00:00:00'); d.setDate(d.getDate() + n)
   origin.value = null; date.value = localDateKey(d)
 }
@@ -171,6 +180,17 @@ async function check(x) {
   }
 }
 /** 行: 中身を開く */
+// 外から頼まれた中身を開く（無くなっていれば日だけ）
+function _openOutside(it) {
+  if (!it) return
+  if (it.type === 'task') picked.value = aliveTasks.value.find(t => t.id === it.id) ?? null
+  else if (it.type === 'progress') progOpen.value = progressTasks.value.find(t => t.id === it.id) ?? null
+  else if (it.type === 'list') {
+    const cl = checklists.value.find(c => c.id === it.clId)
+    if (cl) clRun.value = { cl, date: date.value || today, slot: it.slot || '' }
+  }
+}
+onMounted(() => _openOutside(_item0))
 function openItem(x) {
   const r = x.ref
   if (r.type === 'task') picked.value = r.task
@@ -292,7 +312,7 @@ async function favChecklist(cl) {
     <!-- カレンダーからも＋で追加（日付は追加の画面で選ぶ。既定は今日・User 2026-11-08） -->
     <button v-if="canCreate && !open" type="button" class="jp-fab" aria-label="業務を追加" @click="addSheet = { date: today }">＋</button>
     <DayTimeline
-      v-if="open && date" :key="date" :date="date" :today="today" :origin="origin" :timeline="timeline" :can-add="canCreate && date >= today"
+      v-if="open && date" :key="date" :date="date" :today="today" :origin="origin" :timeline="timeline" :can-add="canCreate && date >= today" :initial-view="viewOnce"
       @close="closeDay" @step="stepDay" @add="openAdd()" @check="check" @open="openItem" @memo="openMemo"
       @add-at="addAt" @move="moveTask" @place="placeSomeday"
     />

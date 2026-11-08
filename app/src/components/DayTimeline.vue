@@ -21,11 +21,12 @@ const props = defineProps({
   timeline: { type: Object, required: true },
   canAdd: { type: Boolean, default: false },
   closed: { type: Boolean, default: false },
+  initialView: { type: String, default: '' },   // 'board' | 'list'。外から頼まれた見せ方（好みとしては残さない）
 })
 const emit = defineEmits(['close', 'step', 'add', 'open', 'check', 'memo', 'add-at', 'move', 'place'])
 // 見せ方: 予定ボード（予約台帳の形・既定・User決定 2026-11-05）か、今までのタイムライン（一覧）。端末ごとに覚える
 const _view0 = (() => { try { return localStorage.getItem(STORAGE_KEYS.journalView) === 'list' ? 'list' : 'board' } catch (_) { return 'board' } })()
-const view = ref(_view0)
+const view = ref(['board', 'list'].includes(props.initialView) ? props.initialView : _view0)
 function setView(v) { view.value = v; try { localStorage.setItem(STORAGE_KEYS.journalView, v) } catch (_) {} }
 const zoom = ref('3h')   // ボードの縮尺 '3h' | 'day'
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']

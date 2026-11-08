@@ -1,6 +1,6 @@
 {
   "name": "inventory-app",
-  "version": "0.197.1",
+  "version": "0.197.2",
   "private": true,
   "scripts": {
     "dev": "vite",

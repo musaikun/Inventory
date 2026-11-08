@@ -5,14 +5,14 @@ import { createApp, h, nextTick } from 'vue'
 vi.mock('../utils/api.js', () => ({ HTTP_BASE: '', WS_BASE: '', apiFetch: vi.fn(async () => ({})), setAuthInvalidatedHandler: vi.fn() }))
 vi.mock('../composables/useStore.js', async (orig) => ({ ...(await orig()), saveTaskToD1: vi.fn(async () => true), loadTasksFromD1: vi.fn(async () => []) }))
 
-let app = null, host = null, opened = 0
+let app = null, host = null, opened = 0, items = []
 const tick = async () => { for (let i = 0; i < 6; i++) await nextTick() }
 async function mount() {
   const { default: Card } = await import('./HomeNowCard.vue')
   host = document.createElement('div'); document.body.appendChild(host)
-  app = createApp({ render: () => h(Card, { onOpen: () => opened++ }) }); app.mount(host); await tick()
+  app = createApp({ render: () => h(Card, { onOpen: () => opened++, onItem: x => items.push(x) }) }); app.mount(host); await tick()
 }
-beforeEach(() => { localStorage.clear(); vi.resetModules(); localStorage.setItem('_device_name', '高木'); opened = 0 })
+beforeEach(() => { localStorage.clear(); vi.resetModules(); localStorage.setItem('_device_name', '高木'); opened = 0; items = [] })
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null })
 
 describe('店の今', () => {
@@ -36,7 +36,14 @@ describe('店の今', () => {
     expect(host.querySelector('.hn-who').textContent).toContain('全員')
     expect(host.querySelector('.hn-pg .t').textContent).toBe('製氷機の修理の手配')
     expect(host.querySelector('.hn-pm').textContent).toContain(`${later.getMonth() + 1}/${later.getDate()}まで`)
-    host.querySelector('.hn').dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick()
+    // 見出し → 予定ボード（@open）。帯・進行中の行 → その業務の中身（@item）。今日のやることのカード（一覧）と行き先を分ける
+    host.querySelector('.hn-h').dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick()
     expect(opened).toBe(1)
+    bar.dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick()
+    host.querySelector('.hn-pg').dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick()
+    expect(opened, '業務を押しても予定ボードは開かない').toBe(1)
+    const prog = T.aliveTasks.value.find(t => t.text === '製氷機の修理の手配')
+    const oil = T.aliveTasks.value.find(t => t.text === '揚げ油の交換')
+    expect(items).toEqual([{ type: 'task', id: oil.id }, { type: 'progress', id: prog.id }])
   })
 })

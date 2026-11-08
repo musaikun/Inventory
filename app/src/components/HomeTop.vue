@@ -38,7 +38,7 @@ const props = defineProps({
   live:               { type: Object, default: null },   // 棚卸のルームの状態（このセッションのときだけ）。人がいれば「進行中」
   liveOrder:          { type: Object, default: null },
 })
-const emit = defineEmits(['go', 'stock', 'order', 'resume', 'openTodo'])
+const emit = defineEmits(['go', 'stock', 'order', 'resume', 'openTodo', 'openBoard', 'openItem'])
 
 onMounted(() => { pullTasks(); pullChecklists() })
 
@@ -187,7 +187,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
       </div>
     </section>
 
-    <button type="button" class="ht-today" aria-label="業務管理を開く" @click="emit('openTodo')">
+    <button type="button" class="ht-today" aria-label="今日のやることの一覧を開く" @click="emit('openTodo')">
       <span class="ht-th">
         <span class="ht-pr" aria-hidden="true">
           <svg width="56" height="56" viewBox="0 0 56 56">
@@ -197,7 +197,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
           <span>{{ doneCount }}/{{ total }}<small>完了</small></span>
         </span>
         <span class="ht-tx">
-          <span class="ht-tt">今日のやること<i>業務管理を開く ›</i></span>
+          <span class="ht-tt">今日のやること<i>今日の一覧 ›</i></span>
           <span class="ht-cnt">
             <span v-for="c in countChips" :key="c.k" :class="c.cls">{{ c.label }} {{ c.n }}</span>
             <span v-if="!countChips.length" class="m">気になるものはありません</span>
@@ -214,7 +214,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
     </button>
 
     <!-- 店の今（今日の流れ・進行中。User決定 2026-11-08） -->
-    <HomeNowCard @open="emit('openTodo')" />
+    <HomeNowCard @open="emit('openBoard')" @item="x => emit('openItem', x)" />
 
 
     <div class="ht-sec">ショートカット</div>
