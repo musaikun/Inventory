@@ -72,7 +72,7 @@ const initial = n => (n || '?').slice(0, 1)
           <small>{{ [p.who, p.total ? `手順 ${p.done}/${p.total}` : ''].filter(Boolean).join('・') }}</small>
         </span>
         <span class="hn-pb"><i :style="{ width: (p.total ? p.done / p.total * 100 : 0) + '%' }"></i><b v-if="p.pos !== null" :style="{ left: p.pos * 100 + '%' }"></b></span>
-        <span class="hn-pm"><span>{{ md(p.start) }}</span><span>{{ p.deadline ? `${md(p.deadline)}まで` : '締め切りなし' }}</span></span>
+        <span class="hn-pm"><span>{{ p.future ? `${md(p.start)}から` : md(p.start) }}</span><span>{{ p.deadline ? `${md(p.deadline)}まで` : '締め切りなし' }}</span></span>
       </button>
       <span v-if="prog.more" class="hn-more">ほか {{ prog.more }}件</span>
     </template>

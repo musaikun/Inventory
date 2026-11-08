@@ -242,7 +242,7 @@ onUnmounted(registerInnerLayerCloser(() => {
       </InventoryTable>
       </template>
 
-      <button v-if="!locked" class="sp-fab" type="button" aria-label="品目を追加" @click="openAdd">＋</button>
+      <button v-if="!locked" class="app-fab sp-fab" type="button" aria-label="品目を追加" @click="openAdd"><LineIcon name="plus" size="28" stroke="2.4" /></button>
     </div>
 
     <ItemStockSheet
@@ -295,7 +295,6 @@ onUnmounted(registerInnerLayerCloser(() => {
 .sp.embedded > .sp-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
 /* ホームでは下部ナビの上に出す */
 .sp-locked { margin: 0 12px 8px; padding: 9px 12px; border-radius: 10px; background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; font-size: 12.5px; font-weight: 700; line-height: 1.5; }
-.sp.embedded .sp-fab { bottom: calc(78px + env(safe-area-inset-bottom)); }
 .sp.embedded .sp-body > :not(.inventory-section) { flex: none; }
 .sp { min-height: 100vh; background: var(--bg, #edf5f7); padding-bottom: 96px; }
 .sp-header {
@@ -341,12 +340,7 @@ onUnmounted(registerInnerLayerCloser(() => {
 .sp-cell.exp-over { border-color: #fca5a5; background: #fef2f2; }
 .sp-cell.exp-over .sp-cell-basis { color: #dc2626; }
 
-.sp-fab {
-  position: fixed; right: max(16px, calc(50vw - 320px)); bottom: calc(20px + env(safe-area-inset-bottom));
-  width: 58px; height: 58px; border-radius: 50%; border: none; z-index: 5;
-  background: var(--btn-bg); color: var(--btn-fg); font-size: 32px; line-height: 1; cursor: pointer;
-  box-shadow: 0 6px 18px rgba(34, 211, 238, 0.45);
-}
+.sp:not(.embedded) .app-fab { bottom: calc(20px + env(safe-area-inset-bottom)); }   /* 下のメニューの無い単独の画面 */
 
 .sp-empty { text-align: center; padding: 64px 20px 0; }
 .sp-empty-ico { font-size: 64px; }

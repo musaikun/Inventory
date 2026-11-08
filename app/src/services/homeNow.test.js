@@ -61,4 +61,9 @@ describe('progressBars', () => {
     expect(r.items[2].pos).toBeCloseTo(0.5)
     expect(r.items[3]).toMatchObject({ pos: null, deadline: '' })
   })
+
+  it('始まりは実施日（日付）。作った日ではない。先の日なら future・今日の印は0', () => {
+    const r = progressBars([{ id: 'a', text: '月末の準備', progress: 'doing', date: '2099-01-20', createdAt: '2099-01-06T00:00:00Z', deadline: '2099-01-25', assign: 'all' }], '2099-01-08')
+    expect(r.items[0]).toMatchObject({ start: '2099-01-20', future: true, pos: 0 })
+  })
 })

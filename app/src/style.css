@@ -1267,3 +1267,14 @@ body[data-view="session"] .voice-section { padding: 12px 12px 10px; }
   .btn-export,
   .btn-new-session { cursor: pointer; }
 }
+
+/* 丸い＋（追加）のボタン。在庫・業務管理（カレンダー・その日）で同じ形・同じ場所（User 2026-11-08: 完全に統一）。
+   下のメニューの少し上に、画面に対して固定する。中の＋は線のアイコン（文字の＋はフォントで太さ・位置が揺れる） */
+.app-fab {
+  position: fixed; right: max(16px, calc(50vw - 320px)); bottom: calc(78px + env(safe-area-inset-bottom)); z-index: 20;
+  width: 58px; height: 58px; padding: 0; border: none; border-radius: 50%;
+  background: var(--btn-bg); color: var(--btn-fg); display: grid; place-items: center; cursor: pointer;
+  box-shadow: 0 6px 18px rgba(34, 211, 238, 0.45);
+}
+.app-fab svg { width: 28px; height: 28px; }
+.app-fab:active { transform: scale(.96); }

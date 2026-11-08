@@ -150,7 +150,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
       <p v-if="empty" class="dt-empty">この日はなし</p>
     </div>
 
-    <button v-if="canAdd" type="button" class="dt-fab" aria-label="この日に追加" @click="emit('add')">＋</button>
+    <button v-if="canAdd" type="button" class="app-fab dt-fab" aria-label="この日に追加" @click="emit('add')"><LineIcon name="plus" size="28" stroke="2.4" /></button>
   </section>
 </template>
 
@@ -229,5 +229,4 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 .dt-now i { width: 10px; height: 10px; border-radius: 50%; background: #e0457b; margin-left: 8px; flex: none; }
 .dt-now em { flex: 1; height: 2px; background: #e0457b; }
 .dt-empty { margin: 40px 0 0; text-align: center; font-size: 15px; font-weight: 800; color: var(--text-muted); }
-.dt-fab { position: absolute; right: 16px; bottom: 16px; width: 56px; height: 56px; border: none; border-radius: 50%; background: var(--grad-btn, #0e7490); color: #08323c; font-size: 28px; display: grid; place-items: center; cursor: pointer; box-shadow: 0 8px 18px rgba(14,116,144,.35); }
 </style>

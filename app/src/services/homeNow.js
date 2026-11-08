@@ -76,7 +76,8 @@ function who(x) {
 export function progressBars(list = [], today, isStale = () => false) {
   const T = _day(today)
   const out = list.map(t => {
-    const startK = (t.createdAt || '').slice(0, 10) || t.date || today
+    // 始まりは実施日（追加の画面で選んだ日付＝t.date）。作った日ではない（User 2026-11-08）
+    const startK = t.date || (t.createdAt || '').slice(0, 10) || today
     const steps = Array.isArray(t.steps) ? t.steps : []
     const over = !!t.deadline && t.deadline < today
     let pos = null
@@ -86,7 +87,7 @@ export function progressBars(list = [], today, isStale = () => false) {
     }
     return {
       id: t.id, text: t.text, who: t.assign === 'person' ? (t.assigneeName || '') : t.assign === 'all' ? '全員' : '',
-      start: startK, deadline: t.deadline || '', pos, over, stale: !over && isStale(t),
+      start: startK, future: startK > today, deadline: t.deadline || '', pos, over, stale: !over && isStale(t),
       done: steps.filter(s => s.done).length, total: steps.length, waiting: t.progress === 'waiting',
     }
   })

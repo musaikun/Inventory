@@ -310,7 +310,7 @@ async function favChecklist(cl) {
   <div class="jp">
     <JournalMonth :today="today" :focus="date" :selected="open ? date : ''" :info="dayInfo" @pick="pick" />
     <!-- カレンダーからも＋で追加（日付は追加の画面で選ぶ。既定は今日・User 2026-11-08） -->
-    <button v-if="canCreate && !open" type="button" class="jp-fab" aria-label="業務を追加" @click="addSheet = { date: today }">＋</button>
+    <button v-if="canCreate && !open" type="button" class="app-fab jp-fab" aria-label="業務を追加" @click="addSheet = { date: today }"><LineIcon name="plus" size="28" stroke="2.4" /></button>
     <DayTimeline
       v-if="open && date" :key="date" :date="date" :today="today" :origin="origin" :timeline="timeline" :can-add="canCreate && date >= today" :initial-view="viewOnce"
       @close="closeDay" @step="stepDay" @add="openAdd()" @check="check" @open="openItem" @memo="openMemo"
@@ -432,7 +432,6 @@ async function favChecklist(cl) {
 .jp-box > :first-child { border-top: none; }
 .jp-empty { margin: 0; padding: 12px 4px; font-size: 13px; color: var(--text-muted); }
 .jp-empty.solo { padding: 28px 8px; text-align: center; line-height: 1.6; }
-.jp-fab { position: fixed; right: max(18px, calc(50% - 300px + 18px)); bottom: calc(76px + env(safe-area-inset-bottom)); width: 56px; height: 56px; border-radius: 50%; border: none; background: var(--grad-btn); color: #08323c; font-size: 28px; display: grid; place-items: center; box-shadow: 0 8px 20px rgba(14,116,144,.35); cursor: pointer; z-index: 20; }
 .jp-sheet-bg { position: fixed; inset: 0; z-index: 120; background: rgba(6,34,43,.4); display: flex; align-items: flex-end; justify-content: center; }
 .jp-sheet { width: 100%; max-width: 600px; background: var(--surface); border-radius: 20px 20px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 10px; }
 .jp-sheet-t { font-size: 16px; }
