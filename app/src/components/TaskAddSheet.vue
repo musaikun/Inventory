@@ -86,6 +86,16 @@ if (props.template) {
   else if (d.assign) who.value = 'all'
 }
 
+// ── 閉じる前の確認（入力中なら。外を触っただけで消えないように・User 2026-11-08）──
+// 開いたときの中身を控えて、変わっていれば確かめる。担当は後から既定が入ることがあるので見ない
+const _form = () => JSON.stringify([name.value.trim(), note.value.trim(), day.value, time.value, endTime.value, deadline.value,
+  repeat.value, weekdays.value, monthDays.value, items.value.map(x => x.text), adminsOnly.value])
+const _snap = _form()
+function tryClose() {
+  if (_form() !== _snap && !window.confirm('入力中の業務を捨てて閉じますか？')) return
+  emit('close')
+}
+
 // ── 種類（入れた中身で決まる）──
 const kind = computed(() => {
   if (repeat.value !== 'none') return { k: 'repeat', label: '繰り返し' }
@@ -219,15 +229,15 @@ async function submit() {
   }
 }
 
-onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; return true } emit('close'); return true }))
+onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; return true } tryClose(); return true }))
 </script>
 
 <template>
   <Teleport to="body">
-    <div class="ta-bg" @click.self="emit('close')">
+    <div class="ta-bg" @click.self="tryClose">
       <form class="ta" role="dialog" aria-label="業務を追加" @submit.prevent="submit">
         <div class="ta-h">
-          <button type="button" class="ta-x" @click="emit('close')">やめる</button>
+          <button type="button" class="ta-x" @click="tryClose">やめる</button>
           <span :key="kind.label" :class="['ta-kind', kind.k]" data-test="kind">{{ kind.label }}</span>
           <button type="submit" class="ta-go" :disabled="!canSubmit">追加</button>
         </div>

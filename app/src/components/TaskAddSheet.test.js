@@ -86,6 +86,25 @@ describe('業務を追加（種類は選ばない）', () => {
     expect(row('time').textContent).toContain('15:00〜16:30')
   })
 
+  it('入力中に外・やめるを触ると確かめる。何も入れていなければそのまま閉じる（2026-11-08）', async () => {
+    const { default: Sheet } = await import('./TaskAddSheet.vue')
+    await mount(Sheet)
+    await click(document.body.querySelector('.ta-bg'))
+    expect(events).toEqual(['close'])
+    events.length = 0
+    await type(sheet().querySelector('input[aria-label="名前"]'), '揚げ油の交換')
+    const ask = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    await click(document.body.querySelector('.ta-bg'))
+    await click(btn('やめる', sheet()))
+    expect(ask).toHaveBeenCalledTimes(2)
+    expect(ask).toHaveBeenCalledWith('入力中の業務を捨てて閉じますか？')
+    expect(events).toEqual([])
+    ask.mockReturnValue(true)
+    await click(btn('やめる', sheet()))
+    expect(events).toEqual(['close'])
+    ask.mockRestore()
+  })
+
   it('チェック表を付けた予定は、その日の1回きりのチェック表になる', async () => {
     await seedTemplates([{ id: 'tp1', kind: 'checklist', name: '開店準備', data: { items: [{ id: 'a', text: '看板を出す' }, { id: 'b', text: 'レジを開ける' }] }, sort: 1 }])
     const { localDateKey } = await import('../utils/localDate.js')
