@@ -20,8 +20,25 @@ const edit = ref(null)   // { id, name, items: [{ id, text }] }
 const draft = ref('')
 const err = ref(''), busy = ref(false)
 const _iid = () => 'i_' + Math.random().toString(36).slice(2, 10)
-function openNew() { edit.value = { id: '', name: '', items: [] }; draft.value = ''; err.value = '' }
-function openEdit(t) { edit.value = { id: t.id, name: t.name, items: (t.data?.items ?? []).map(x => ({ id: x.id || _iid(), text: x.text })) }; draft.value = ''; err.value = '' }
+// 開いたときの中身（閉じるときに、変えたかどうかを見る）
+let _snap = ''
+const _key = e => JSON.stringify({ n: e.name, i: e.items.map(x => x.text) })
+function _open(e) { edit.value = e; _snap = _key(e); draft.value = ''; err.value = '' }
+function openNew() { _open({ id: '', name: '', items: [] }) }
+function openEdit(t) { _open({ id: t.id, name: t.name, items: (t.data?.items ?? []).map(x => ({ id: x.id || _iid(), text: x.text })) }) }
+const dirty = () => !!edit.value && (_key(edit.value) !== _snap || !!draft.value.trim())
+/** 閉じる。作りかけ・直しかけなら確かめる（外を触っただけで消えないように・User 2026-11-08） */
+function closeEdit() {
+  if (dirty() && !window.confirm(edit.value.id ? '直した内容を保存せずに閉じますか？' : '作りかけのチェック表を捨てて閉じますか？')) return false
+  edit.value = null
+  return true
+}
+// 項目の書き直し: 空にしたら消す（User 2026-11-08）
+function fixItem(i) {
+  const it = edit.value.items[i]
+  it.text = it.text.trim().slice(0, 100)
+  if (!it.text) edit.value.items.splice(i, 1)
+}
 const editable = computed(() => !edit.value?.id || canEditTemplate(templates.value.find(t => t.id === edit.value.id)))
 function addItem() {
   const t = draft.value.trim()
@@ -39,7 +56,8 @@ async function save() {
   if (draft.value.trim()) addItem()
   busy.value = true; err.value = ''
   try {
-    const t = await saveChecklistTemplate(edit.value.id || null, edit.value.name, edit.value.items)
+    const items = edit.value.items.map(x => ({ ...x, text: x.text.trim() })).filter(x => x.text)
+    const t = await saveChecklistTemplate(edit.value.id || null, edit.value.name, items)
     edit.value = null
     return t
   } catch (e) { err.value = e?.message || '保存できませんでした' } finally { busy.value = false }
@@ -54,7 +72,7 @@ async function remove() {
   try { await removeTemplate(id); edit.value = null } catch (e) { err.value = e?.message || '消せませんでした' }
 }
 
-onUnmounted(registerInnerLayerCloser(() => { if (edit.value) { edit.value = null; return true } emit('close'); return true }))
+onUnmounted(registerInnerLayerCloser(() => { if (edit.value) { closeEdit(); return true } emit('close'); return true }))
 </script>
 
 <template>
@@ -81,11 +99,11 @@ onUnmounted(registerInnerLayerCloser(() => { if (edit.value) { edit.value = null
       <button v-if="canAddTemplate" type="button" class="ct-fab" @click="openNew"><LineIcon name="plus" /> チェック表を作る</button>
     </div>
 
-    <div v-if="edit" class="ct-bg" @click.self="edit = null">
+    <div v-if="edit" class="ct-bg" @click.self="closeEdit">
       <form class="ct-sh" aria-label="チェック表を直す" @submit.prevent="addItem">
         <div class="ct-sh-h">
           <b>{{ edit.id ? 'チェック表を直す' : 'チェック表を作る' }}</b>
-          <button type="button" aria-label="閉じる" @click="edit = null">✕</button>
+          <button type="button" aria-label="閉じる" @click="closeEdit">✕</button>
         </div>
         <!-- 名前は入力欄と分かる形に（見出しのような枠なしだと一瞬わからない・User 2026-11-07） -->
         <label class="ct-nm"><span>チェック表の名前</span>
@@ -93,7 +111,9 @@ onUnmounted(registerInnerLayerCloser(() => { if (edit.value) { edit.value = null
         </label>
         <ol class="ct-items">
           <li v-for="(it, i) in edit.items" :key="it.id">
-            <span>{{ it.text }}</span>
+            <!-- 押して書き直せる（空にすると消える） -->
+            <input v-if="editable" v-model="it.text" type="text" maxlength="100" class="ct-it" :aria-label="`項目${i + 1}`" @blur="fixItem(i)" @keydown.enter.prevent="$event.target.blur()" />
+            <span v-else>{{ it.text }}</span>
             <template v-if="editable">
               <button type="button" :aria-label="`${it.text}を上へ`" :disabled="i === 0" @click="moveItem(i, -1)">↑</button>
               <button type="button" :aria-label="`${it.text}を消す`" @click="edit.items.splice(i, 1)">✕</button>
@@ -148,6 +168,8 @@ onUnmounted(registerInnerLayerCloser(() => { if (edit.value) { edit.value = null
 .ct-items li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .ct-items li button { min-width: 36px; min-height: 36px; border: none; background: none; color: var(--text-muted); font-size: 14px; cursor: pointer; }
 .ct-items li button:disabled { opacity: .3; }
+.ct-it { flex: 1; min-width: 0; min-height: 36px; border: 1.5px solid transparent; border-radius: 8px; background: transparent; padding: 0 6px; margin-left: -6px; font: inherit; font-size: 14px; font-weight: 700; color: var(--text); }
+.ct-it:focus { outline: none; border-color: var(--primary, #0e7490); background: var(--surface, #fff); }
 .ct-add { display: flex; gap: 6px; }
 .ct-add input { flex: 1; min-width: 0; min-height: 44px; border: 1.5px solid #d6e6ea; border-radius: 12px; padding: 0 12px; font: inherit; font-size: 15px; color: var(--text); background: var(--surface); }
 .ct-add button { width: 44px; min-height: 44px; border: none; border-radius: 12px; background: #e6f5f8; color: #0b5f73; cursor: pointer; display: grid; place-items: center; }
