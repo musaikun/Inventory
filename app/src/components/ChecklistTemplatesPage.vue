@@ -9,6 +9,7 @@ import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { templates, checklistTemplates, saveChecklistTemplate, removeTemplate, canAddTemplate, canEditTemplate, templateSummary, pullTemplates, KIND_ICON } from '../composables/useTemplates.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
+import { useListDragReorder } from '../composables/useListDragReorder.js'
 
 const emit = defineEmits(['close', 'use-checklist', 'use-template'])
 onMounted(() => { pullTemplates() })
@@ -29,6 +30,7 @@ function openEdit(t) { _open({ id: t.id, name: t.name, items: (t.data?.items ?? 
 const dirty = () => !!edit.value && (_key(edit.value) !== _snap || !!draft.value.trim())
 /** 閉じる。作りかけ・直しかけなら確かめる（外を触っただけで消えないように・User 2026-11-08） */
 function closeEdit() {
+  itemDrag.cleanup()
   if (dirty() && !window.confirm(edit.value.id ? '直した内容を保存せずに閉じますか？' : '作りかけのチェック表を捨てて閉じますか？')) return false
   edit.value = null
   return true
@@ -46,11 +48,20 @@ function addItem() {
   edit.value.items.push({ id: _iid(), text: t.slice(0, 100) })
   draft.value = ''
 }
-function moveItem(i, d) {
-  const a = edit.value.items, j = i + d
-  if (j < 0 || j >= a.length) return
-  ;[a[i], a[j]] = [a[j], a[i]]
-}
+// 並べ替え: ⋮⋮ を長押しして運ぶ（導線の順番と同じ操作。User 2026-11-08）。上下キーでも動く
+const itemsEl = ref(null)
+const itemDrag = useListDragReorder({
+  listEl: itemsEl,
+  rowSelector: '.ct-row',
+  keyAttr: 'id',
+  currentOrder: () => edit.value?.items.map(x => x.id) ?? [],
+  commitOrder: ids => {
+    const by = new Map(edit.value.items.map(x => [x.id, x]))
+    edit.value.items = ids.map(id => by.get(id)).filter(Boolean)
+  },
+})
+// 書き直し中の入力欄を押しても掴まない（つまみだけ）
+function onItemDown(e) { if (e.target.closest?.('.ct-handle')) itemDrag.onDown(e) }
 async function save() {
   if (busy.value) return
   if (draft.value.trim()) addItem()
@@ -72,6 +83,7 @@ async function remove() {
   try { await removeTemplate(id); edit.value = null } catch (e) { err.value = e?.message || '消せませんでした' }
 }
 
+onUnmounted(() => itemDrag.cleanup())
 onUnmounted(registerInnerLayerCloser(() => { if (edit.value) { closeEdit(); return true } emit('close'); return true }))
 </script>
 
@@ -109,13 +121,15 @@ onUnmounted(registerInnerLayerCloser(() => { if (edit.value) { closeEdit(); retu
         <label class="ct-nm"><span>チェック表の名前</span>
           <input v-model="edit.name" type="text" maxlength="60" aria-label="チェック表の名前" placeholder="例：閉店チェック" :disabled="!editable" />
         </label>
-        <ol class="ct-items">
-          <li v-for="(it, i) in edit.items" :key="it.id">
+        <ol ref="itemsEl" class="ct-items"
+          @pointerdown="onItemDown" @pointermove="itemDrag.onMove" @pointerup="itemDrag.onUp"
+          @pointercancel="itemDrag.onUp" @lostpointercapture="itemDrag.onUp" @touchmove="itemDrag.onTouchMove">
+          <li v-for="(it, i) in edit.items" :key="it.id" :data-id="it.id" class="ct-row">
+            <button v-if="editable && edit.items.length > 1" type="button" class="ct-handle" :aria-label="`${it.text} を運ぶ。現在 ${i + 1} 番目。上下矢印キーで移動`" @keydown="itemDrag.onKeydown($event, it.id)">⋮⋮</button>
             <!-- 押して書き直せる（空にすると消える） -->
             <input v-if="editable" v-model="it.text" type="text" maxlength="100" class="ct-it" :aria-label="`項目${i + 1}`" @blur="fixItem(i)" @keydown.enter.prevent="$event.target.blur()" />
             <span v-else>{{ it.text }}</span>
             <template v-if="editable">
-              <button type="button" :aria-label="`${it.text}を上へ`" :disabled="i === 0" @click="moveItem(i, -1)">↑</button>
               <button type="button" :aria-label="`${it.text}を消す`" @click="edit.items.splice(i, 1)">✕</button>
             </template>
           </li>
@@ -168,6 +182,11 @@ onUnmounted(registerInnerLayerCloser(() => { if (edit.value) { closeEdit(); retu
 .ct-items li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .ct-items li button { min-width: 36px; min-height: 36px; border: none; background: none; color: var(--text-muted); font-size: 14px; cursor: pointer; }
 .ct-items li button:disabled { opacity: .3; }
+.ct-items li.ct-row { padding-left: 0; }
+.ct-items li.ct-row.holding { box-shadow: inset 0 0 0 1.5px var(--primary, #0e7490); }
+.ct-items li.ct-row.drag { background: #fff; box-shadow: 0 8px 20px rgba(6,34,43,.18); position: relative; z-index: 2; }
+.ct-items li .ct-handle { flex: none; width: 36px; min-height: 44px; color: #8aa0a8; font-size: 15px; letter-spacing: -3px; cursor: grab; touch-action: none; }
+.ct-items li.ct-row > .ct-it:first-child, .ct-items li.ct-row > span:first-child { margin-left: 6px; }
 .ct-it { flex: 1; min-width: 0; min-height: 36px; border: 1.5px solid transparent; border-radius: 8px; background: transparent; padding: 0 6px; margin-left: -6px; font: inherit; font-size: 14px; font-weight: 700; color: var(--text); }
 .ct-it:focus { outline: none; border-color: var(--primary, #0e7490); background: var(--surface, #fff); }
 .ct-add { display: flex; gap: 6px; }
