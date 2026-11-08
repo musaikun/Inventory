@@ -25,14 +25,16 @@ export function homeAttention({ today = [], overdue = [], stale = [], checklists
   for (const t of overdue) rows.push({ key: t.id, kind: 'over', tag: '期限切れ', text: t.text, side: _md(t.date), mine: isMine(t) })
 
   const open = today.filter(t => !t.progress && !isDone(t))
-  const lateTasks = open.filter(t => t.dueTime && _min(t.dueTime) < nowMin)
+  // 遅れの境目: 終わりの時刻があれば終わり、無ければ始まり（店の今の帯と同じ）
+  const lateAt = t => (t.endTime && t.endTime > t.dueTime ? t.endTime : t.dueTime)
+  const lateTasks = open.filter(t => t.dueTime && _min(lateAt(t)) < nowMin)
   const lateCls = []
   for (const r of checklists) {
     const s = r.slots.find(x => x.slot && !x.complete && _min(x.slot) < nowMin)
     if (s) lateCls.push({ r, s })
   }
   const late = [
-    ...lateTasks.map(t => ({ at: t.dueTime, row: { key: t.id, kind: 'late', tag: _late(nowMin - _min(t.dueTime)), text: t.text, side: _who(t), mine: isMine(t) } })),
+    ...lateTasks.map(t => ({ at: lateAt(t), row: { key: t.id, kind: 'late', tag: _late(nowMin - _min(lateAt(t))), text: t.text, side: _who(t), mine: isMine(t) } })),
     ...lateCls.map(({ r, s }) => ({ at: s.slot, row: { key: `cl:${r.cl.id}:${s.slot}`, kind: 'late', tag: _late(nowMin - _min(s.slot)), text: `${r.cl.name}（${s.filled}/${s.total}）`, side: '全員', mine: false, checklist: true } })),
   ].sort((a, b) => a.at.localeCompare(b.at)).map(x => x.row)
   rows.push(...late)

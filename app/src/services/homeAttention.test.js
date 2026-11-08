@@ -32,6 +32,11 @@ describe('homeAttention', () => {
     expect(r.rows[0].side).toBe('1/1')
   })
 
+  it('終わりの時刻があるものは、終わりを過ぎるまで遅れにしない（店の今と同じ）', () => {
+    const r = homeAttention({ now: '14:40', today: [T('a', '片付け', { dueTime: '14:00', endTime: '15:00' }), T('b', '検品', { dueTime: '13:00', endTime: '14:00' })] })
+    expect(r.rows.map(x => [x.kind, x.tag, x.text])).toEqual([['late', '遅れ 40分', '検品'], ['next', '14:00', '片付け']])
+  })
+
   it('何も無ければ空・件数0', () => {
     const r = homeAttention({ now: '09:00' })
     expect(r).toEqual({ rows: [], more: 0, counts: { over: 0, late: 0, stuck: 0, mine: 0 } })

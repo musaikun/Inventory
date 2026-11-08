@@ -4,6 +4,7 @@
  * - 上部: アイコンと同じ「暗い地に光る輪」に、日付・天気（あいさつはやめて帯を低くした・User決定 2026-10-30）
  * - 今日のやること: 進み具合の輪と、気になる順の一覧（期限切れ・遅れ・止まっている・自分の・次の時刻。最大5行）。押すと業務管理
  *   （User決定 2026-11-06・モック docs/mocks/home-trim.html。並べ方は services/homeAttention.js）
+ * - 店の今（HomeNowCard）: 今日の流れ（人×時間の小さなガント）と進行中（締め切りまでの棒）。User決定 2026-11-08
  * - ボードは廃止（User決定 2026-11-06）。貼り紙のデータとサーバーはそのまま（消していない）
  * - 棚卸・発注が始まっていれば、ショートカットのアイコンで知らせる（進行中のカードはやめた・User決定 2026-10-27）。
  *   だれかがルームに入っていれば「進行中」（外の輪が回る）、だれもいなければ「中断中」（光って止まっている）
@@ -13,6 +14,7 @@
  * 棚卸・発注は在庫タブの今のボタンからも始められる（両方に置く・User決定）。
  */
 import LineIcon from './LineIcon.vue'
+import HomeNowCard from './HomeNowCard.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { tasksOn, overdueTasks, isAssignedToMe, isMarkedByMe, pullTasks, progressTasks, isStale } from '../composables/useTasks.js'
 import { checklistsForDay, pullChecklists } from '../composables/useChecklists.js'
@@ -210,6 +212,9 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
       <span v-else class="ht-none">{{ total ? 'ぜんぶ終わりました' : '今日のやることはありません' }}</span>
       <span v-if="attention.more" class="ht-more">ほか {{ attention.more }}件</span>
     </button>
+
+    <!-- 店の今（今日の流れ・進行中。User決定 2026-11-08） -->
+    <HomeNowCard @open="emit('openTodo')" />
 
 
     <div class="ht-sec">ショートカット</div>
