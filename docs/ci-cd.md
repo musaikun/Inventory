@@ -124,7 +124,7 @@ command/step、環境、未検証範囲を残します。
 
 ## 現行CIの検証範囲
 
-**develop以外のbranchとPR**は`ci.yml`（2026-11-07追加）が、Worker test・App test/build・docs検査を3 jobで並列に回します。
+**develop以外のbranchとPR**は`ci.yml`が、Worker test・App test/build・E2E・docs検査を4 jobで並列に回します（2026-11-07に`test.yml`を統合）。
 deployはせず、secretsも使いません。並行セッションのbranchが壊れていても`develop`へ合流するまで分からなかったためです。
 `develop-preview.yml`も、testの前に同じdocs検査（`node scripts/check-docs-links.mjs`）を行います。
 
@@ -136,8 +136,10 @@ deployはせず、secretsも使いません。並行セッションのbranchが�
 | App | `app`で`npm ci` → `npm test` → `npm run build` | `app/vitest.config.js`の`src/**/*.test.js`とproduction build |
 | Pages | 上記成功後に明示したpreview branchへdeploy | deploy commandの成功まで。公開routeの機能確認ではない |
 
-App/Workerのtestはpackage分離済みで、件数は文書へ固定しません。一方、package scripts、依存、workflowに
-Playwright/Cypress等のbrowser E2Eはなく、remote Worker/D1/DOと実browserを通すcritical E2Eもありません。
+App/Workerのtestはpackage分離済みで、件数は文書へ固定しません。
+
+**E2E**（2026-11-02〜・`ci.yml`の`e2e` job）: `e2e/` のPlaywright E2E（ローカルWorker=Miniflareで DO/D1 を模擬・毎回まっさらなD1）を回します。secretは使わず、deployもしません。
+E2Eは実browser＋ローカルWorkerであり、remote（本番・preview）のWorker/D1/DOは通しません。
 production URLへの自動smoke、失敗時の自動rollbackもありません。`npm test`とPages deploy成功だけで
 `WEB-09` / `WEB-10`を完了にしません。
 
@@ -240,7 +242,7 @@ migration履歴tableではなくschema sentinel方式を使うため、適用状
 ## 仕組みのファイル
 
 ```
-.github/workflows/ci.yml               # develop以外のbranch・PRのtest / build / docs検査（deployなし）
+.github/workflows/ci.yml               # develop以外のbranch・PRのtest / build / E2E / docs検査（deployなし）
 .github/workflows/develop-preview.yml  # developのdocs検査 / test / build / Pages preview
 scripts/check-docs-links.mjs  # docs検査（リンク切れ・主要ファイル一覧・セッション記録のファイル名）
 .github/workflows/pro-review.yml       # 手動のPro Review frontend更新

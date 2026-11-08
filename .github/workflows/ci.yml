@@ -1,9 +1,10 @@
 name: CI
 
-# develop 以外のすべての branch と PR で test・build・docs検査を回す。
+# develop 以外のすべての branch と PR で test・build・E2E・docs検査を回す（取り込む「前」の関門）。
 # 並行セッションの branch が壊れていても、develop へ合流するまで分からなかったため（2026-11-07）。
 # develop への push は develop-preview.yml が同じ検査をしてから preview を出すので、ここでは回さない。
-# deploy はしない。secrets も使わない。
+# deploy はしない。secrets も使わない（E2E は Miniflare でローカル模擬。本番・preview の D1 に触れない）。
+# 2026-11-07 に ccr-e63d6417 の test.yml（unit + E2E）をここへまとめた。
 
 on:
   push:
@@ -68,3 +69,36 @@ jobs:
           node-version: 24
       - name: Links, key file list, session file names
         run: node scripts/check-docs-links.mjs
+
+  e2e:
+    name: E2E (Playwright + local Worker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            worker/package-lock.json
+            e2e/package-lock.json
+      - name: Install
+        run: |
+          npm ci --prefix worker
+          npm ci --prefix app
+          npm ci --prefix e2e
+          npx --prefix e2e playwright install --with-deps chromium
+      - name: Run E2E
+        working-directory: e2e
+        run: npx playwright test
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 7
