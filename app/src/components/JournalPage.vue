@@ -100,7 +100,12 @@ function dayInfo(d) {
   const ls = checklistsForDay(d)
   const total = ts.length + ls.length
   const done = ts.filter(t => t.doneAt).length + ls.filter(r => r.complete).length
-  const planned = ts.filter(t => !t.doneAt).length + ls.filter(r => !r.complete && r.cl.repeat === 'none').length
+  // 予定: まだのやること・チェック表。繰り返しも入れる（毎日のものは全部の日が青くなるので入れない・User 2026-11-08）
+  const plans = d < today ? [] : [
+    ...ts.filter(t => !t.doneAt).map(t => t.text),
+    ...ls.filter(r => !r.complete && r.cl.repeat !== 'daily').map(r => r.cl.name),
+  ]
+  const planned = plans.length
   const st = d < today ? (!total ? '' : done === total ? 'y' : done ? 'p' : 'x')
     : total && done === total ? 'y' : planned ? 'f' : ''
   const fut = d > today
@@ -110,6 +115,8 @@ function dayInfo(d) {
   if (orderDays.value.has(d) || (d === today && props.activeOrderSession)) tags.push({ label: '発注', kind: 'order' })
   const note = getNote(d)?.text
   if (note) tags.push({ label: note.slice(0, 8), kind: 'plan', future: fut })
+  // 先の予定は名前も出す（カレンダーだけで何があるか分かるように・User 2026-11-08）
+  for (const p of plans) tags.push({ label: p.slice(0, 8), kind: 'plan', future: fut })
   return { st, tags }
 }
 

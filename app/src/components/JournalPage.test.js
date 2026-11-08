@@ -59,6 +59,25 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     if (sameMonth) expect(host.querySelector(`.jm-c[aria-label^="${yday}"] .st.x`)).not.toBeNull()
   })
 
+  it('先の予定は名前の札と青い帯。繰り返し（毎週）の日にも出る。毎日のものは出さない。3つ以上は「ほかn」（2026-11-08）', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
+    const T = await import('../composables/useTasks.js')
+    const C = await import('../composables/useChecklists.js')
+    // 来月の同じ日あたりではなく、今月の中で確実に先の日を使う（月末なら翌月に出ないので、今日から1日後が今月なら）
+    const d = new Date(); d.setDate(d.getDate() + 1)
+    const k = localDateKey(d)
+    if (d.getMonth() !== new Date().getMonth()) return   // 月末は月のカレンダーに出ないので見送る
+    await C.saveChecklist({ name: '冷蔵庫の掃除', items: [], repeat: 'weekly', repeatDays: String(d.getDay()), dueTimes: [] })
+    await C.saveChecklist({ name: '毎日の温度', items: [], repeat: 'daily', repeatDays: null, dueTimes: [] })
+    const { default: JournalPage } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    const cell = () => host.querySelector(`.jm-c[aria-label^="${k}"]`)
+    expect(cell().getAttribute('aria-label')).toContain('予定あり')
+    expect([...cell().querySelectorAll('.tag')].map(e => e.textContent)).toEqual(['冷蔵庫の掃除'])
+    T.addTask(k, '業者の点検', null, '10:00'); T.addTask(k, '発注の確認'); await tick()
+    expect([...cell().querySelectorAll('.tag')].map(e => e.textContent)).toEqual(['業者の点検', 'ほか2'])
+  })
+
   it('日誌を開くと、前に日を開いていても月のカレンダーから。外から「この日」と頼んだときだけその日を開く（2026-11-05）', async () => {
     const { localDateKey } = await import('../utils/localDate.js')
     const { default: JournalPage, openJournalDay } = await import('./JournalPage.vue')

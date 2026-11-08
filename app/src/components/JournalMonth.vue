@@ -1,7 +1,7 @@
 <script setup>
 /**
  * 日誌を開いた最初の画面＝月のカレンダーを画面いっぱいに（User決定 2026-10-26・モック キャンバス「日誌カレンダー」①）。
- * 1マスに出すのは 日付・祝日の名前・大きな業務の札2つまで（棚卸・発注・予定。先の日は点線）・下の帯1本（緑＝全部済み・黄＝一部・赤＝やり残し）。
+ * 1マスに出すのは 日付・祝日の名前・大きな業務の札2つまで（棚卸・発注・予定の名前。先の日は点線。3つ以上は「ほかn」）・下の帯1本（緑＝全部済み・黄＝一部・赤＝やり残し）。
  * 前後の月の日は薄く。押した日は pick(date, { col, row, rows }) で知らせる（そのマスから広がる）
  * 月を送るときは横に滑らせる（User決定 2026-10-26。次の月は右から、前の月は左から）
  * info(date) → { st: 'y'|'p'|'x'|'f'|'', tags: [{ label, kind: 'stock'|'order'|'plan', future }] }
@@ -18,6 +18,8 @@ const props = defineProps({
   info: { type: Function, required: true },
 })
 const emit = defineEmits(['pick'])
+// 札は2つまで。入りきらなければ1つ目と「ほかn」（User 2026-11-08）
+const shownTags = tags => (tags.length <= 2 ? tags : [tags[0], { label: `ほか${tags.length - 1}`, kind: 'more' }])
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 const _d = k => new Date(k + 'T00:00:00')
 
@@ -74,7 +76,7 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し', f: '予定
       >
         <span class="n">{{ c.day }}</span>
         <span v-if="c.hol" class="hol">{{ c.hol }}</span>
-        <span v-for="t in c.info.tags.slice(0, 2)" :key="t.label" :class="['tag', t.kind, { fut: t.future }]">{{ t.label }}</span>
+        <span v-for="(t, i) in shownTags(c.info.tags)" :key="i" :class="['tag', t.kind, { fut: t.future }]">{{ t.label }}</span>
         <i :class="['st', c.info.st]"></i>
       </button>
     </div>
@@ -109,7 +111,7 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し', f: '予定
 .jm-c.today .n { border-radius: 50%; background: var(--primary, #0e7490); color: #fff; }
 .jm-c .hol { font-size: 8.5px; font-weight: 800; color: #c2410c; line-height: 1.1; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tag { font-size: 9.5px; font-weight: 800; line-height: 1.3; padding: 1px 4px; border-radius: 5px; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.tag.stock { background: #e0f4f8; color: #0b5f73; } .tag.order { background: #fdeedd; color: #9a4a07; } .tag.plan { background: #efe9fd; color: #5b33b6; }
+.tag.stock { background: #e0f4f8; color: #0b5f73; } .tag.order { background: #fdeedd; color: #9a4a07; } .tag.plan { background: #efe9fd; color: #5b33b6; } .tag.more { background: #eef2f4; color: #4c6a72; }
 .tag.fut { background: transparent; border: 1px dashed currentColor; }
 .st { margin-top: auto; align-self: stretch; height: 5px; border-radius: 3px; }
 .st.y { background: #22a55a; } .st.p { background: #e89b0c; } .st.x { background: #dc3b3b; } .st.f { background: #3b82f6; }
