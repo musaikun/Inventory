@@ -59,6 +59,31 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     if (sameMonth) expect(host.querySelector(`.jm-c[aria-label^="${yday}"] .st.x`)).not.toBeNull()
   })
 
+  it('進行中は実施日〜締め切りの帯（締め切りが無ければ今日まで）。押すと中身。締め切り過ぎは赤（2026-11-08）', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
+    const T = await import('../composables/useTasks.js')
+    const now = new Date()
+    if (now.getDate() > 20) return   // 月の後ろの方では先の日が翌月になるので見送る
+    const k = n => { const d = new Date(); d.setDate(d.getDate() + n); return localDateKey(d) }
+    T.addTask(k(2), '月末書類準備', null, null, { progress: 'doing', deadline: k(6) })
+    T.addTask(localDateKey(), 'ラベル貼り', null, null, { progress: 'doing' })
+    const { default: JournalPage } = await import('./JournalPage.vue')
+    await mount(JournalPage)
+    const spans = [...host.querySelectorAll('.jm-span')]
+    const label = s => s.getAttribute('aria-label')
+    const md = key => `${Number(key.slice(5, 7))}/${Number(key.slice(8, 10))}`
+    const doc = spans.filter(s => s.textContent.includes('月末書類準備'))
+    expect(doc.length).toBeGreaterThan(0)
+    expect(label(doc[0])).toContain(`${md(k(2))}〜${md(k(6))}`)
+    expect(doc[0].classList.contains('fut'), 'まだ始まっていないものは薄く').toBe(true)
+    const lb = spans.find(s => s.textContent.includes('ラベル貼り'))
+    expect(label(lb)).toContain(`${md(localDateKey())}〜${md(localDateKey())}`)
+    expect(host.querySelectorAll('.jm-c .tag.dl').length, '〆の札は出さない').toBe(0)
+    await click(doc[0])
+    expect(document.body.textContent).toContain('月末書類準備')
+    expect(document.body.querySelector('.ps, [aria-label*="進行中"]')).not.toBeNull()
+  })
+
   it('カレンダーの画面からも＋で業務を追加できる（今日で開き、日付は追加の画面で選ぶ・2026-11-08）', async () => {
     const { localDateKey } = await import('../utils/localDate.js')
     const T = await import('../composables/useTasks.js')

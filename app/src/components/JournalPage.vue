@@ -36,7 +36,7 @@ import CopyDatesSheet from './CopyDatesSheet.vue'
 import { addTemplate, canAddTemplate, pullTemplates } from '../composables/useTemplates.js'
 import { pullChecklists, checklists, checklistsForDay, saveChecklist, newItemId, markChecklistItem, canMarkChecklist, canUnmark } from '../composables/useChecklists.js'
 import { monthDaysLabel, isSimple, WHOLE } from '../services/checklistSchedule.js'
-import { tasksOn, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, editTask, setTaskAssign, TASK_TEXT_MAX, TASK_NOTE_MAX, dueProgress, toggleTask, canToggleTask, canEditTask, canNoteTask, setTaskNote, startTask, canProgress, canRemoveTask, removeTask, aliveTasks, progressTasks } from '../composables/useTasks.js'
+import { tasksOn, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, editTask, setTaskAssign, TASK_TEXT_MAX, TASK_NOTE_MAX, dueProgress, toggleTask, canToggleTask, canEditTask, canNoteTask, setTaskNote, startTask, canProgress, canRemoveTask, removeTask, aliveTasks, progressTasks, isStale } from '../composables/useTasks.js'
 import { can, staffNames, loadStaffNames, getSessions, isAdmin } from '../composables/useAuth.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
@@ -180,6 +180,14 @@ async function check(x) {
   }
 }
 /** 行: 中身を開く */
+// 進行中をカレンダーに帯で（実施日〜締め切り。締め切りが無ければ今日まで・User決定 2026-11-08）
+const progSpans = computed(() => progressTasks.value.map(t => {
+  const start = t.date || today
+  const end = t.deadline ? (t.deadline < start ? start : t.deadline) : (start > today ? start : today)
+  const state = t.deadline && t.deadline < today ? 'over' : isStale(t) ? 'stale' : t.progress === 'waiting' ? 'wait' : 'doing'
+  return { id: t.id, text: t.text, start, end, state, future: start > today }
+}))
+function openSpan(id) { progOpen.value = progressTasks.value.find(t => t.id === id) ?? null }
 // 外から頼まれた中身を開く（無くなっていれば日だけ）
 function _openOutside(it) {
   if (!it) return
@@ -308,7 +316,7 @@ async function favChecklist(cl) {
 
 <template>
   <div class="jp">
-    <JournalMonth :today="today" :focus="date" :selected="open ? date : ''" :info="dayInfo" @pick="pick" />
+    <JournalMonth :today="today" :focus="date" :selected="open ? date : ''" :info="dayInfo" :spans="progSpans" @pick="pick" @span="openSpan" />
     <!-- カレンダーからも＋で追加（日付は追加の画面で選ぶ。既定は今日・User 2026-11-08） -->
     <button v-if="canCreate && !open" type="button" class="app-fab jp-fab" aria-label="業務を追加" @click="addSheet = { date: today }"><LineIcon name="plus" size="28" stroke="2.4" /></button>
     <DayTimeline
