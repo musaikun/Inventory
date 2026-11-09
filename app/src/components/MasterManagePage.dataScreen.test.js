@@ -106,3 +106,17 @@ describe('取り込む / 書き出す（ホームのカードから開く・管�
     expect(sheet()).toBeNull()
   })
 })
+
+describe('品目をすべて削除（控えめに・User決定 2026-11-09）', () => {
+  it('いちばん下の小さな文字だけ。押すと店舗コードの欄が開き、✕で閉じる', async () => {
+    await mountPage()
+    expect(host.querySelector('.mm-del-input')).toBeNull()
+    const open = host.querySelector('.mm-del-open')
+    expect(open.textContent).toContain('品目をすべて削除')
+    await click(open)
+    expect(host.querySelector('.mm-del-input')).not.toBeNull()
+    expect(host.querySelector('.mm-del-btn').disabled).toBe(true)
+    await click(host.querySelector('.mm-block.danger [aria-label="閉じる"]'))
+    expect(host.querySelector('.mm-del-input')).toBeNull()
+  })
+})

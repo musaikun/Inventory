@@ -6,7 +6,8 @@ import { useConfig } from '../composables/useConfig.js'
 import { shopCode } from '../composables/useStore.js'
 
 // embedded: ホームの「設定」タブに置くとき（以前の「管理」・User決定 2026-10-14）。
-// 見出しと戻るを出さず、#extra（発注の設定・各種設定など）の下に品目の一括削除を置く。
+// 見出しと戻るを出さず、#extra（発注の設定・各種設定など）と #bottom（この端末・アカウントなど）を並べ、
+// 品目の一括削除はいちばん下の小さな文字から開く（控えめに・User決定 2026-11-09）。
 // 取り込む・書き出すはホームへ移した（DataPort.vue）
 const props = defineProps({
   embedded: { type: Boolean, default: false },
@@ -17,14 +18,8 @@ const emit = defineEmits(['back', 'clear-master'])
 
 const { itemCount } = useConfig()
 
-// ── ヘルプ（「?」で開閉） ─────────────────────────
-const HELP = {
-  delete: '登録済みの品目をすべて削除します。中断中・破棄した棚卸と発注（完了していないもの）も一緒に消え、元に戻せません。完了した記録は残ります。取り消せません。誤操作防止のため店舗コードの入力が必要です。分類名やグループ定義・振り分けの記憶は既定で残ります。',
-}
-const activeHelp = ref('')
-function toggleHelp(k) { activeHelp.value = activeHelp.value === k ? '' : k }
-
 // ── 一括削除（店舗コード入力ゲート）─────────────────────────────
+const delOpen = ref(false)   // 開くまでは小さな文字の行だけ
 const delCode = ref('')
 const resetAssign = ref(false)   // 振り分け（品目→分類先の割り当て）の記憶も消すか
 const canDelete = computed(() => !!shopCode.value && delCode.value.trim().toUpperCase() === shopCode.value)
@@ -56,24 +51,26 @@ function onClear() {
       <!-- 設定タブの項目（発注の設定・各種設定など） -->
       <slot name="extra" />
 
-      <!-- 一括削除（危険操作・店舗コードゲート）。いちばん下 -->
-      <div v-if="embedded && itemCount > 0 && can('item.purge')" class="mm-sec">品目</div>
-      <div v-if="itemCount > 0 && can('item.purge')" class="mm-block danger">
-        <div class="mm-block-head">
-          <span class="mm-block-title danger">品目マスタを一括削除</span>
-          <button class="mm-help-btn danger" :class="{ on: activeHelp === 'delete' }" @click="toggleHelp('delete')">?</button>
-        </div>
-        <div v-if="activeHelp === 'delete'" class="mm-help">{{ HELP.delete }}</div>
-        <div class="mm-block-sub">
-          登録済みの品目をすべて削除します（軸の名前・グループ定義は残ります）。中断中・破棄した棚卸と発注も一緒に消えます。取り消せません。<br>
-          削除するには店舗コード <b>{{ shopCode || '（未取得）' }}</b> を入力してください。
-        </div>
-        <input class="mm-del-input" v-model="delCode" placeholder="店舗コードを入力" autocapitalize="characters" />
-        <label class="mm-del-reset"><input type="checkbox" v-model="resetAssign" />振り分け（分類先の割り当て）の記憶も消す</label>
-        <button class="mm-del-btn" :disabled="!canDelete" @click="onClear">全品目を削除</button>
-      </div>
       <!-- 設定タブの下のほう（この端末・アカウント・サポート・ログアウト） -->
       <slot name="bottom" />
+
+      <!-- 一括削除（危険操作・店舗コードゲート）。いちばん下に小さな文字だけ置き、押すと開く（控えめに・User決定 2026-11-09） -->
+      <template v-if="itemCount > 0 && can('item.purge')">
+        <button v-if="!delOpen" type="button" class="mm-del-open" @click="delOpen = true">品目をすべて削除…</button>
+        <div v-else class="mm-block danger">
+          <div class="mm-block-head">
+            <span class="mm-block-title danger">品目をすべて削除</span>
+            <button type="button" class="mm-help-btn danger" aria-label="閉じる" @click="delOpen = false">✕</button>
+          </div>
+          <div class="mm-block-sub">
+            元に戻せません。中断中の棚卸と発注も消えます。<br>
+            店舗コード <b>{{ shopCode || '（未取得）' }}</b> を入れてください。
+          </div>
+          <input class="mm-del-input" v-model="delCode" placeholder="店舗コード" autocapitalize="characters" />
+          <label class="mm-del-reset"><input type="checkbox" v-model="resetAssign" />分類の割り当ても消す</label>
+          <button class="mm-del-btn" :disabled="!canDelete" @click="onClear">全品目を削除</button>
+        </div>
+      </template>
     </div>
 
   </div>
@@ -90,6 +87,7 @@ function onClear() {
 .mp-back { border: none; background: none; color: var(--primary, #0e7490); font-size: 14px; font-weight: 700; cursor: pointer; padding: 4px 2px; }
 .mp-title { font-size: 16px; font-weight: 800; color: #12303a; }
 .mp-count { margin-left: auto; font-size: 13px; font-weight: 800; color: var(--primary, #0e7490); }
+.mm-del-open { display: block; margin: 18px auto 4px; border: none; background: none; font: inherit; font-size: 12px; color: #9fb3ba; text-decoration: underline; cursor: pointer; padding: 8px; }
 .mm-sec { font-size: 11.5px; font-weight: 800; letter-spacing: .06em; color: #4c6a72; padding: 14px 4px 6px; }
 .mp-scroll { padding: 14px; max-width: 620px; margin: 0 auto; }
 
