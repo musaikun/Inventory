@@ -7,29 +7,29 @@ const UNIT_LIST = [
   'kg', 'ml', 'g', 'L',
 ]
 
-// 音声テキストを { name, qty, unit } に分解
-export function parseText(raw) {
+const _UNIT_RE = [...UNIT_LIST].sort((a, b) => b.length - a.length).map(u => u.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+// 末尾の「数（＋単位）」だけを数量として読む。途中の数字・単位の文字は名前の一部として残す（User 2026-11-09 の触診で
+// 「コーラ500ml」が名前コーラに、英字の g・L が名前から消えていた）
+const _TAIL_ATTACHED = new RegExp(`(\\d+(?:[.,．]\\d+)?)\\s*(${_UNIT_RE})?\\s*$`)
+const _TAIL_SPACED = new RegExp(`\\s(\\d+(?:[.,．]\\d+)?)\\s*(${_UNIT_RE})?\\s*$`)
+// 日本語どうしの間の空白だけ詰める（音声は「トマト 缶」のように区切りを入れる）。英字の単語の間の空白は残す
+const _CJK = '[\\u3000-\\u30ff\\u3400-\\u9fff\\uff00-\\uffef]'
+const _tidy = s => s.replace(new RegExp(`(${_CJK})\\s+(?=${_CJK})`, 'g'), '$1').replace(/\s+/g, ' ').trim()
+
+/**
+ * 検索・音声の文字を { name, qty, unit } に分ける。
+ * - 数量は末尾の数だけ（続く単位も1つだけ取る）。名前の途中の数字・単位の文字はそのまま
+ * - typed（手で打った文字）は、数の前に空白があるときだけ数量とみなす（「トマト 3」「トマト 3個」）。
+ *   「コーラ500ml」「A001」は名前のまま。声（typed=false）は「トマト3個」のようにくっついていても読む
+ */
+export function parseText(raw, { typed = false } = {}) {
   // 全角数字 → 半角
-  const text = raw.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
-
-  const numMatch = text.match(/(\d+(?:[.,．]\d+)?)/)
-  if (!numMatch) return { name: text.trim(), qty: null, unit: '' }
-
-  const qty = parseFloat(numMatch[1].replace(/[,，]/g, '.'))
-  let rest = text.slice(0, numMatch.index) + text.slice(numMatch.index + numMatch[0].length)
-
-  // 長い単位から優先してマッチ
-  let unit = ''
-  for (const u of [...UNIT_LIST].sort((a, b) => b.length - a.length)) {
-    const idx = rest.indexOf(u)
-    if (idx !== -1) {
-      unit = u
-      rest = rest.slice(0, idx) + rest.slice(idx + u.length)
-      break
-    }
-  }
-
-  return { name: rest.replace(/\s+/g, '').trim(), qty, unit }
+  const text = String(raw ?? '').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).trim()
+  const m = text.match(typed ? _TAIL_SPACED : _TAIL_ATTACHED)
+  // 数だけ（名前が空になる）なら数量にしない
+  if (!m || !text.slice(0, m.index).trim()) return { name: _tidy(text), qty: null, unit: '' }
+  const qty = parseFloat(m[1].replace(/[,，．]/g, '.'))
+  return { name: _tidy(text.slice(0, m.index)), qty, unit: m[2] || '' }
 }
 
 // 喋りはじめてから、この時間で打ち切る（雑音を拾い続けない・張り続けなくていい）

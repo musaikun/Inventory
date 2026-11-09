@@ -105,6 +105,18 @@ describe('業務を追加（種類は選ばない）', () => {
     ask.mockRestore()
   })
 
+  it('繰り返しは選んだ日付から始まる（先の日を選んだとき・2026-11-09）', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
+    const { default: Sheet } = await import('./TaskAddSheet.vue')
+    await mount(Sheet)
+    await type(sheet().querySelector('input[aria-label="名前"]'), '冷蔵庫の掃除')
+    await click(row('day')); await pickCal(localDateKey(plus(12)))
+    await click(row('repeat')); await click(btn('毎週', sheet())); await click(btn('完了', sheet()))
+    await click(sheet().querySelector('.ta-go'))
+    const { saveChecklistToD1 } = await import('../composables/useStore.js')
+    expect(saveChecklistToD1).toHaveBeenLastCalledWith(expect.objectContaining({ name: '冷蔵庫の掃除', repeat: 'weekly', repeatDays: String(plus(12).getDay()), startDate: localDateKey(plus(12)) }))
+  })
+
   it('チェック表を付けた予定は、その日の1回きりのチェック表になる', async () => {
     await seedTemplates([{ id: 'tp1', kind: 'checklist', name: '開店準備', data: { items: [{ id: 'a', text: '看板を出す' }, { id: 'b', text: 'レジを開ける' }] }, sort: 1 }])
     const { localDateKey } = await import('../utils/localDate.js')

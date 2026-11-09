@@ -62,4 +62,16 @@ describe('検索候補の非表示マーク', () => {
     await mount(ConfirmModal, { ingredient: 'なす', qty: null, unit: '' })
     expect(host.querySelector('.name-text .hidden-mark')).toBeNull()
   })
+
+  it('同じ名前の品目があれば「新しく登録」は出さず、その品目を先頭に（2026-11-09）', async () => {
+    const { default: CandidateModal } = await import('./CandidateModal.vue')
+    await mount(CandidateModal, { searchTerm: 'トマト', matched: ['トマト缶', 'トマト'], qty: null })
+    expect(host.querySelector('.create-btn')).toBeNull()
+    expect(host.querySelector('.item-matched').textContent).toContain('トマト')
+    expect(host.querySelector('.item-matched').classList.contains('exact')).toBe(true)
+    expect(host.textContent).toContain('同じ名前の品目があります')
+    app.unmount(); host.remove()
+    await mount(CandidateModal, { searchTerm: 'トマ', matched: ['トマト'], qty: null })
+    expect(host.querySelector('.create-btn'), '同じ名前でなければ新しく登録できる').not.toBeNull()
+  })
 })

@@ -2600,8 +2600,8 @@ function findCandidates(name) {
 }
 
 // ── 検索共通処理（音声・テキスト兼用）────────────────────────────────────────
-function runSearch(raw) {
-  const { name, qty, unit } = parseText(raw)
+function runSearch(raw, { typed = false } = {}) {
+  const { name, qty, unit } = parseText(raw, { typed })
 
   // 商品コード完全一致: parseText は数字を qty に抜き取るため
   // "A001" → name="A" のように壊れる。raw をそのまま照合する
@@ -2614,6 +2614,11 @@ function runSearch(raw) {
       }
     }
   }
+
+  // 文字全体がそのまま既存の品目名なら、数量に分けずにその品目（例: 品目「コーラ500ml」を声で言った）
+  const _key = x => String(x ?? '').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/\s+/g, '').toLowerCase()
+  const whole = config.order.find(it => _key(it) === _key(raw))
+  if (whole && whole !== name) { openConfirm(whole, null, config.units?.[whole] || '', 'search'); return }
 
   const matched = name ? findCandidates(name) : []
   // 候補ゼロ = 新規とみなし、その場で登録 → 数量モーダル（歩きながら積み上げ登録）
@@ -2756,7 +2761,7 @@ function onTextSearch() {
   const raw = searchText.value.trim()
   if (!raw) return
   searchStatus.value = ''
-  runSearch(raw)
+  runSearch(raw, { typed: true })
 }
 
 // ── Confirm modal ──────────────────────────────────────────────────────────────

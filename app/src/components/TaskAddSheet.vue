@@ -222,7 +222,7 @@ async function submit() {
         name: text.slice(0, CL_NAME_MAX), items: items.value,
         repeat: k === 'repeat' ? repeat.value : 'none',
         repeatDays: k === 'repeat' ? repeatDays.value : null,
-        startDate: k === 'repeat' ? undefined : day.value,
+        startDate: day.value || undefined,   // 繰り返しも選んだ日付から（今日以前なら今日から）
         dueTimes: time.value ? [time.value] : [],
         ..._assignChecklist(),
       })

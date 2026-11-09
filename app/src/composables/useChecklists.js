@@ -65,7 +65,8 @@ export const canEditChecklists = computed(() => can('task.create'))
 export function canEditChecklist(cl) { return !!cl && (isAdmin.value || isMeId(cl.createdById)) }
 
 /**
- * 保存。繰り返し（種類・曜日・日）を変えたら、予定を数え始める日を今日にする（過去の「手つかず」を作り直さない）
+ * 保存。繰り返し（種類・曜日・日）を変えたら、予定を数え始める日を今日にする（過去の「手つかず」を作り直さない）。
+ * 先の日（startDate > 今日）を渡したら、繰り返しもその日から
  * @returns {Promise<object>} 保存した表。届かなければ投げる（画面で知らせる）
  */
 export async function saveChecklist(fields) {
@@ -81,7 +82,9 @@ export async function saveChecklist(fields) {
     name: String(fields.name ?? '').trim().slice(0, CL_NAME_MAX),
     dueTimes: [...new Set((fields.dueTimes ?? []).filter(t => /^([01]\d|2[0-3]):[0-5]\d$/.test(t)))].sort().slice(0, CL_TIMES_MAX),
     items: (fields.items ?? []).map(x => ({ id: x.id || newItemId(), text: String(x.text ?? '').trim().slice(0, CL_ITEM_MAX) })).filter(x => x.text).slice(0, CL_ITEMS_MAX),
-    startDate: fields.repeat === 'none' ? (fields.startDate || today) : (schedChanged ? today : prev.startDate),
+    // 繰り返しは、先の日を選んで作ったらその日から（追加の画面で日付を選んだとき・2026-11-09 触診）。それ以外は今まで通り
+    startDate: fields.repeat === 'none' ? (fields.startDate || today)
+      : (fields.startDate && fields.startDate > today ? fields.startDate : (schedChanged ? today : prev.startDate)),
     createdBy: prev?.createdBy ?? (deviceName.value || ''), createdById: prev?.createdById ?? actorId(),
     updatedAt: _now(),
   }

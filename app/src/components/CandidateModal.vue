@@ -33,6 +33,11 @@ const hiddenSet = computed(() => new Set(config.hiddenItems ?? []))
 const hasQty        = computed(() => props.qty !== null)
 const qtyLabel      = computed(() => hasQty.value ? `${props.qty}${props.unit}` : '')
 const hasMatch      = computed(() => props.matched.length > 0)
+// 同じ名前の品目がもうあるとき（空白・大文字小文字は見ない）。新しく登録の主ボタンは出さず、その品目を先頭に
+// （新しく登録しても既存の品目が開くだけで、押す意味がない・2026-11-09 触診）
+const _k = x => String(x ?? '').replace(/\s+/g, '').toLowerCase()
+const exactMatch    = computed(() => props.matched.find(it => _k(it) === _k(props.searchTerm)) ?? null)
+const matchedSorted = computed(() => exactMatch.value ? [exactMatch.value, ...props.matched.filter(it => it !== exactMatch.value)] : props.matched)
 const noMatchNotice = computed(() => props.searchTerm && !hasMatch.value)
 </script>
 
@@ -59,7 +64,7 @@ const noMatchNotice = computed(() => props.searchTerm && !hasMatch.value)
 
       <!-- 新規登録（この名前で品目を作る） -->
       <button
-        v-if="searchTerm && canCreate"
+        v-if="searchTerm && canCreate && !exactMatch"
         class="create-btn"
         :class="{ primary: !hasMatch }"
         @click="$emit('create')"
@@ -72,11 +77,11 @@ const noMatchNotice = computed(() => props.searchTerm && !hasMatch.value)
 
         <!-- 一致した候補（ハイライト） -->
         <template v-if="hasMatch">
-          <div class="section-label match-label">一致</div>
+          <div class="section-label match-label">{{ exactMatch ? '同じ名前の品目があります' : '一致' }}</div>
           <button
-            v-for="item in matched"
+            v-for="item in matchedSorted"
             :key="item"
-            class="item item-matched"
+            :class="['item', 'item-matched', { exact: item === exactMatch }]"
             @click="$emit('select', item)"
           >
             <span class="item-name">{{ item }}<span v-if="hiddenSet.has(item)" class="hidden-mark">非表示</span></span>
