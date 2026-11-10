@@ -278,6 +278,15 @@ const { allItems, baseOf, unitOf, reorderHorizon } = useStockView()
 const { setReorderPoint, setOrderAssumptions } = useConfig()
 const showOrderBase = ref(false)
 const routinesOpen = ref(false), routineRun = ref(null), templatesOpen = ref(false), taskAdd = ref(null)
+// 追加の途中でチェック表を作りに行ったら、戻るときに打った中身ごと追加へ戻す（User 2026-11-10）
+let _ctBack = null
+function toTemplates(draft) { _ctBack = draft ? { ...taskAdd.value, draft } : null; taskAdd.value = null; templatesOpen.value = true }
+function fromTemplates(extra = null) {
+  templatesOpen.value = false
+  const back = _ctBack; _ctBack = null
+  if (extra?.template) { taskAdd.value = { template: extra.template }; return }
+  if (back || extra) taskAdd.value = { ...(back || {}), ...(extra || {}) }
+}
 // スタッフの管理（段 2-1・管理者だけ）。ホームのカードと参加申請のやることから開く（2026-10-14・管理から移した）
 const showStaff = staffPageOpen
 
@@ -466,8 +475,8 @@ onUnmounted(registerInnerLayerCloser(() => {
     <!-- 業務: ルーティンの一覧とチェック表（設定から・User決定 2026-11-07） -->
     <ChecklistsPage v-if="routinesOpen" @close="routinesOpen = false" @open-run="x => routineRun = x" @add="routinesOpen = false; taskAdd = {}" />
     <ChecklistRunSheet v-if="routineRun" :cl="routineRun.cl" :date="routineRun.date" :slot="routineRun.slot || ''" @close="routineRun = null" />
-    <ChecklistTemplatesPage v-if="templatesOpen" @close="templatesOpen = false" @use-checklist="t => { templatesOpen = false; taskAdd = { checklist: t } }" @use-template="t => { templatesOpen = false; taskAdd = { template: t } }" />
-    <TaskAddSheet v-if="taskAdd" :checklist="taskAdd.checklist || null" :template="taskAdd.template || null" @close="taskAdd = null" @templates="taskAdd = null; templatesOpen = true" />
+    <ChecklistTemplatesPage v-if="templatesOpen" @close="fromTemplates()" @use-checklist="t => fromTemplates({ checklist: t })" @use-template="t => fromTemplates({ template: t })" />
+    <TaskAddSheet v-if="taskAdd" :checklist="taskAdd.checklist || null" :template="taskAdd.template || null" :draft="taskAdd.draft || null" @close="taskAdd = null" @templates="toTemplates" />
     <OrderBaseModal
       v-if="showOrderBase"
       :rows="orderBaseRows"

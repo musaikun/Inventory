@@ -167,6 +167,8 @@ describe('チェック表（別の入口）・子タスク・いつか→始め�
     await mount(Journal)
     await click(host.querySelector(`.jm-c[aria-label^="${localDateKey()}"]`))
     await click(host.querySelector('.dt-fab'))
+    await type(sheet().querySelector('input[aria-label="名前"]'), '閉店作業')   // 打ってから作りに行っても消えない（User 2026-11-10）
+    await click(row('repeat')); await click(btn('毎日', sheet())); await click(btn('完了', sheet()))
     await click(row('list'))
     await click(btn('チェック表を作る・直す', sheet()))   // 入口は追加の画面のチェック表の行（月の見出しのボタンはやめた）
     const page = document.body.querySelector('.ct')
@@ -179,6 +181,14 @@ describe('チェック表（別の入口）・子タスク・いつか→始め�
     expect(saveTemplateToD1).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'checklist', name: '閉店チェック', data: { items: [expect.objectContaining({ text: 'ガスの元栓' }), expect.objectContaining({ text: '戸締まり' })] } }))
     expect(row('list').textContent).toContain('閉店チェック')
     expect([...sheet().querySelectorAll('.ta-items li span')].map(e => e.textContent)).toEqual(['ガスの元栓', '戸締まり'])
+    expect(sheet().querySelector('input[aria-label="名前"]').value).toBe('閉店作業')
+    expect(row('repeat').textContent).toContain('毎日')
+    // もう一度作りに行って何も選ばずに戻ると、付けたチェック表も打った中身もそのまま
+    await click(row('list'))
+    await click(btn('チェック表を作る・直す', sheet()))
+    await click(document.body.querySelector('.ct [aria-label="もどる"]'))
+    expect(sheet().querySelector('input[aria-label="名前"]').value).toBe('閉店作業')
+    expect(row('list').textContent).toContain('閉店チェック')
   })
 
   it('いつかのやることを開くと子タスクを足せ、「始める」で今日から進行中になる', async () => {

@@ -232,6 +232,15 @@ const canCreate = computed(() => can('task.create'))
 const addSheet = ref(null)   // null | { startKind?, template?, checklist? }
 function openAdd(progress = false) { if (canCreate.value) addSheet.value = { startKind: progress === true ? 'progress' : '' } }
 const ctOpen = ref(false)    // チェック表（ひな形）の画面
+// 追加の途中でチェック表を作りに行ったら、戻るときに打った中身ごと追加へ戻す（User 2026-11-10）
+let _ctBack = null
+function toTemplates(draft) { _ctBack = draft ? { ...addSheet.value, draft } : null; addSheet.value = null; ctOpen.value = true }
+function fromTemplates(extra = null) {
+  ctOpen.value = false
+  const back = _ctBack; _ctBack = null
+  if (extra?.template) { addSheet.value = { template: extra.template }; return }   // お気に入りは中身をまるごと使う
+  if (back || extra) addSheet.value = { ...(back || {}), ...(extra || {}) }
+}
 const okMsg = ref('')
 let _okT = null
 function say(m) { okMsg.value = m; clearTimeout(_okT); _okT = setTimeout(() => { okMsg.value = '' }, 2600) }
@@ -366,10 +375,10 @@ async function favChecklist(cl) {
     />
     <TaskAddSheet
       v-if="addSheet" :date="addSheet.date || date || today" :start-kind="addSheet.startKind || ''" :template="addSheet.template || null"
-      :checklist="addSheet.checklist || null" :preset-time="addSheet.time || ''" :preset-who="addSheet.who || ''"
-      @close="addSheet = null" @added="onAdded" @templates="addSheet = null; ctOpen = true"
+      :checklist="addSheet.checklist || null" :draft="addSheet.draft || null" :preset-time="addSheet.time || ''" :preset-who="addSheet.who || ''"
+      @close="addSheet = null" @added="onAdded" @templates="toTemplates"
     />
-    <ChecklistTemplatesPage v-if="ctOpen" @close="ctOpen = false" @use-checklist="t => { ctOpen = false; addSheet = { checklist: t } }" @use-template="t => { ctOpen = false; addSheet = { template: t } }" />
+    <ChecklistTemplatesPage v-if="ctOpen" @close="fromTemplates()" @use-checklist="t => fromTemplates({ checklist: t })" @use-template="t => fromTemplates({ template: t })" />
     <CopyDatesSheet
       v-if="copyOf" :title="copyOf.title" :sub="copyOf.sub" :source="copyOf.source" :who="copyOf.who"
       @close="copyOf = null" @copy="doCopy"

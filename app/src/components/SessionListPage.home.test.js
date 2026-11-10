@@ -335,9 +335,10 @@ describe('トップ（ホーム）とやること（User決定 2026-10-07）', (
     const today = host.querySelector('.ht-today')
     expect(today.textContent).toContain('期限切れ')
     expect(today.textContent).toContain('野菜の検品')   // 時刻を過ぎていれば「遅れ」、まだなら「11:00」で出る
-    expect(today.textContent).toContain('0/1')
+    expect(today.textContent).toContain('0/2')   // 数え方は業務管理の日の輪と同じ（期限切れも入る・User 2026-11-10）
     // 押すと日誌の今日のタイムライン。期限切れは終日に赤で
     await click(today)
+    expect(host.querySelector('.dt-ring').textContent).toBe('0/2')
     expect(host.querySelector('.bnav button.on').textContent).toContain('業務管理')
     expect(host.querySelector('.dt .dt-ad.missed')).not.toBeNull()
     await click(btn(host.querySelector('.bnav'), 'ホーム'))

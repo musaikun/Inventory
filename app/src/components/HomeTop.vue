@@ -16,9 +16,10 @@
 import LineIcon from './LineIcon.vue'
 import HomeNowCard from './HomeNowCard.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { tasksOn, overdueTasks, isAssignedToMe, isMarkedByMe, pullTasks, progressTasks, isStale } from '../composables/useTasks.js'
+import { tasksOn, overdueTasks, carriedTasks, isAssignedToMe, isMarkedByMe, pullTasks, progressTasks, isStale } from '../composables/useTasks.js'
 import { checklistsForDay, pullChecklists } from '../composables/useChecklists.js'
 import { homeAttention } from '../services/homeAttention.js'
+import { buildDayTimeline } from '../services/dayTimeline.js'
 import { storeName, isAuthenticated, isAdmin, can } from '../composables/useAuth.js'
 import { aliveTasks } from '../composables/useTasks.js'
 import { useWeather } from '../composables/useWeather.js'
@@ -60,9 +61,13 @@ const wx = computed(() => {
 // ── 今日のやること ──
 const todays = computed(() => tasksOn(today))
 const late = computed(() => overdueTasks(today))
-const doneOf = t => !!t.doneAt   // 「全員」は全員の印がそろったときにサーバーが doneAt を立てる
-const doneCount = computed(() => todays.value.filter(doneOf).length)
-const total = computed(() => todays.value.length)
+// 輪の数は業務管理の日の輪と同じ数え方（やること＋ルーティン。進行中・いつかは数えない・User 2026-11-10）
+const ring = computed(() => buildDayTimeline({
+  date: today, today, tasks: todays.value.filter(t => !t.progress), lists: checklistsForDay(today),
+  late: late.value, carry: carriedTasks(today),
+}))
+const doneCount = computed(() => ring.value.done)
+const total = computed(() => ring.value.count)
 const R = 24, C = 2 * Math.PI * R
 const dash = computed(() => (total.value ? `${(doneCount.value / total.value) * C} ${C}` : `0 ${C}`))
 // 気になる順の一覧（今の時刻は1分ごとに更新して、遅れを数え直す）

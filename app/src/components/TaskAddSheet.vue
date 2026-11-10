@@ -27,6 +27,7 @@ const props = defineProps({
   checklist: { type: Object, default: null }, // チェック表（ひな形）を付けて開く
   presetTime: { type: String, default: '' },  // 予定ボードのマスから（始まりの時刻）
   presetWho: { type: String, default: '' },   // 予定ボードのマスから（'all' | 'p:<id>'）
+  draft: { type: Object, default: null },     // チェック表を作りに行く前に打っていた中身（戻ってきたら入れ直す）
 })
 const emit = defineEmits(['close', 'added', 'templates'])
 
@@ -92,6 +93,23 @@ if (props.template) {
 const _form = () => JSON.stringify([name.value.trim(), note.value.trim(), day.value, time.value, endTime.value, deadline.value,
   repeat.value, weekdays.value, monthDays.value, items.value.map(x => x.text), adminsOnly.value])
 const _snap = _form()
+// チェック表を作りに行って戻ってきたとき: 打っていた中身を入れ直す（付けたチェック表は新しく選んだもの・User 2026-11-10）
+if (props.draft) {
+  const d = props.draft
+  name.value = d.name ?? ''; note.value = d.note ?? ''
+  day.value = d.day ?? day.value; time.value = d.time ?? ''; endTime.value = d.endTime ?? ''; deadline.value = d.deadline ?? ''
+  repeat.value = d.repeat ?? 'none'; weekdays.value = [...(d.weekdays ?? [])]; monthDays.value = [...(d.monthDays ?? [])]
+  if (d.who && (d.who === 'all' || people.value.some(p => `p:${p.id}` === d.who))) who.value = d.who
+  adminsOnly.value = !!d.adminsOnly
+  // 新しく選ばずに戻ったら、前に付けていたチェック表のまま
+  if (!props.checklist && d.items?.length) { items.value = d.items.map(x => ({ ...x })); itemsName.value = d.itemsName ?? '' }
+}
+/** チェック表を作る・直すへ（打った中身を親に預ける） */
+function toTemplates() {
+  emit('templates', { name: name.value, note: note.value, day: day.value, time: time.value, endTime: endTime.value, deadline: deadline.value,
+    repeat: repeat.value, weekdays: [...weekdays.value], monthDays: [...monthDays.value], who: who.value, adminsOnly: adminsOnly.value,
+    items: items.value.map(x => ({ ...x })), itemsName: itemsName.value })
+}
 function tryClose() {
   if (_form() !== _snap && !window.confirm('入力中の業務を捨てて閉じますか？')) return
   emit('close')
@@ -335,7 +353,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
                 <button v-for="t in checklistTemplates" :key="t.id" type="button" @click="pickList(t)">
                   <span class="tl"><span>{{ t.name }}</span><small>{{ t.data.items.map(x => x.text).join('・') }}</small></span><b v-if="itemsName === t.name">✓</b>
                 </button>
-                <button type="button" class="ta-manage" @click="emit('templates')"><LineIcon name="pencil" size="15" /><span>チェック表を作る・直す</span></button>
+                <button type="button" class="ta-manage" @click="toTemplates"><LineIcon name="pencil" size="15" /><span>チェック表を作る・直す</span></button>
               </div>
               <div v-if="open === 'vis'" class="ta-sub">
                 <div class="ta-seg" role="radiogroup" aria-label="見せる人">

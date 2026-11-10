@@ -126,6 +126,8 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
         </div>
       </div>
 
+      <!-- 今がどの行よりも前なら、線は最初の行の上に -->
+      <div v-if="isToday && nowAfter === -1 && rows.length" class="dt-now first"><span>{{ nowHm.replace(/^0/, '') }}</span><i></i><em></em></div>
       <template v-for="(x, i) in rows" :key="x.key">
         <div :class="['dt-row', { ev: x.ev || x.fold }]" :style="{ animationDelay: `${0.1 + i * 0.03}s` }">
           <span class="dt-tm">{{ i > 0 && rows[i - 1].time === x.time ? '' : x.time.replace(/^0/, '') }}</span>
@@ -145,7 +147,6 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
         </div>
         <div v-if="i === nowAfter" class="dt-now"><span>{{ nowHm.replace(/^0/, '') }}</span><i></i><em></em></div>
       </template>
-      <div v-if="isToday && nowAfter === -1 && rows.length" class="dt-now first"><span>{{ nowHm.replace(/^0/, '') }}</span><i></i><em></em></div>
 
       <p v-if="empty" class="dt-empty">この日はなし</p>
     </div>
@@ -165,7 +166,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 .dt-h { display: flex; align-items: center; gap: 8px; padding: 12px 12px 10px; background: var(--surface); border-bottom: 1px solid #e3ecef; }
 .dt-b { flex: none; width: 40px; height: 40px; border: none; border-radius: 12px; background: #eef4f6; color: var(--text); cursor: pointer; display: grid; place-items: center; font: inherit; font-size: 18px; font-weight: 800; }
 .dt-b.sm { width: 36px; }
-.dt-t { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.dt-t { flex: 1; min-width: 0; display: grid; gap: 1px; overflow: hidden; }
 .dt-t div { display: flex; align-items: baseline; gap: 6px; }
 .dt-t b { font-size: 21px; font-weight: 900; line-height: 1.1; white-space: nowrap; }
 .dt-t span { font-size: 12.5px; font-weight: 800; color: var(--text-muted); white-space: nowrap; }
@@ -229,4 +230,15 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 .dt-now i { width: 10px; height: 10px; border-radius: 50%; background: #e0457b; margin-left: 8px; flex: none; }
 .dt-now em { flex: 1; height: 2px; background: #e0457b; }
 .dt-empty { margin: 40px 0 0; text-align: center; font-size: 15px; font-weight: 800; color: var(--text-muted); }
+/* 狭い画面（320px）: 見出しにメモ・輪・前後のボタンが重ならないよう、詰めて小さく */
+@media (max-width: 360px) {
+  .dt-h { gap: 5px; padding: 10px 8px 8px; }
+  .dt-b { width: 36px; height: 36px; }
+  .dt-b.sm { width: 30px; }
+  .dt-ring { width: 38px; height: 38px; }
+  .dt-ring i { width: 30px; height: 30px; font-size: 9.5px; }
+  .dt-t div { gap: 1px; }
+  .dt-t b { font-size: 15px; letter-spacing: -.02em; }
+  .dt-t span { font-size: 10.5px; }
+}
 </style>
