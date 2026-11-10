@@ -116,7 +116,7 @@ function onLoginPinInput(e) {
     <div class="auth-card">
       <div class="auth-logo"><LineIcon name="store" /></div>
       <h1 class="auth-title">pantops</h1>
-      <p class="auth-subtitle">店舗アカウントでログインして<br>セッション履歴を管理できます</p>
+      <p class="auth-subtitle">店舗アカウントでログインすると<br>在庫と業務をみんなで共有できます</p>
 
       <!-- タブ切り替え -->
       <div class="auth-tabs">
@@ -210,7 +210,7 @@ function onLoginPinInput(e) {
               <div class="shop-code-hint">このコードを控えておいてください。スタッフに共有すると参加できます。</div>
             </div>
             <button class="btn btn-primary auth-submit" @click="emit('done')">
-              セッション一覧へ
+              ホームへ進む
             </button>
           </div>
         </template>

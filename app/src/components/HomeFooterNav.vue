@@ -41,6 +41,7 @@ watch(activeIdx, (v, o) => {
   clearTimeout(_mt); _mt = setTimeout(() => { moving.value = false }, 420)
 })
 onUnmounted(() => clearTimeout(_mt))
+// 数は業務管理のタブに（ホームに付けると何の数か分からない・2026-11-09 触診）: 新しいやること → 新着、無ければ今日のまだの数
 const badge = computed(() => (newTasks.value.length ? { text: '新着', fresh: true } : todayOpenCount.value ? { text: String(todayOpenCount.value), fresh: false } : null))
 </script>
 
@@ -52,7 +53,7 @@ const badge = computed(() => (newTasks.value.length ? { text: '新着', fresh: t
       :class="{ on: active === it.tab }" type="button"
       :aria-current="active === it.tab ? 'page' : undefined"
       @click="emit('go', it.tab)"
-    ><span class="bnav-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-for="d in it.d" :key="d" :d="d" /></svg></span>{{ it.label }}<span v-if="it.tab === 'home' && badge" :class="['bnav-badge', { fresh: badge.fresh }]">{{ badge.text }}</span></button>
+    ><span class="bnav-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-for="d in it.d" :key="d" :d="d" /></svg></span>{{ it.label }}<span v-if="it.tab === 'calendar' && badge" :class="['bnav-badge', { fresh: badge.fresh }]" :aria-label="badge.fresh ? '新しいやることがあります' : `今日のまだのやること ${badge.text}件`">{{ badge.text }}</span></button>
   </nav>
 </template>
 

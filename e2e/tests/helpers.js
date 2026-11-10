@@ -22,7 +22,7 @@ export async function registerStore(page, storeName = 'E2E店') {
   await page.getByRole('button', { name: '登録して店舗コードを発行' }).click()
   const code = (await page.locator('.shop-code-value').innerText()).trim()
   expect(code).toMatch(/^[A-Z0-9]{6,8}$/)
-  await page.getByRole('button', { name: 'セッション一覧へ' }).click()
+  await page.getByRole('button', { name: 'ホームへ進む' }).click()
   await expect(page.getByText(storeName)).toBeVisible()
   return code
 }

@@ -164,7 +164,7 @@ async function save() {
           <span class="sl-ic"><LineIcon name="file" /></span><span class="sl-tx"><b>規約・プライバシー・サポート</b></span><span class="sl-ar" aria-hidden="true">›</span>
         </button>
         <button type="button" class="sl-it" @click="open('info')">
-          <span class="sl-ic">ℹ️</span><span class="sl-tx"><b>アプリ情報</b></span><span class="sl-val">v{{ version }}</span><span class="sl-ar" aria-hidden="true">›</span>
+          <span class="sl-ic"><LineIcon name="info" /></span><span class="sl-tx"><b>アプリ情報</b></span><span class="sl-val">v{{ version }}</span><span class="sl-ar" aria-hidden="true">›</span>
         </button>
       </div>
     </template>

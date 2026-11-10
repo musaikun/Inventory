@@ -206,7 +206,7 @@ const KIND_LABEL = { prep: '仕込み', clean: '清掃', order: '発注・納品
       <div class="db-rows">
         <div class="db-rh"></div>
         <div v-for="r in rows" :key="r.id" class="db-r" :style="{ height: ROW_H + 'px' }">
-          <span class="db-av" aria-hidden="true"><LineIcon v-if="r.id === 'all'" name="users" size="1em" /><template v-else>{{ r.name.slice(0, 1) }}</template></span>{{ r.name }}<small v-if="r.sub">{{ r.sub }}</small>
+          <span class="db-av" aria-hidden="true"><LineIcon v-if="r.id === 'all'" name="users" size="1em" /><template v-else>{{ r.name.slice(0, 1) }}</template></span><span class="db-nm" :title="r.name">{{ r.name }}</span><small v-if="r.sub">{{ r.sub }}</small>
         </div>
       </div>
       <div ref="scrollEl" class="db-scroll">
@@ -230,7 +230,7 @@ const KIND_LABEL = { prep: '仕込み', clean: '清掃', order: '発注・納品
               <b>{{ b.title }}</b><small>{{ hmShort(b.from) }}〜{{ hmShort(b.to) }}</small>
             </button>
             <div v-for="b in blocks" :key="b.key" :data-block="b.key" role="button" tabindex="0"
-              :class="['db-blk', `k-${b.kind}`, b.state, { pin: b.end == null, fixed: !b.movable, drag: drag && b.task && drag.id === b.task.id, thin: b.end != null && (xOf(b.end) - xOf(b.start)) < 44 }]"
+              :class="['db-blk', `k-${b.kind}`, b.state, { pin: b.end == null, fixed: !b.movable, drag: drag && b.task && drag.id === b.task.id, thin: b.end != null && Math.max(26, xOf(b.end) - xOf(b.start)) < 56 }]"
               :style="style(b)" :aria-label="`${b.title} ${hmShort(b.start)}${b.end != null ? '〜' + hmShort(b.end) : ''}`"
               @keydown.enter="emit('open', b.x)">
               <span class="db-t">{{ b.state === 'done' ? '✓ ' : '' }}<LineIcon v-if="b.kind === 'routine'" name="repeat" size="1em" />{{ b.kind === 'routine' ? ' ' : '' }}{{ b.title }}</span>
@@ -269,6 +269,8 @@ const KIND_LABEL = { prep: '仕込み', clean: '清掃', order: '発注・納品
 .db-rows { border-right: 1px solid var(--border); }
 .db-rh { height: 22px; border-bottom: 1px solid var(--border); }
 .db-r { display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 0 8px; border-bottom: 1px solid #eef2f4; font-size: 12px; font-weight: 900; color: var(--text); box-sizing: border-box; overflow: hidden; }
+.db-nm { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }   /* 名前は1行（「オーナ／ー」と折れない・2026-11-09 触診） */
+.db-r small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .db-r small { font-size: 9.5px; color: var(--text-muted); font-weight: 700; }
 .db-av { width: 22px; height: 22px; border-radius: 50%; background: #f1f5f9; display: flex; align-items: center; justify-content: center; font-size: 11px; }
 .db-scroll { overflow-x: auto; overflow-y: hidden; }
@@ -282,7 +284,9 @@ const KIND_LABEL = { prep: '仕込み', clean: '清掃', order: '発注・納品
 .db-now { position: absolute; top: 0; bottom: 0; width: 2px; background: #dc2626; z-index: 6; pointer-events: none; }
 .db-now span { position: absolute; top: 2px; left: 3px; background: #dc2626; color: #fff; font-size: 9.5px; font-weight: 900; border-radius: 5px; padding: 1px 5px; white-space: nowrap; }
 .db-blk { position: absolute; box-sizing: border-box; border-radius: 8px; padding: 3px 7px; font-size: 11.5px; font-weight: 800; overflow: hidden; cursor: grab; z-index: 4; display: flex; flex-direction: column; justify-content: center; line-height: 1.25; border: 1.5px solid; touch-action: none; }
-.db-blk small { font-size: 9.5px; font-weight: 700; opacity: .85; white-space: nowrap; }
+.db-blk small { font-size: 9.5px; font-weight: 700; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 帯の文字は1行。短い帯で文字が縦に積まれないように（2026-11-09 触診: 数分の棚卸の記録） */
+.db-blk .db-t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .db-t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .db-blk.k-task { background: #cffafe; border-color: #0e7490; color: #0b4f61; }
 .db-blk.k-prep { background: #ede9fe; border-color: #7c3aed; color: #4c1d95; }

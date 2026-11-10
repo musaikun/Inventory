@@ -6,10 +6,11 @@ import {
   Footprints, Settings, Eye, OctagonX, User, Search, Hand, House, Wrench, ChevronUp, Moon, Mic, Scissors, Calculator, WifiOff,
   Sun, Lightbulb, Brush, CloudSun, TrendingUp, TrendingDown, Calendar, Sparkles, ShoppingCart, Library, Puzzle, CloudRain,
   CloudSnow, Cloud, CloudFog, CloudLightning, CloudDrizzle, ArrowUpDown, HandHelping, Type, SprayCan, Route, Snowflake,
-  Plus, Check, Copy, QrCode,
+  Plus, Check, Copy, QrCode, Info,
 } from 'lucide-vue-next'
 
 export const ICONS = {
+  info: Info,
   alert: TriangleAlert, clipboard: ClipboardList, file: FileText, users: Users, note: NotebookPen, lock: Lock, hourglass: Hourglass,
   star: Star, chat: MessageCircle, box: Package, upload: Upload, download: Download, bookmark: Bookmark, inbox: Inbox, timer: Timer,
   pencil: Pencil, trash: Trash2, party: PartyPopper, receipt: Receipt, folders: Folders, folder: FolderOpen, camera: Camera,

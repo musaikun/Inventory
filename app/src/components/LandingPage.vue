@@ -37,7 +37,7 @@ async function onStart() {
         <span class="lp-version">v{{ version }}<template v-if="buildSha"> ({{ buildSha }})</template></span>
       </div>
 
-      <p class="lp-tagline">棚卸作業を開始してください</p>
+      <p class="lp-tagline">店舗の在庫と業務を、みんなで</p>
 
       <!-- アプリ版（TWA）: 無料版の案内＋既存店舗のログイン入口 -->
       <div v-if="isTwa" class="lp-twa-banner">

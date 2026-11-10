@@ -200,7 +200,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
           <span class="ht-tt">今日のやること<i>今日の一覧 ›</i></span>
           <span class="ht-cnt">
             <span v-for="c in countChips" :key="c.k" :class="c.cls">{{ c.label }} {{ c.n }}</span>
-            <span v-if="!countChips.length" class="m">気になるものはありません</span>
+            <span v-if="!countChips.length && attention.rows.length" class="m">気になるものはありません</span>
           </span>
         </span>
       </span>
@@ -372,6 +372,8 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 @keyframes ht-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .ht-halo, .ht-spin { animation: none; } }
 .ht-sc b { font-size: 12.5px; display: block; }
+/* 狭い画面（320px）で「品目リスト整理」が「整／理」と折れないよう、小さくして1行に（2026-11-09 触診） */
+@media (max-width: 359px) { .ht-sc b { font-size: 11px; letter-spacing: -.02em; white-space: nowrap; } }
 .ht-sh-bg { position: fixed; inset: 0; z-index: 60; background: rgba(6,34,43,.42); display: flex; align-items: flex-end; }
 .ht-sh { width: 100%; box-sizing: border-box; background: var(--surface, #fff); border-radius: 22px 22px 0 0; padding: 14px 16px calc(22px + env(safe-area-inset-bottom)); display: grid; gap: 10px; }
 .ht-sh-h { display: flex; align-items: center; }

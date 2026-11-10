@@ -3395,7 +3395,8 @@ const _ONBOARD_KEY   = 'tanaoro_onboarded'
 const showOnboarding = ref(false)
 
 watch(() => currentView.value, (v) => {
-  if (v === 'session' && !localStorage.getItem(_ONBOARD_KEY)) {
+  // 説明は棚卸の数え方なので、発注では出さない（2026-11-09 触診）
+  if (v === 'session' && sessionMode.value !== 'order' && !localStorage.getItem(_ONBOARD_KEY)) {
     showOnboarding.value = true
   }
 })

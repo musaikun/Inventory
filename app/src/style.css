@@ -768,7 +768,9 @@ body[data-view="session"] .voice-section { padding: 12px 12px 10px; }
   transform: translateX(-50%);
   background: #12303a;
   color: #fff;
-  padding: 10px 22px;
+  /* 上下の余白は透明な枠で取る（padding だと4行で切った下の行が余白に覗く） */
+  padding: 0 22px;
+  border-block: 10px solid transparent;
   border-radius: 24px;
   font-size: 14px;
   font-weight: 600;
@@ -777,7 +779,16 @@ body[data-view="session"] .voice-section { padding: 12px 12px 10px; }
   white-space: pre-line;
   text-align: center;
   pointer-events: none;
-  max-width: calc(100vw - 48px);
+  /* left: 50% のままだと幅が画面の半分までに縮み、長い文が縦長の柱になっていた（2026-11-09 触診）。
+     文の長さに合わせて広げ、長すぎる名前は4行で切る */
+  width: max-content;
+  max-width: min(calc(100vw - 32px), 480px);
+  box-sizing: border-box;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow-wrap: anywhere;
   box-shadow: 0 8px 24px rgba(0,0,0,0.25);
   transform-origin: 50% 0;
 }
