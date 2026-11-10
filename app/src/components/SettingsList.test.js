@@ -12,6 +12,7 @@ vi.mock('../composables/useAuth.js', async () => {
     isAuthenticated: ref(true), storeName: ref('本店'), ownerName: ref('無才'),
     currentStaff: computed(() => st.value), isAdmin: computed(() => ad.value),
     can: () => ad.value, updateStoreName: (...a) => updateStoreName(...a), updateOwnerName: vi.fn(),
+    pinUpgrade: ref(null), pinUpgradeOverdue: ref(false), pinProblem: () => '', changeOwnerPin: vi.fn(),
   }
 })
 vi.mock('../composables/usePush.js', async () => { const { ref } = await import('vue'); return { pushSubscribed: ref(true) } })

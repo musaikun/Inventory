@@ -33,6 +33,7 @@ vi.mock('../utils/api.js', () => ({
   setAuthInvalidatedHandler: vi.fn(),
 }))
 vi.mock('../composables/useAuth.js', () => ({
+  pinUpgrade: { value: null }, pinUpgradeOverdue: { value: false }, pinProblem: () => '', changeOwnerPin: vi.fn(),
   can: () => true, canSeeMoney: { value: true }, canSeeReport: { value: true }, denyMessage: p => p, staffNames: { value: [] }, loadStaffNames: async () => [],
   getSessions:     vi.fn(async () => sessionsResponse),
   deleteSession:   (...a) => deleteSessionMock(...a),

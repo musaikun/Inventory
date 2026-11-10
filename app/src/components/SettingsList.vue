@@ -11,8 +11,9 @@ import LineIcon from './LineIcon.vue'
 import { ref, computed } from 'vue'
 import {
   isAuthenticated, storeName, isAdmin, currentStaff, ownerName, can,
-  updateStoreName, updateOwnerName,
+  updateStoreName, updateOwnerName, pinUpgrade,
 } from '../composables/useAuth.js'
+import PinChangeSheet from './PinChangeSheet.vue'
 import { settingsSection } from '../composables/appMenuState.js'
 import { staffPageOpen } from '../composables/staffNav.js'
 import { pushSubscribed } from '../composables/usePush.js'
@@ -30,6 +31,8 @@ const isOwner = computed(() => isAuthenticated.value && !currentStaff.value)
 const { state: weatherState } = useWeather()
 const version = pkg.version
 const open = s => { settingsSection.value = s }
+const pinOpen = ref(false)
+const pinDue = computed(() => { const d = pinUpgrade.value?.due; if (!d) return ''; const t = new Date(d); return `${t.getMonth() + 1}/${t.getDate()}` })
 const openStaff = () => { staffPageOpen.value = true }
 
 // 店名・オーナーの名前はその場で直す
@@ -87,6 +90,11 @@ async function save() {
             <button v-else type="button" class="sl-it" @click="startEdit('owner')">
               <span class="sl-ic"><LineIcon name="user" /></span><span class="sl-tx"><b>オーナーの名前</b><small>どの端末でもこの名前で記録</small></span>
               <span class="sl-val">{{ ownerName || '未設定' }}</span><span class="sl-ar" aria-hidden="true">›</span>
+            </button>
+            <!-- オーナーの暗証番号を変える（D-036）。4桁のままなら印 -->
+            <button type="button" class="sl-it" data-test="pin-change" @click="pinOpen = true">
+              <span class="sl-ic"><LineIcon name="lock" /></span><span class="sl-tx"><b>暗証番号を変える</b><small>{{ pinUpgrade ? '6桁に変えてください' + (pinDue ? `（${pinDue}まで）` : '') : 'オーナーのログインに使う6桁' }}</small></span>
+              <span v-if="pinUpgrade" class="sl-val warn">4桁</span><span class="sl-ar" aria-hidden="true">›</span>
             </button>
           </template>
           <button v-if="isAdmin" type="button" class="sl-it" @click="openStaff">
@@ -168,6 +176,7 @@ async function save() {
         </button>
       </div>
     </template>
+    <PinChangeSheet v-if="pinOpen" mode="change" @close="pinOpen = false" />
   </div>
 </template>
 
@@ -175,6 +184,7 @@ async function save() {
 .sl { display: grid; }
 .sl-sec { font-size: 11.5px; font-weight: 800; letter-spacing: .06em; color: var(--text-muted, #4c6a72); padding: 14px 4px 6px; }
 .sl-box { background: var(--surface, #fff); border: 1px solid var(--border, #d6e6ea); border-radius: 14px; overflow: hidden; }
+.sl-val.warn { color: #b45309; font-weight: 900; }
 .sl-it { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; padding: 10px 12px; border: none; border-top: 1px solid #eef4f6; background: none; text-align: left; font: inherit; color: var(--text, #12303a); cursor: pointer; }
 .sl-box > :first-child { border-top: none; }
 .sl-it:active { background: #edf5f7; }

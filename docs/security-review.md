@@ -126,6 +126,7 @@ App全test、Worker test、browser/remote probeは未実行。remote事実は202
 - **実装**: `authHandler.js`（`_hashPin` / `_verifyPin` / `_legacySha256` / login の rehash）、`constants.js`（`PBKDF2_ITERATIONS`）
 - **テスト**: `authHandler.test.js` — PBKDF2形式・衝突しない・旧hash移行成功・誤PINは非移行
 - **残**: PIN 4桁の空間は依然 10^4。総当たりスプレー（1234等×全店舗）への追加対策（6桁化 or 頻出PIN拒否）は別途検討
+- **2026-11-10 更新（D-036）**: オーナーも6桁・弱い並びを拒否（スタッフと同じ `pinProblem`）。4桁の既存店は、4桁で初めてログインしてから30日のうちに `/auth/pin` で6桁へ（期限後もログインはでき、アプリが変更の画面で止める）。`/auth/pin` の今の番号の間違いはログイン失敗と同じ店舗・IP の回数に数える
 
 ### S-10 ✅ クロスアカウントのデータ漏洩（同一ブラウザでの残存）
 - **リスク**: 品目マスタ・棚卸・発注・入出庫・履歴・辞書が shopCode で名前空間を分けない

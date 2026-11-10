@@ -16,7 +16,7 @@
 stores
   ├ shop_code   TEXT PRIMARY KEY   -- ランダム生成
   ├ store_name  TEXT
-  ├ pin_hash    TEXT               -- 4桁PIN
+  ├ pin_hash    TEXT               -- オーナーの暗証番号（6桁・以前の店は4桁。D-036）
   └ active_room TEXT
 ```
 

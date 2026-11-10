@@ -28,7 +28,8 @@ export const _showOrders    = ref(false)
 import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
-import { isAuthenticated, storeName, logout, isAdmin, currentStaff, ROLE_LABELS, can, denyMessage, canSeeReport, ownerName } from '../composables/useAuth.js'
+import { isAuthenticated, storeName, logout, isAdmin, currentStaff, ROLE_LABELS, can, denyMessage, canSeeReport, ownerName, pinUpgrade, pinUpgradeOverdue } from '../composables/useAuth.js'
+import PinChangeSheet from './PinChangeSheet.vue'
 import SettingsList from './SettingsList.vue'
 import ChecklistsPage from './ChecklistsPage.vue'
 import ChecklistRunSheet from './ChecklistRunSheet.vue'
@@ -81,6 +82,17 @@ const tabsNow = () => ['home', 'sessions', 'calendar', 'report', 'dashboard'].fi
 const slideDir = ref('')                       // 'l' | 'r'（切り替えの動きの向き）
 // トップの「今日のやること」→ 日誌のリスト
 // ホームの2枚は行き先を分ける（User 2026-11-08）: 今日のやること → 今日の一覧 ／ 店の今 → 今日の予定ボード・押した業務の中身
+// オーナーの暗証番号を6桁へ（D-036・案A）。4桁の店はホームで知らせる。「あとで」はその日だけ。期限を過ぎたら閉じられない
+const pinPrompt = ref(false)
+function _pinSnoozed() { try { return localStorage.getItem(STORAGE_KEYS.pinPromptSnooze) === localDateKey() } catch (_) { return false } }
+watch([pinUpgrade, pinUpgradeOverdue, isAuthenticated], ([v, late, auth]) => {
+  if (auth && v && (late || !_pinSnoozed())) pinPrompt.value = true
+  if (!auth) pinPrompt.value = false   // 変えたあとは「変えました」を見せてから閉じる（v が null になっても閉じない）
+}, { immediate: true })
+function laterPin() {
+  try { localStorage.setItem(STORAGE_KEYS.pinPromptSnooze, localDateKey()) } catch (_) {}
+  pinPrompt.value = false
+}
 function openJournalList() { openJournalDay(localDateKey(), { view: 'list' }); goTab('calendar') }
 function openJournalBoard() { openJournalDay(localDateKey(), { view: 'board' }); goTab('calendar') }
 function openJournalOne(item) { openJournalItem(localDateKey(), item); goTab('calendar') }
@@ -467,6 +479,7 @@ onUnmounted(registerInnerLayerCloser(() => {
     </Teleport>
 
     </div><!-- /.home-panels -->
+    <PinChangeSheet v-if="pinPrompt" mode="upgrade" @close="laterPin" />
 
     <!-- ── 下部ナビ（全画面共通の部品）── -->
     <HomeFooterNav :active="tab" @go="goTab" />

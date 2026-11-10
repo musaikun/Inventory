@@ -1,7 +1,7 @@
 <script setup>
 import LineIcon from './LineIcon.vue'
 import { ref } from 'vue'
-import { register, login, staffLogin } from '../composables/useAuth.js'
+import { register, login, staffLogin, pinProblem } from '../composables/useAuth.js'
 import { deviceId } from '../composables/useDeviceId.js'
 import PasswordReveal from './PasswordReveal.vue'
 
@@ -44,12 +44,14 @@ const regResult      = ref(null) // { shopCode }
 
 async function onRegister() {
   regError.value = ''
-  if (!/^\d{4}$/.test(regPin.value)) {
-    regError.value = 'PINは4桁の数字で入力してください'
+  // 暗証番号は6桁（スタッフと同じ決まり・D-036）
+  const bad = pinProblem(regPin.value)
+  if (bad) {
+    regError.value = bad
     return
   }
   if (regPin.value !== regPinConfirm.value) {
-    regError.value = 'PINの確認が一致しません'
+    regError.value = '暗証番号の確認が一致しません'
     return
   }
   regLoading.value = true
@@ -64,7 +66,7 @@ async function onRegister() {
 }
 
 function onPinInput(e, target) {
-  const val = e.target.value.replace(/\D/g, '').slice(0, 4)
+  const val = e.target.value.replace(/\D/g, '').slice(0, 6)
   e.target.value = val
   if (target === 'pin')    regPin.value        = val
   if (target === 'confirm') regPinConfirm.value = val
@@ -83,8 +85,9 @@ async function onLogin() {
     loginError.value = '店舗コードを入力してください'
     return
   }
-  if (!/^\d{4}$/.test(loginPin.value)) {
-    loginError.value = 'PINは4桁の数字で入力してください'
+  // 6桁。6桁に変える前の店は4桁でも入れる（D-036）
+  if (!/^(\d{4}|\d{6})$/.test(loginPin.value)) {
+    loginError.value = '暗証番号は6桁の数字で入力してください'
     return
   }
   loginLoading.value = true
@@ -105,7 +108,7 @@ function onLoginCodeInput(e) {
 }
 
 function onLoginPinInput(e) {
-  const val = e.target.value.replace(/\D/g, '').slice(0, 4)
+  const val = e.target.value.replace(/\D/g, '').slice(0, 6)
   e.target.value = val
   loginPin.value = val
 }
@@ -151,18 +154,20 @@ function onLoginPinInput(e) {
             autocomplete="off"
           />
 
-          <label class="form-label">PIN（4桁）</label>
+          <label class="form-label">暗証番号（6桁）</label>
           <PasswordReveal v-slot="{ type }">
             <input
               :type="type"
               inputmode="numeric"
               class="form-input"
-              placeholder="●●●●"
+              placeholder="●●●●●●"
+              aria-label="オーナーの暗証番号"
               :value="loginPin"
               @input="onLoginPinInput"
-              maxlength="4"
+              maxlength="6"
             />
           </PasswordReveal>
+          <p class="form-hint">まだ6桁に変えていない店は、今までの4桁でも入れます</p>
 
           <div v-if="loginError" class="form-error">{{ loginError }}</div>
 
@@ -227,31 +232,34 @@ function onLoginPinInput(e) {
               maxlength="50"
             />
 
-            <label class="form-label">PIN（4桁の数字）</label>
+            <label class="form-label">暗証番号（6桁の数字）</label>
             <PasswordReveal v-slot="{ type }">
               <input
                 :type="type"
                 inputmode="numeric"
                 class="form-input"
-                placeholder="●●●●"
+                placeholder="●●●●●●"
+                aria-label="暗証番号"
                 :value="regPin"
                 @input="onPinInput($event, 'pin')"
-                maxlength="4"
+                maxlength="6"
               />
             </PasswordReveal>
 
-            <label class="form-label">PIN（確認）</label>
+            <label class="form-label">暗証番号（確認）</label>
             <PasswordReveal v-slot="{ type }">
               <input
                 :type="type"
                 inputmode="numeric"
                 class="form-input"
-                placeholder="●●●●"
+                placeholder="●●●●●●"
+                aria-label="暗証番号（確認）"
                 :value="regPinConfirm"
                 @input="onPinInput($event, 'confirm')"
-                maxlength="4"
+                maxlength="6"
               />
             </PasswordReveal>
+            <p class="form-hint">123456 や 000000 のような番号は使えません</p>
 
             <div v-if="regError" class="form-error">{{ regError }}</div>
 
@@ -466,4 +474,5 @@ function onLoginPinInput(e) {
     outline-offset: 2px;
   }
 }
+.form-hint { margin: 4px 0 0; font-size: 11.5px; color: var(--text-muted); line-height: 1.5; }
 </style>

@@ -28,11 +28,11 @@ describe('securityEvent', () => {
   it('許した項目以外（トークン・PIN・本文・ヘッダ）は書かない', () => {
     const lines = capture()
     securityEvent('perm_denied', {
-      shop: 'ABCDEF', missing: ['money'], token: 'secret-token', pin: '1234', body: { pin: '1234' },
+      shop: 'ABCDEF', missing: ['money'], token: 'secret-token', pin: '583920', body: { pin: '583920' },
       authorization: 'Bearer x', headers: { a: 1 },
     })
     const s = JSON.stringify(lines)
-    for (const leak of ['secret-token', '1234', 'Bearer', 'authorization', 'headers']) expect(s).not.toContain(leak)
+    for (const leak of ['secret-token', '583920', 'Bearer', 'authorization', 'headers']) expect(s).not.toContain(leak)
     expect(lines[0].missing).toEqual(['money'])
   })
 })

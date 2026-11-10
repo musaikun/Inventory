@@ -25,8 +25,9 @@
 
 | Method / path | 現行contract | Auth |
 |---|---|---|
-| `POST /auth/register` | `{ storeName?, pin }` → `{ shopCode, token, storeName, plan, isPro, inTrial:false, trialEndsAt:null }`。PINは4桁、PBKDF2で保存 | 不要。IPごとに1時間5回（成否を問わず計上・超過は429 `rate_limited`）。bot対策は未実装 |
-| `POST /auth/login` | `{ shopCode, pin }` → 同上entitlement付きtoken。成功時は同storeの既存tokenを全失効 | 不要。store/IP単位の失敗制限あり |
+| `POST /auth/register` | `{ storeName?, pin }` → `{ shopCode, token, storeName, plan, isPro, inTrial:false, trialEndsAt:null }`。暗証番号は6桁（同じ数字だけ・連番・くり返しは400 `invalid_pin`・D-036）、PBKDF2で保存 | 不要。IPごとに1時間5回（成否を問わず計上・超過は429 `rate_limited`）。bot対策は未実装 |
+| `POST /auth/login` | `{ shopCode, pin }` → 同上entitlement付きtoken＋`pinUpgrade`（4桁の店だけ `{ due, overdue }`・6桁なら null）。4桁でも入れる。4桁で初めて入ったとき`stores.pin_upgrade_due`に30日後を入れる（migration 0037）。成功時は同storeの既存tokenを全失効 | 不要。store/IP単位の失敗制限あり |
+| `POST /auth/pin` | `{ currentPin, newPin }` → `{ ok, pinUpgrade:null }`。オーナーが暗証番号を変える（D-036）。新しい番号は6桁・弱い並びは400。今の番号の間違いは401 `wrong_pin`でログイン失敗と同じ回数に数える（15分5回で429）。オーナーのtokenだけ（スタッフは403）。他のtokenは切らない | Bearer（オーナー）。IP単位の失敗制限あり |
 | `POST /auth/logout` | 対象Bearerがあれば削除し`{ ok:true }`。tokenなしでも同じ応答 | 任意 |
 | `DELETE /auth/account` | `{ requestId, pin, confirmation }`。UUID、現在PIN、認証store codeのcase-sensitive完全一致を要求。スタッフのtokenは403 `owner_only`（D-031） | オーナーのBearer + 再認証 |
 | ~~`POST /store/create`~~ | **2026-10-08廃止**（404）。PINなしlegacy storeを認証なしで作れた旧経路。店舗は`/auth/register`でだけ作る | — |

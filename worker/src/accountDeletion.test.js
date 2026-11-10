@@ -200,7 +200,7 @@ function createMockD1({ failBatchOnce = false } = {}) {
   return { prepare, batch, _state: state }
 }
 
-async function seedAccount(db, { shopCode = 'STOREA', pin = '1234', token = 'token-a' } = {}) {
+async function seedAccount(db, { shopCode = 'STOREA', pin = '583920', token = 'token-a' } = {}) {
   const future = new Date(Date.now() + 86_400_000).toISOString()
   db._state.stores.push({
     shop_code: shopCode,
@@ -238,7 +238,7 @@ function requestWithToken(token) {
 }
 
 function validBody(overrides = {}) {
-  return { requestId: REQUEST_ID, pin: '1234', confirmation: 'STOREA', ...overrides }
+  return { requestId: REQUEST_ID, pin: '583920', confirmation: 'STOREA', ...overrides }
 }
 
 describe('PLAY-001: account deletion', () => {

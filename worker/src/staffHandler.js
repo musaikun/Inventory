@@ -8,7 +8,7 @@
  */
 import { createJoinTask, resolveJoinTask } from './staffJoinTask.js'
 import { _now } from './workerUtils.js'
-import { _hashPin, verifyPinHash, extractBearerToken, tokenHash, tokenKeys } from './authHandler.js'
+import { _hashPin, verifyPinHash, extractBearerToken, tokenHash, tokenKeys, pinUpgradeInfo } from './authHandler.js'
 import { LOGIN_WINDOW_MS, LOGIN_MAX_FAILS, TOKEN_EXPIRY_MS } from './constants.js'
 import { entitlement } from './entitlements.js'
 import { normalizeGroups, groupsOf, can, DEFAULT_GROUPS } from './permissions.js'
@@ -376,6 +376,12 @@ export async function handleStaffUnlock(db, request, code, id) {
   return { ok: true }
 }
 
+async function _ownerPinUpgrade(db, code) {
+  try {
+    const row = await db.prepare('SELECT pin_digits, pin_upgrade_due FROM stores WHERE shop_code = ?').bind(code).first()
+    return pinUpgradeInfo(row)
+  } catch (_) { return undefined }   // 列が無い（migration 前）なら何も言わない
+}
 /** GET /auth/me … いまのトークンは誰か（役割の取り直し用） */
 export async function handleMe(db, request) {
   const ctx = await authContext(db, request)
@@ -387,6 +393,8 @@ export async function handleMe(db, request) {
     owner: ctx.staffId ? null : { id: 'owner', name: ctx.name || null },
     // 店名は別の端末から変わることがある（2026-10-16）
     storeName: (await _storeInfo(db, ctx.shopCode))?.store_name ?? null,
+    // オーナーだけ: 暗証番号を6桁に変える期限（D-036）。別の端末でも印を出せるように
+    ...(ctx.staffId ? {} : { pinUpgrade: await _ownerPinUpgrade(db, ctx.shopCode) }),
   }
 }
 

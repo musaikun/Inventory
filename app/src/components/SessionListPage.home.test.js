@@ -15,6 +15,7 @@ let restoreImpl = async () => ({ ok: false })
 const createSession = vi.fn(async (type) => ({ id: type === 'order' ? 'ord-new' : 'stk-new', type: type ?? 'stock', status: 'active', startedAt: new Date().toISOString() }))
 const deleteSession = vi.fn(async () => ({}))
 vi.mock('../composables/useAuth.js', () => ({
+  pinUpgrade: { value: null }, pinUpgradeOverdue: { value: false }, pinProblem: () => '', changeOwnerPin: vi.fn(),
   can: () => true, canSeeMoney: { value: true }, canSeeReport: { value: true }, denyMessage: p => p, staffNames: { value: [] }, loadStaffNames: async () => [],
   getSessions:     vi.fn(async () => sessionList),
   createSession:   (...a) => createSession(...a),

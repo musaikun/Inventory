@@ -58,7 +58,7 @@ function room(wsList) {
 
 beforeEach(async () => {
   db = makeDb()
-  const r = await handleRegister(db, { storeName: '本店', pin: '1234' })
+  const r = await handleRegister(db, { storeName: '本店', pin: '583920' })
   owner = r.token; code = r.shopCode
 })
 afterEach(() => sqlite?.close())

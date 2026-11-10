@@ -13,7 +13,7 @@ import {
   handleMovementsGet, handleMovementCreate, handleMovementDelete,
 } from './storeHandler.js'
 import { handlePastImportCreate, handlePastImportCancel } from './pastImport.js'
-import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAccess } from './authHandler.js'
+import { handleRegister, handleLogin, handleLogout, verifyAuth, verifyStoreAccess, handlePinChange } from './authHandler.js'
 import { handleAccountDelete } from './accountDeletion.js'
 import { handleImageUpload, handleImageDelete, handleImageGet, purgeShopImages } from './imageHandler.js'
 import { clientIp, isIpBlocked, recordIpFail } from './rateLimiter.js'
@@ -303,6 +303,15 @@ export default {
         if (result._status === 401 || result._status === 429) {
           securityEvent(result._status === 429 ? 'staff_login_locked' : 'staff_login_failed', { ip, shop: String(body?.shopCode ?? '').toUpperCase().slice(0, 8) })
         }
+        return resultResponse(result, origin, allowedOrigin)
+      }
+      if (path === '/auth/pin' && request.method === 'POST') {
+        const ip = clientIp(request)
+        if (await isIpBlocked(env.DB, ip, 'login')) {
+          return jsonResponse({ error: '試行が多すぎます。しばらく待ってから再度お試しください' }, 429, origin, allowedOrigin)
+        }
+        const result = await handlePinChange(env.DB, request, await request.json().catch(() => ({})))
+        if (result._status === 401 && result.code === 'wrong_pin') await recordIpFail(env.DB, ip, 'login')
         return resultResponse(result, origin, allowedOrigin)
       }
       if (path === '/auth/me' && request.method === 'GET') {

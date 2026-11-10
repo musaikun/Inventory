@@ -48,6 +48,31 @@ export const currentStaff    = computed(() => _staff.value)
 export const currentRole     = computed(() => (_staff.value ? _staff.value.role : 'owner'))
 /** スタッフの管理ができるか（オーナーか管理者） */
 export const isAdmin         = computed(() => !_staff.value || _staff.value.role === 'admin')
+
+// ── オーナーの暗証番号を6桁へ（D-036）──────────────────────────────────────
+// サーバーが { due, overdue } を返す（4桁の店だけ）。6桁なら null。端末にも覚えて、開き直しても印を出す
+const _pinUp = ref((() => { try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.pinUpgrade) || 'null') } catch (_) { return null } })())
+export const pinUpgrade = computed(() => (_staff.value ? null : _pinUp.value))
+function _setPinUpgrade(v) {
+  _pinUp.value = v ?? null
+  try { v ? localStorage.setItem(STORAGE_KEYS.pinUpgrade, JSON.stringify(v)) : localStorage.removeItem(STORAGE_KEYS.pinUpgrade) } catch (_) {}
+}
+/** 期限を過ぎたか（端末の時計でも見る。サーバーの判定より後に過ぎることがあるので） */
+export const pinUpgradeOverdue = computed(() => !!pinUpgrade.value && (pinUpgrade.value.overdue || (!!pinUpgrade.value.due && Date.parse(pinUpgrade.value.due) <= Date.now())))
+/** 6桁の暗証番号として使えるか（サーバーの pinProblem と同じ決まり）。'' なら使える */
+export function pinProblem(pin) {
+  if (!/^\d{6}$/.test(pin)) return '暗証番号は6桁の数字で入れてください'
+  if (/^(\d)\1{5}$/.test(pin)) return '同じ数字だけの暗証番号は使えません'
+  if ('01234567890'.includes(pin) || '09876543210'.includes(pin)) return '連続した数字の暗証番号は使えません'
+  if (/^(\d\d\d)\1$/.test(pin) || /^(\d\d)\1\1$/.test(pin)) return '同じ並びのくり返しは使えません'
+  return ''
+}
+/** POST /auth/pin … オーナーが暗証番号を変える。成功したら印を消す */
+export async function changeOwnerPin(currentPin, newPin) {
+  const data = await _api('/auth/pin', { method: 'POST', body: JSON.stringify({ currentPin, newPin }) })
+  _setPinUpgrade(null)
+  return data
+}
 export const ROLE_LABELS     = { owner: 'オーナー', admin: '管理者', shain: '社員', arbeit: 'アルバイト' }
 /** この人がその操作をできるか（段 2-3。サーバーでも同じ表で確かめている） */
 export function can(perm) {
@@ -69,6 +94,7 @@ export async function refreshMe() {
     if (me?.staff) { _staff.value = me.staff; localStorage.setItem(STORAGE_KEYS.authStaff, JSON.stringify(me.staff)) }
     if (me?.owner) _setOwnerName(me.owner.name || '')
     if (typeof me?.storeName === 'string') _setStoreName(me.storeName)
+    if (!me?.staff && me?.pinUpgrade !== undefined) _setPinUpgrade(me.pinUpgrade)   // 古いサーバーは返さない（そのとき触らない）
   } catch (_) { /* 失効は api.js の 401 で扱う */ }
 }
 
@@ -116,6 +142,7 @@ function _setAuth(token, code, name, staff = null) {
 
 function _clearAuth() {
   _setOwnerName('')
+  _setPinUpgrade(null)
   _staff.value     = null
   localStorage.removeItem(STORAGE_KEYS.authStaff)
   _token.value     = null
@@ -143,6 +170,7 @@ export async function login(code, pin) {
     body:   JSON.stringify({ shopCode: code, pin }),
   })
   _setAuth(data.token, data.shopCode, data.storeName)
+  if (data.pinUpgrade !== undefined) _setPinUpgrade(data.pinUpgrade)
   return data
 }
 

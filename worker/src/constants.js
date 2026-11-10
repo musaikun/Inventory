@@ -2,6 +2,9 @@
 export const LOGIN_WINDOW_MS   = 15 * 60 * 1000    // brute-force window
 export const LOGIN_MAX_FAILS   = 5                  // max failures per window
 export const TOKEN_EXPIRY_MS   = 30 * 24 * 60 * 60 * 1000  // auth token lifetime
+// オーナーの暗証番号は6桁（D-036）。4桁の店は、4桁で初めてログインしてからこの日数のうちに6桁へ変える
+export const OWNER_PIN_DIGITS = 6
+export const PIN_UPGRADE_DAYS = 30
 export const PBKDF2_ITERATIONS = 100_000           // PIN hash stretching (SHA-256 base)
 export const ACCOUNT_DELETION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 export const ACCOUNT_DELETION_INTERNAL_HEADER = 'account-delete-v1'

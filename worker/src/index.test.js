@@ -306,7 +306,7 @@ describe('Worker ルーティング（特性テスト）', () => {
   })
 
   it('POST /auth/register で店舗コードとトークンを発行する', async () => {
-    const res  = await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)
+    const res  = await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)
     const body = await res.json()
     expect(res.status).toBe(200)
     expect(body.shopCode).toMatch(/^[A-Z]{6}$/)
@@ -315,22 +315,22 @@ describe('Worker ルーティング（特性テスト）', () => {
 
   it('POST /auth/register は同じ IP から1時間に5回まで（6回目は 429・別の IP は通る）', async () => {
     for (let i = 0; i < 4; i++) {
-      const ok = await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' }, ip: '203.0.113.50' }), env)
+      const ok = await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' }, ip: '203.0.113.50' }), env)
       expect(ok.status).toBe(200)
     }
     // 失敗（PIN 不正）も1回に数える。数えないと、不正な要求を投げ続けて窓を探れる
     const bad = await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '12' }, ip: '203.0.113.50' }), env)
     expect(bad.status).toBe(400)
-    const res = await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' }, ip: '203.0.113.50' }), env)
+    const res = await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' }, ip: '203.0.113.50' }), env)
     expect(res.status).toBe(429)
     expect((await res.json()).code).toBe('rate_limited')
     expect(db._ipRows.filter(r => r.ip === '203.0.113.50' && r.kind === 'register')).toHaveLength(5)
-    const other = await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' }, ip: '203.0.113.51' }), env)
+    const other = await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' }, ip: '203.0.113.51' }), env)
     expect(other.status).toBe(200)
   })
 
   it('想定外の例外では、内部のエラーメッセージを返さない（500・定型文）', async () => {
-    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
     env.ROOMS.get = () => ({ fetch: async () => { throw new Error('D1_ERROR: no such table: secret_internal_table') } })
     const res = await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status`), env)
     expect(res.status).toBe(500)
@@ -341,7 +341,7 @@ describe('Worker ルーティング（特性テスト）', () => {
 
   it('Pro Review envの登録店舗はplan=proになる', async () => {
     env.DEFAULT_STORE_PLAN = 'pro'
-    const res = await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)
+    const res = await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)
     const body = await res.json()
     expect(res.status).toBe(200)
     expect(body.plan).toBe('pro')
@@ -350,7 +350,7 @@ describe('Worker ルーティング（特性テスト）', () => {
 
   it('DELETE /auth/account をaccount deletion handlerへ接続する', async () => {
     const res = await worker.fetch(makeReq('DELETE', '/auth/account', {
-      body: { requestId: 'invalid', pin: '1234', confirmation: 'ABCDEF' },
+      body: { requestId: 'invalid', pin: '583920', confirmation: 'ABCDEF' },
     }), env)
     expect(res.status).toBe(400)
     expect((await res.json()).code).toBe('invalid_request')
@@ -362,14 +362,14 @@ describe('Worker ルーティング（特性テスト）', () => {
   })
 
   it('GET /store/:code は存在する店舗の情報を返す', async () => {
-    const reg  = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const reg  = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
     const res  = await worker.fetch(makeReq('GET', `/store/${reg.shopCode}`), env)
     expect(res.status).toBe(200)
     expect((await res.json()).shopCode).toBe(reg.shopCode)
   })
 
   it('削除pending店舗はPush購読と公開resultを遮断する', async () => {
-    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
     const store = db._stores.find(row => row.shop_code === reg.shopCode)
     store.deletion_pending_at = new Date().toISOString()
 
@@ -386,7 +386,7 @@ describe('Worker ルーティング（特性テスト）', () => {
 
   it('Push購読作成は認証なしでは拒否する', async () => {
     const reg = await (await worker.fetch(makeReq('POST', '/auth/register', {
-      body: { pin: '1234' },
+      body: { pin: '583920' },
     }), env)).json()
     const res = await worker.fetch(makeHttpReq(
       'POST',
@@ -400,7 +400,7 @@ describe('Worker ルーティング（特性テスト）', () => {
 
   it('Push購読は無効URLと8KiB超payloadを拒否する', async () => {
     const reg = await (await worker.fetch(makeReq('POST', '/auth/register', {
-      body: { pin: '1234' },
+      body: { pin: '583920' },
     }), env)).json()
     const invalid = validPushSubscription('http://localhost/push')
     const invalidRes = await worker.fetch(makeHttpReq(
@@ -421,10 +421,10 @@ describe('Worker ルーティング（特性テスト）', () => {
 
   it('Push endpointは所有店舗だけが更新・削除できる', async () => {
     const first = await (await worker.fetch(makeReq('POST', '/auth/register', {
-      body: { pin: '1234' },
+      body: { pin: '583920' },
     }), env)).json()
     const second = await (await worker.fetch(makeReq('POST', '/auth/register', {
-      body: { pin: '5678' },
+      body: { pin: '602947' },
     }), env)).json()
     const subscription = validPushSubscription()
 
@@ -460,13 +460,13 @@ describe('Worker ルーティング（特性テスト）', () => {
   })
 
   it('PIN設定店舗の config PUT はトークン無しだと 401', async () => {
-    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
     const res = await worker.fetch(makeReq('PUT', `/store/${reg.shopCode}/config`, { body: { items: [] } }), env)
     expect(res.status).toBe(401)
   })
 
   it('PIN設定店舗の config PUT はトークン付きなら 200', async () => {
-    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
     const res = await worker.fetch(makeReq('PUT', `/store/${reg.shopCode}/config`, { body: { items: [] }, token: reg.token }), env)
     expect(res.status).toBe(200)
     expect((await res.json()).ok).toBe(true)
@@ -481,7 +481,7 @@ describe('Worker ルーティング（特性テスト）', () => {
   })
 
   it('巨大な config PUT は 413', async () => {
-    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
     const res = await worker.fetch(makeReq('PUT', `/store/${reg.shopCode}/config`, {
       body: { blob: 'x'.repeat(1_100_000) }, token: reg.token,
     }), env)
@@ -489,21 +489,21 @@ describe('Worker ルーティング（特性テスト）', () => {
   })
 
   it('GET /store/:code/sessions はトークン無しだと 401', async () => {
-    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
     const res = await worker.fetch(makeReq('GET', `/store/${reg.shopCode}/sessions`), env)
     expect(res.status).toBe(401)
   })
 
   it('GET /store/:code/sessions はトークン付きなら 200 で配列を返す', async () => {
-    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
     const res = await worker.fetch(makeReq('GET', `/store/${reg.shopCode}/sessions`, { token: reg.token }), env)
     expect(res.status).toBe(200)
     expect(Array.isArray(await res.json())).toBe(true)
   })
 
   it('他店舗のトークンでは sessions にアクセスできない', async () => {
-    const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
-    const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '5678' } }), env)).json()
+    const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
+    const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '602947' } }), env)).json()
     const res = await worker.fetch(makeReq('GET', `/store/${a.shopCode}/sessions`, { token: b.token }), env)
     expect(res.status).toBe(401)
   })
@@ -514,33 +514,33 @@ describe('Worker ルーティング（特性テスト）', () => {
     const body  = { date: '2026-07-01', items: [{ item: 'A', qty: 1 }] }
 
     it('POST /imports/:batchId/sessions はトークン無しだと 401', async () => {
-      const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
       const res = await worker.fetch(makeReq('POST', `/store/${reg.shopCode}/imports/${BATCH}/sessions`, { body }), env)
       expect(res.status).toBe(401)
     })
 
     it('POST /imports/:batchId/sessions は他店舗のトークンでは 401', async () => {
-      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
-      const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '5678' } }), env)).json()
+      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
+      const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '602947' } }), env)).json()
       const res = await worker.fetch(makeReq('POST', `/store/${a.shopCode}/imports/${BATCH}/sessions`, { body, token: b.token }), env)
       expect(res.status).toBe(401)
     })
 
     it('DELETE /imports/:batchId はトークン無しだと 401', async () => {
-      const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
       const res = await worker.fetch(makeReq('DELETE', `/store/${reg.shopCode}/imports/${BATCH}`), env)
       expect(res.status).toBe(401)
     })
 
     it('DELETE /imports/:batchId は他店舗のトークンでは 401', async () => {
-      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
-      const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '5678' } }), env)).json()
+      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
+      const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '602947' } }), env)).json()
       const res = await worker.fetch(makeReq('DELETE', `/store/${a.shopCode}/imports/${BATCH}`, { token: b.token }), env)
       expect(res.status).toBe(401)
     })
 
     it('取込IDが64文字を超える経路は route に一致しない（404）', async () => {
-      const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
       const res = await worker.fetch(makeReq('DELETE', `/store/${reg.shopCode}/imports/${'a'.repeat(65)}`, { token: reg.token }), env)
       expect(res.status).toBe(404)
     })
@@ -552,21 +552,21 @@ describe('Worker ルーティング（特性テスト）', () => {
     const SID = '11111111-1111-4111-8111-111111111111'
 
     it('トークン無しは 401', async () => {
-      const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
       const res = await worker.fetch(makeReq('GET', `/store/${reg.shopCode}/sessions/${SID}/lines`), env)
       expect(res.status).toBe(401)
     })
 
     it('他店舗のトークンでは読めない（401）', async () => {
-      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
-      const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '5678' } }), env)).json()
+      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
+      const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '602947' } }), env)).json()
       const res = await worker.fetch(makeReq('GET', `/store/${a.shopCode}/sessions/${SID}/lines`, { token: b.token }), env)
       expect(res.status).toBe(401)
     })
 
     it('自店舗のトークンでも、他店舗のセッションIDなら 404 で明細を返さない', async () => {
-      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
-      const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '5678' } }), env)).json()
+      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
+      const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '602947' } }), env)).json()
       db._sessions.push({ id: SID, shop_code: a.shopCode, started_at: '2026-07-07T01:00:00Z', status: 'completed' })
       db._inventoryLines.push({
         session_id: SID, shop_code: a.shopCode, taken_at: '2026-07-07',
@@ -580,7 +580,7 @@ describe('Worker ルーティング（特性テスト）', () => {
     })
 
     it('自店舗のセッションなら 200 で明細を返す', async () => {
-      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
       db._sessions.push({
         id: SID, shop_code: a.shopCode, started_at: '2026-07-07T01:00:00Z',
         ended_at: '2026-07-07T02:00:00Z', status: 'completed', item_count: 1, total_value: 1500, type: 'stock',
@@ -601,8 +601,8 @@ describe('Worker ルーティング（特性テスト）', () => {
   })
 
   it('SEC-002: 他店舗のorder DELETEは404をHTTPへ伝播し、元データを残す', async () => {
-    const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
-    const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '5678' } }), env)).json()
+    const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
+    const b = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '602947' } }), env)).json()
     db._orders.push({ id: 'shared-order', shop_code: a.shopCode })
     db._orderLines.push({ order_id: 'shared-order', shop_code: a.shopCode })
 
@@ -618,7 +618,7 @@ describe('Worker ルーティング（特性テスト）', () => {
   // movement DELETE と history DELETE は 200 固定で返しており、
   // 「消せていない」ことが client 側で判定できなかった。
   describe('削除APIのHTTPステータス契約', () => {
-    async function reg(pin = '1234') {
+    async function reg(pin = '583920') {
       return (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin } }), env)).json()
     }
 
@@ -630,7 +630,7 @@ describe('Worker ルーティング（特性テスト）', () => {
     })
 
     it('他店舗の入出庫 DELETE も 404 で、元データを消さない', async () => {
-      const a = await reg('1234')
+      const a = await reg('583920')
       const b = await reg('5678')
       db._movements.push({ id: 'shared-move', shop_code: a.shopCode })
       db._movementLines.push({ movement_id: 'shared-move', shop_code: a.shopCode })
@@ -676,7 +676,7 @@ describe('Worker ルーティング（特性テスト）', () => {
     it('履歴 DELETE が失敗したら 503 を返し、成功として届けない', async () => {
       const failing = createMockD1({ failTables: ['store_history'] })
       const failEnv = { ...env, DB: failing }
-      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), failEnv)).json()
+      const a = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), failEnv)).json()
 
       const res = await worker.fetch(makeReq('DELETE', `/store/${a.shopCode}/history/sess-1`, { token: a.token }), failEnv)
       expect(res.status).toBe(503)
@@ -721,7 +721,7 @@ describe('総当たり対策（ルームプローブ・IPレート制限）', ()
   })
 
   it('存在する店舗コードのルームアクセスは DO に転送される', async () => {
-    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
     const res = await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status`), env)
     expect(res.status).toBe(200)
     expect(roomFetched).toBe(1)
@@ -729,7 +729,7 @@ describe('総当たり対策（ルームプローブ・IPレート制限）', ()
 
   it('最近の変更（recent）は、その店にログインしている端末にだけ渡す', async () => {
     env.ROOMS.get = () => ({ fetch: async () => new Response(JSON.stringify({ isActive: true, recent: [{ item: 'トマト', qty: 3 }] }), { status: 200 }) })
-    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
     const anon = await (await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status`), env)).json()
     expect(anon.isActive).toBe(true)
     expect(anon.recent).toBeUndefined()
@@ -740,7 +740,7 @@ describe('総当たり対策（ルームプローブ・IPレート制限）', ()
   it('sessionId（参加の鍵）は店舗コードだけでは読めない。ログイン端末か、同じIDを持つリンクにだけ返す', async () => {
     const sid = '6f1c2a3e-9b7d-4c1e-8a2f-0d5e4b3c2a10'
     env.ROOMS.get = () => ({ fetch: async () => new Response(JSON.stringify({ isActive: true, sessionId: sid }), { status: 200 }) })
-    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
     const anon = await (await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status`), env)).json()
     expect(anon.isActive).toBe(true)
     expect(anon.sessionId).toBeUndefined()
@@ -769,20 +769,20 @@ describe('総当たり対策（ルームプローブ・IPレート制限）', ()
     for (let i = 0; i < 30; i++) {
       await worker.fetch(makeReq('GET', '/room/ZZZZZZ/status', { ip: '203.0.113.9' }), env)
     }
-    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
     const res = await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status`, { ip: '198.51.100.2' }), env)
     expect(res.status).toBe(200)
   })
 
   it('ログイン失敗も IP 単位で記録され、上限超過で 429（店舗コード横断の総当たり対策）', async () => {
-    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
     for (let i = 0; i < 30; i++) {
       await worker.fetch(makeReq('POST', '/auth/login', {
         body: { shopCode: reg.shopCode, pin: '0000' }, ip: '203.0.113.9',
       }), env)
     }
     const res = await worker.fetch(makeReq('POST', '/auth/login', {
-      body: { shopCode: reg.shopCode, pin: '1234' }, ip: '203.0.113.9',
+      body: { shopCode: reg.shopCode, pin: '583920' }, ip: '203.0.113.9',
     }), env)
     expect(res.status).toBe(429)
   })
@@ -803,7 +803,7 @@ describe('障害境界（レート制限はfail-open、店舗認可はfail-close
   it('ip_attempts が無くてもルーム接続は通る（マイグレーション未適用事故の防御）', async () => {
     const db  = createMockD1({ failTables: ['ip_attempts'] })
     const env = makeEnv(db)
-    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
     const res = await worker.fetch(makeReq('GET', `/room/${reg.shopCode}/status`), env)
     expect(res.status).toBe(200)
   })
@@ -837,10 +837,10 @@ describe('障害境界（レート制限はfail-open、店舗認可はfail-close
   it('login_attempts / ip_attempts が無くても正しい PIN でログインできる', async () => {
     const db  = createMockD1()
     const env = makeEnv(db)
-    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
     db._failTables.push('login_attempts', 'ip_attempts')
     const res = await worker.fetch(makeReq('POST', '/auth/login', {
-      body: { shopCode: reg.shopCode, pin: '1234' },
+      body: { shopCode: reg.shopCode, pin: '583920' },
     }), env)
     expect(res.status).toBe(200)
     expect((await res.json()).token).toBeTruthy()
@@ -934,7 +934,7 @@ describe('S-E: 許可外 Origin のリクエストは 403', () => {
 describe('/pdf の廃止', () => {
   it('認証ありでも 404（サーバーで PDF を解析しない）', async () => {
     const db = createMockD1(); const env = { DB: db, ROOMS: { idFromName: () => 'x', get: () => null }, ALLOWED_ORIGIN: '' }
-    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '1234' } }), env)).json()
+    const reg = await (await worker.fetch(makeReq('POST', '/auth/register', { body: { pin: '583920' } }), env)).json()
     const res = await worker.fetch(new Request('https://api.test/pdf', {
       method: 'POST', headers: { Authorization: `Bearer ${reg.token}` }, body: new Uint8Array(1000),
     }), env)

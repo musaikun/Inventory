@@ -156,7 +156,7 @@ export async function handleAccountDelete(db, request, body = {}, purgeRooms) {
 
   const pin = typeof body?.pin === 'string' ? body.pin : ''
   const confirmation = typeof body?.confirmation === 'string' ? body.confirmation.trim() : ''
-  if (!/^\d{4}$/.test(pin) || !confirmation) {
+  if (!/^(\d{4}|\d{6})$/.test(pin) || !confirmation) {
     return { _status: 400, code: 'invalid_request', error: 'PINと店舗コードを確認してください' }
   }
 

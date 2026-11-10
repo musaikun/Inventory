@@ -26,7 +26,7 @@
 
 | 領域 | `develop@49227ff`の実装 | 公開前のknown gap |
 |---|---|---|
-| 認証 | `/auth/register`で4桁PINをPBKDF2保存し30日Bearerを発行。`/auth/login`成功時は同店舗の旧tokenを全失効。config/inventory/history/orders/movementsはPIN設定店舗で同店舗Bearer必須、sessions/pushはstrict Bearer。登録はIPごと1時間5回 | [SEC-005](quality-foundation/tasks/SEC-005.md): bot対策なし（IPレート制限と無認証legacy `/store/create`廃止は2026-10-08） |
+| 認証 | `/auth/register`で6桁の暗証番号（弱い並びは不可・D-036。以前の店は4桁のまま入れ、30日のうちに`/auth/pin`で6桁へ）をPBKDF2保存し30日Bearerを発行。`/auth/login`成功時は同店舗の旧tokenを全失効。config/inventory/history/orders/movementsはPIN設定店舗で同店舗Bearer必須、sessions/pushはstrict Bearer。登録はIPごと1時間5回 | [SEC-005](quality-foundation/tasks/SEC-005.md): bot対策なし（IPレート制限と無認証legacy `/store/create`廃止は2026-10-08） |
 | account削除 | `DELETE /auth/account`がBearer、現在PIN、店舗code完全一致、UUID requestIdを要求。棚卸/発注DOとR2品目写真をpurge後、0018までのD1業務dataとtokenを削除し、匿名receipt/tombstoneを7日保持。200後だけAppが業務data、端末ID/名、天気位置/cache、Push、authをlocalから消す | production migration、公開URL/canonical、実機確認はrelease前に再確認。[PLAY-002](quality-foundation/tasks/PLAY-002.md) / [WEB-001](quality-foundation/tasks/WEB-001.md) |
 | ホーム/画面 | 共通下部ナビはホーム・在庫・日誌・レポート・設定の5タブ（`HomeFooterNav.vue`。レポートは金額・レポート権限のある人だけ）。取り込み・スタッフはホームから開く。履歴はレポート先頭から開く独立画面。棚卸/発注/取込の作業中はナビを隠す | 375px、keyboard、実機でrelease candidateを再確認 |
 | 品目写真 | Appで一覧用128px正方形と拡大用長辺800pxへ圧縮し、`config.images`に参照を持つ。Workerの認証付きupload/deleteと非公開R2へ保存し、推測困難なIDを含む`/img`から表示する | production Worker/R2 binding、写真削除、URL共有範囲を実環境で確認。品目削除時の孤児R2 cleanupと共有結果への表示は未対応 |

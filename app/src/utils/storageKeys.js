@@ -36,6 +36,8 @@ export const STORAGE_KEYS = {
   authToken:        '_auth_token',
   authStoreName:    '_auth_store_name',
   authStaff:        '_auth_staff',      // スタッフとしてログインしているとき { id, name, role }（無ければオーナー）
+  pinPromptSnooze:  '_pin_prompt_snooze', // 暗証番号を6桁にの「あとで」を押した日（その日はもう出さない）
+  pinUpgrade:       '_auth_pin_upgrade', // オーナーの暗証番号を6桁へ { due, overdue }（4桁の店だけ・D-036）
   authOwnerName:    '_auth_owner_name', // オーナーの名前（店に1つ・どの端末でも同じ。2026-10-14）
   staffJoin:        '_staff_join',      // 参加を申請して承認を待っている { pendingKey, shopCode, storeName, name }
   deleteRequestId:  '_delete_account_request_id',  // アカウント削除の in-flight requestId（成功/中止で消す・再試行では同じ値）

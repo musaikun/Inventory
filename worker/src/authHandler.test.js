@@ -101,7 +101,7 @@ describe('authHandler', () => {
 
   // O-01 店舗の新規登録
   it('正常登録で6文字の店舗コードとトークンを発行する', async () => {
-    const res = await handleRegister(db, { storeName: 'テスト店', pin: '1234' })
+    const res = await handleRegister(db, { storeName: 'テスト店', pin: '583920' })
     expect(res.shopCode).toMatch(/^[A-Z]{6}$/)
     expect(res.token).toBeTruthy()
     expect(db._stores).toHaveLength(1)
@@ -109,30 +109,30 @@ describe('authHandler', () => {
   })
 
   it('登録・ログイン応答は新規店舗をトライアルなしのfreeとして返す', async () => {
-    const reg = await handleRegister(db, { pin: '1234' })
+    const reg = await handleRegister(db, { pin: '583920' })
     expect(reg.plan).toBe('free')
     expect(reg.inTrial).toBe(false)
     expect(reg.isPro).toBe(false)
     expect(reg.trialEndsAt).toBeNull()
 
-    const login = await handleLogin(db, { shopCode: reg.shopCode, pin: '1234' })
+    const login = await handleLogin(db, { shopCode: reg.shopCode, pin: '583920' })
     expect(login.isPro).toBe(false)
     expect(login.trialEndsAt).toBeNull()
   })
 
   it('Pro Reviewの新規店舗だけplan=proで保存し、再ログイン後もPROになる', async () => {
-    const reg = await handleRegister(db, { pin: '1234' }, { defaultPlan: 'pro' })
+    const reg = await handleRegister(db, { pin: '583920' }, { defaultPlan: 'pro' })
     expect(reg.plan).toBe('pro')
     expect(reg.isPro).toBe(true)
     expect(db._stores[0].plan).toBe('pro')
 
-    const login = await handleLogin(db, { shopCode: reg.shopCode, pin: '1234' })
+    const login = await handleLogin(db, { shopCode: reg.shopCode, pin: '583920' })
     expect(login.plan).toBe('pro')
     expect(login.isPro).toBe(true)
   })
 
   it('未知のdefaultPlanはfreeへ閉じる', async () => {
-    const reg = await handleRegister(db, { pin: '1234' }, { defaultPlan: 'enterprise' })
+    const reg = await handleRegister(db, { pin: '583920' }, { defaultPlan: 'enterprise' })
     expect(reg.plan).toBe('free')
     expect(reg.isPro).toBe(false)
   })
@@ -145,8 +145,8 @@ describe('authHandler', () => {
 
   // O-02 別端末からのログイン（単一ホストセッション: 旧トークンは失効）
   it('正しいPINでログインすると新トークンを発行し、旧トークンを無効化する', async () => {
-    const reg = await handleRegister(db, { pin: '1234' })
-    const res = await handleLogin(db, { shopCode: reg.shopCode, pin: '1234' })
+    const reg = await handleRegister(db, { pin: '583920' })
+    const res = await handleLogin(db, { shopCode: reg.shopCode, pin: '583920' })
     expect(res.token).toBeTruthy()
     expect(res.shopCode).toBe(reg.shopCode)
     // 単一セッション: 有効トークンは常に最新の1つだけ
@@ -157,7 +157,7 @@ describe('authHandler', () => {
   })
 
   it('生のまま保存していた旧トークンも、失効までは使え、ログアウトで消せる', async () => {
-    const reg = await handleRegister(db, { pin: '1234' })
+    const reg = await handleRegister(db, { pin: '583920' })
     db._tokens.push({ token: 'legacy-raw-token', shop_code: reg.shopCode, expires_at: new Date(Date.now() + 86_400_000).toISOString() })
     expect(await verifyAuth(db, reqWithToken('legacy-raw-token'))).toBe(reg.shopCode)
     await handleLogout(db, reqWithToken('legacy-raw-token'))
@@ -165,16 +165,16 @@ describe('authHandler', () => {
   })
 
   it('ハッシュそのものを Bearer に使っても通らない（漏れた DB の値では入れない）', async () => {
-    const reg = await handleRegister(db, { pin: '1234' })
+    const reg = await handleRegister(db, { pin: '583920' })
     expect(await verifyAuth(db, reqWithToken(await tokenHash(reg.token)))).toBeNull()
     expect(await verifyAuth(db, reqWithToken(reg.token))).toBe(reg.shopCode)
   })
 
   // 別端末ログインで前の端末のトークンが失効する（ホスト1台制限の核心）
   it('別端末でログインすると前の端末のトークンは verifyAuth で無効になる', async () => {
-    const reg = await handleRegister(db, { pin: '1234' })          // 端末A（登録）
+    const reg = await handleRegister(db, { pin: '583920' })          // 端末A（登録）
     expect(await verifyAuth(db, reqWithToken(reg.token))).toBe(reg.shopCode)
-    const login = await handleLogin(db, { shopCode: reg.shopCode, pin: '1234' }) // 端末B
+    const login = await handleLogin(db, { shopCode: reg.shopCode, pin: '583920' }) // 端末B
     // 端末A の旧トークンは失効、端末B の新トークンは有効
     expect(await verifyAuth(db, reqWithToken(reg.token))).toBeNull()
     expect(await verifyAuth(db, reqWithToken(login.token))).toBe(reg.shopCode)
@@ -182,7 +182,7 @@ describe('authHandler', () => {
 
   // O-03 誤PINの拒否
   it('誤ったPINは401を返しトークンを発行しない', async () => {
-    const reg = await handleRegister(db, { pin: '1234' })
+    const reg = await handleRegister(db, { pin: '583920' })
     const before = db._tokens.length
     const res = await handleLogin(db, { shopCode: reg.shopCode, pin: '9999' })
     expect(res._status).toBe(401)
@@ -190,13 +190,13 @@ describe('authHandler', () => {
   })
 
   it('存在しない店舗コードは401を返す', async () => {
-    const res = await handleLogin(db, { shopCode: 'ZZZZZZ', pin: '1234' })
+    const res = await handleLogin(db, { shopCode: 'ZZZZZZ', pin: '583920' })
     expect(res._status).toBe(401)
   })
 
   it('PINはPBKDF2＋ランダムsaltでハッシュされ、同一PINでもハッシュが衝突しない', async () => {
-    const a = await handleRegister(db, { pin: '1234' })
-    const b = await handleRegister(db, { pin: '1234' })
+    const a = await handleRegister(db, { pin: '583920' })
+    const b = await handleRegister(db, { pin: '583920' })
     const ha = db._stores.find(s => s.shop_code === a.shopCode).pin_hash
     const hb = db._stores.find(s => s.shop_code === b.shopCode).pin_hash
     expect(ha).toMatch(/^pbkdf2\$100000\$/)   // 新形式（PBKDF2）で保存される
@@ -211,9 +211,9 @@ describe('authHandler', () => {
       return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
     }
     const code = 'OLDSTR'
-    db._stores.push({ shop_code: code, store_name: null, pin_hash: await legacyHash(code, '1234') })
+    db._stores.push({ shop_code: code, store_name: null, pin_hash: await legacyHash(code, '583920') })
 
-    const res = await handleLogin(db, { shopCode: code, pin: '1234' })
+    const res = await handleLogin(db, { shopCode: code, pin: '583920' })
     expect(res.token).toBeTruthy()
     // ログイン成功でハッシュが PBKDF2 形式へ透過移行される
     expect(db._stores.find(s => s.shop_code === code).pin_hash).toMatch(/^pbkdf2\$/)
@@ -225,7 +225,7 @@ describe('authHandler', () => {
       return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
     }
     const code = 'OLDST2'
-    const original = await legacyHash(code, '1234')
+    const original = await legacyHash(code, '583920')
     db._stores.push({ shop_code: code, store_name: null, pin_hash: original })
 
     const res = await handleLogin(db, { shopCode: code, pin: '9999' })
@@ -235,13 +235,13 @@ describe('authHandler', () => {
 
   // verifyAuth
   it('有効なトークンは shopCode を返す', async () => {
-    const reg = await handleRegister(db, { pin: '1234' })
+    const reg = await handleRegister(db, { pin: '583920' })
     const code = await verifyAuth(db, reqWithToken(reg.token))
     expect(code).toBe(reg.shopCode)
   })
 
   it('無効なトークンは null を返す', async () => {
-    await handleRegister(db, { pin: '1234' })
+    await handleRegister(db, { pin: '583920' })
     expect(await verifyAuth(db, reqWithToken('deadbeef'))).toBeNull()
   })
 
@@ -251,35 +251,35 @@ describe('authHandler', () => {
   })
 
   it('期限切れトークンは null を返す', async () => {
-    const reg = await handleRegister(db, { pin: '1234' })
+    const reg = await handleRegister(db, { pin: '583920' })
     // モック内のトークンを過去に失効させる
     db._tokens[0].expires_at = new Date(Date.now() - 1000).toISOString()
     expect(await verifyAuth(db, reqWithToken(reg.token))).toBeNull()
   })
 
   it('削除pendingになった店舗の既存トークンは即時無効になる', async () => {
-    const reg = await handleRegister(db, { pin: '1234' })
+    const reg = await handleRegister(db, { pin: '583920' })
     db._stores[0].deletion_pending_at = new Date().toISOString()
     expect(await verifyAuth(db, reqWithToken(reg.token))).toBeNull()
   })
 
   it('削除済み店舗は正しいPINでもログインできない', async () => {
-    const reg = await handleRegister(db, { pin: '1234' })
+    const reg = await handleRegister(db, { pin: '583920' })
     db._stores[0].deleted_at = new Date().toISOString()
-    const response = await handleLogin(db, { shopCode: reg.shopCode, pin: '1234' })
+    const response = await handleLogin(db, { shopCode: reg.shopCode, pin: '583920' })
     expect(response._status).toBe(401)
   })
 
   // ログアウト
   it('ログアウト後はトークンが無効化される', async () => {
-    const reg = await handleRegister(db, { pin: '1234' })
+    const reg = await handleRegister(db, { pin: '583920' })
     await handleLogout(db, reqWithToken(reg.token))
     expect(await verifyAuth(db, reqWithToken(reg.token))).toBeNull()
   })
 
   // ── 総当たり対策（ログイン回数制限）─────────────────────────────────────────
   it('PINを5回間違えると6回目は429でブロックされる', async () => {
-    const reg = await handleRegister(db, { pin: '1234' })
+    const reg = await handleRegister(db, { pin: '583920' })
     for (let i = 0; i < 5; i++) {
       const r = await handleLogin(db, { shopCode: reg.shopCode, pin: '0000' })
       expect(r._status).toBe(401)
@@ -289,36 +289,36 @@ describe('authHandler', () => {
   })
 
   it('ブロック中は正しいPINでも429（解除は時間経過のみ）', async () => {
-    const reg = await handleRegister(db, { pin: '1234' })
+    const reg = await handleRegister(db, { pin: '583920' })
     for (let i = 0; i < 5; i++) await handleLogin(db, { shopCode: reg.shopCode, pin: '0000' })
-    const res = await handleLogin(db, { shopCode: reg.shopCode, pin: '1234' })
+    const res = await handleLogin(db, { shopCode: reg.shopCode, pin: '583920' })
     expect(res._status).toBe(429)
   })
 
   it('ログイン成功で失敗履歴がクリアされる', async () => {
-    const reg = await handleRegister(db, { pin: '1234' })
+    const reg = await handleRegister(db, { pin: '583920' })
     await handleLogin(db, { shopCode: reg.shopCode, pin: '0000' })
     await handleLogin(db, { shopCode: reg.shopCode, pin: '0000' })
-    const ok = await handleLogin(db, { shopCode: reg.shopCode, pin: '1234' })
+    const ok = await handleLogin(db, { shopCode: reg.shopCode, pin: '583920' })
     expect(ok.token).toBeTruthy()
     expect(db._attempts.filter(a => a.shop_code === reg.shopCode)).toHaveLength(0)
   })
 
   // ── 後方互換ソフト認証（verifyStoreAccess）──────────────────────────────────
   it('PIN設定店舗は有効トークンがあればアクセス許可', async () => {
-    const reg = await handleRegister(db, { pin: '1234' })
+    const reg = await handleRegister(db, { pin: '583920' })
     expect(await verifyStoreAccess(db, reg.shopCode, reqWithToken(reg.token))).toBe(true)
   })
 
   it('PIN設定店舗はトークン無しならアクセス拒否', async () => {
-    const reg = await handleRegister(db, { pin: '1234' })
+    const reg = await handleRegister(db, { pin: '583920' })
     const noTokenReq = { headers: { get: () => null } }
     expect(await verifyStoreAccess(db, reg.shopCode, noTokenReq)).toBe(false)
   })
 
   it('PIN設定店舗は別店舗のトークンではアクセス拒否', async () => {
-    const a = await handleRegister(db, { pin: '1234' })
-    const b = await handleRegister(db, { pin: '5678' })
+    const a = await handleRegister(db, { pin: '583920' })
+    const b = await handleRegister(db, { pin: '602947' })
     expect(await verifyStoreAccess(db, a.shopCode, reqWithToken(b.token))).toBe(false)
   })
 

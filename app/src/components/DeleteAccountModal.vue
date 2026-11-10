@@ -60,7 +60,7 @@ const pinRef   = ref(null)
 const sheetRef = ref(null)
 
 const busy = computed(() => phase.value === 'deleting')
-const canSubmit = computed(() => /^\d{4}$/.test(pin.value) && confirmVal.value === targetShop)
+const canSubmit = computed(() => /^(\d{4}|\d{6})$/.test(pin.value) && confirmVal.value === targetShop)
 
 // ESC: 処理中と完了後は閉じない（誤操作・二重操作の防止）
 useEscapeKey(() => { if (phase.value !== 'deleting' && phase.value !== 'done') requestClose() })
@@ -88,7 +88,7 @@ watch(phase, (p) => {
 })
 
 function onPinInput(e) {
-  const v = e.target.value.replace(/\D/g, '').slice(0, 4)
+  const v = e.target.value.replace(/\D/g, '').slice(0, 6)
   e.target.value = v
   pin.value = v
 }
@@ -100,7 +100,7 @@ function onConfirmInput(e) {
 
 function goConfirm() {
   formError.value = ''
-  if (!/^\d{4}$/.test(pin.value)) { formError.value = 'PINは4桁の数字で入力してください'; return }
+  if (!/^(\d{4}|\d{6})$/.test(pin.value)) { formError.value = '暗証番号は6桁（まだ変えていない店は4桁）の数字で入力してください'; return }
   if (confirmVal.value !== targetShop) { formError.value = '店舗コードが一致しません'; return }
   phase.value = 'confirm'
 }
@@ -243,7 +243,7 @@ function onOverlay() {
           <p class="da-warn-note">削除後は同じ店舗コードでログインできなくなります。</p>
         </div>
 
-        <label class="da-label" for="da-pin">現在の PIN（4桁）</label>
+        <label class="da-label" for="da-pin">今の暗証番号（6桁・まだ変えていない店は4桁）</label>
         <PasswordReveal v-slot="{ type }">
           <input
             id="da-pin"
@@ -251,10 +251,10 @@ function onOverlay() {
             :type="type"
             inputmode="numeric"
             class="da-input"
-            placeholder="●●●●"
+            placeholder="●●●●●●"
             :value="pin"
             @input="onPinInput"
-            maxlength="4"
+            maxlength="6"
             autocomplete="off"
           />
         </PasswordReveal>

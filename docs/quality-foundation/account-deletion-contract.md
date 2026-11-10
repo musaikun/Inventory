@@ -34,7 +34,7 @@ Body:
 ```
 
 - `requestId`: 削除画面を開いた時点で1回だけ生成し、再試行でも同じ値を使う。
-- `pin`: 現在の4桁PIN（店舗のPIN）。Bearer tokenだけでは削除しない。
+- `pin`: 今のオーナーの暗証番号（6桁。まだ変えていない店は4桁・D-036）。Bearer tokenだけでは削除しない。
 - **削除できるのはオーナーだけ**（D-031）。スタッフのtoken（`auth_tokens.staff_id`あり。管理者を含む）は、
   店舗PINが合っても`403 owner_only`で断り、PIN失敗にも数えない。Appもオーナー以外には削除ボタンを出さない。
 - `confirmation`: 認証tokenの店舗codeを大文字のままcase-sensitiveで完全一致させる。

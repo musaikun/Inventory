@@ -1,7 +1,8 @@
 // ── 認証（店舗アカウント登録・ログイン・トークン検証）────────────────────────
 
 import { _now, genUniqueShopCode } from './workerUtils.js'
-import { LOGIN_WINDOW_MS, LOGIN_MAX_FAILS, TOKEN_EXPIRY_MS, MAX_STORE_NAME_LEN, PBKDF2_ITERATIONS } from './constants.js'
+import { LOGIN_WINDOW_MS, LOGIN_MAX_FAILS, TOKEN_EXPIRY_MS, MAX_STORE_NAME_LEN, PBKDF2_ITERATIONS, OWNER_PIN_DIGITS, PIN_UPGRADE_DAYS } from './constants.js'
+import { pinProblem } from './staffHandler.js'
 import { entitlement } from './entitlements.js'
 
 // ── PIN ハッシュ（PBKDF2・ランダムsalt）─────────────────────────────────────────
@@ -83,9 +84,11 @@ export function extractBearerToken(request) {
 // POST /auth/register  body: { storeName?, pin }
 // defaultPlan='pro' は分離されたPro Review Workerだけで指定する。
 export async function handleRegister(db, body, { defaultPlan = 'free' } = {}) {
-  const pin       = String(body.pin ?? '').replace(/\D/g, '').slice(0, 4)
+  // 暗証番号は6桁（スタッフと同じ決まり・D-036。以前は4桁）
+  const pin       = String(body.pin ?? '').replace(/\D/g, '')
   const storeName = String(body.storeName ?? '').trim().slice(0, MAX_STORE_NAME_LEN)
-  if (pin.length !== 4) return { _status: 400, error: 'PINは4桁の数字で入力してください' }
+  const bad = pinProblem(pin)
+  if (bad) return { _status: 400, code: 'invalid_pin', error: bad }
 
   const code    = await genUniqueShopCode(db)
   const pinHash = await _hashPin(pin)
@@ -102,6 +105,7 @@ export async function handleRegister(db, body, { defaultPlan = 'free' } = {}) {
     'INSERT INTO auth_tokens (token, shop_code, expires_at, created_at) VALUES (?, ?, ?, ?)'
   ).bind(await tokenHash(token), code, expires, now).run()
 
+  await _setPinDigits(db, code, pin.length, null)
   return { shopCode: code, token, storeName: storeName || null, ...entitlement({ plan }) }
 }
 
@@ -116,9 +120,9 @@ export async function handleLogin(db, body) {
 
   if (!store)           return { _status: 401, error: '店舗コードが見つかりません' }
   if (store.deleted_at || store.deletion_pending_at) {
-    return { _status: 401, error: '店舗コードまたはPINを確認してください' }
+    return { _status: 401, error: '店舗コードまたは暗証番号を確認してください' }
   }
-  if (!store.pin_hash)  return { _status: 401, error: 'このアカウントはPINが未設定です。新規登録してください。' }
+  if (!store.pin_hash)  return { _status: 401, error: 'このアカウントは暗証番号が未設定です。新規登録してください。' }
 
   // 直近の失敗回数が上限を超えていたらブロック（正しいPINでも429）
   // フェイルオープン: login_attempts が読めなくてもログイン自体は止めない
@@ -139,7 +143,7 @@ export async function handleLogin(db, body) {
     await db.prepare('INSERT INTO login_attempts (shop_code, attempted_at) VALUES (?, ?)')
       .bind(shopCode, _now()).run().catch(e =>
         console.error('[auth] login_attempts insert failed (fail-open):', e?.message ?? e))
-    return { _status: 401, error: 'PINが正しくありません' }
+    return { _status: 401, error: '暗証番号が正しくありません' }
   }
 
   // 透過移行: 旧 SHA-256 / 低反復のハッシュを現行 PBKDF2 へ更新する（失敗しても続行）
@@ -170,7 +174,77 @@ export async function handleLogin(db, body) {
     'INSERT INTO auth_tokens (token, shop_code, expires_at, created_at) VALUES (?, ?, ?, ?)'
   ).bind(await tokenHash(token), shopCode, expires, now).run()
 
-  return { token, shopCode, storeName: store.store_name ?? null, ...entitlement(store) }
+  return { token, shopCode, storeName: store.store_name ?? null, ...entitlement(store), ...await _pinUpgradeOnLogin(db, shopCode, pin) }
+}
+
+// ── 暗証番号の桁数（D-036・migration 0037）────────────────────────────────────
+// 列が無い（migration 前）でもログイン・登録は止めない（読み書きに失敗したら何もしない）
+async function _setPinDigits(db, code, digits, due) {
+  try {
+    await db.prepare('UPDATE stores SET pin_digits = ?, pin_upgrade_due = ? WHERE shop_code = ?').bind(digits, due, code).run()
+  } catch (e) { console.error('[auth] pin_digits update failed (fail-open):', e?.message ?? e) }
+}
+/** { due, overdue } … 6桁に変える期限。6桁なら null */
+export function pinUpgradeInfo(row, now = Date.now()) {
+  const digits = row?.pin_digits ?? 4   // 列より前の店は4桁
+  if (digits >= OWNER_PIN_DIGITS) return null
+  const due = row?.pin_upgrade_due || null
+  return { due, overdue: !!due && Date.parse(due) <= now }
+}
+// 4桁でログインしたら、期限が無ければ今から30日で入れる。6桁でログインしたら6桁と覚える
+async function _pinUpgradeOnLogin(db, code, pin) {
+  try {
+    if (pin.length >= OWNER_PIN_DIGITS) {
+      await db.prepare('UPDATE stores SET pin_digits = ?, pin_upgrade_due = NULL WHERE shop_code = ? AND (pin_digits IS NULL OR pin_digits <> ?)').bind(pin.length, code, pin.length).run()
+      return { pinUpgrade: null }
+    }
+    const row = await db.prepare('SELECT pin_digits, pin_upgrade_due FROM stores WHERE shop_code = ?').bind(code).first()
+    let due = row?.pin_upgrade_due
+    if (!due) {
+      due = new Date(Date.now() + PIN_UPGRADE_DAYS * 86400_000).toISOString()
+      await db.prepare('UPDATE stores SET pin_digits = ?, pin_upgrade_due = ? WHERE shop_code = ?').bind(pin.length, due, code).run()
+    }
+    return { pinUpgrade: pinUpgradeInfo({ pin_digits: pin.length, pin_upgrade_due: due }) }
+  } catch (e) {
+    console.error('[auth] pin upgrade check failed (fail-open):', e?.message ?? e)
+    return {}
+  }
+}
+
+/**
+ * POST /auth/pin  body: { currentPin, newPin } … オーナーが自分の暗証番号を変える（D-036）。
+ * 今の番号を確かめる（間違いはログインと同じ回数制限に数える）。新しい番号は6桁・弱い並びは不可。
+ * 他の端末のログインは切らない（オーナーのトークンは1つだけなので、いまの端末がそのまま使える）
+ */
+export async function handlePinChange(db, request, body) {
+  const token = extractBearerToken(request)
+  if (!token) return { _status: 401, error: '認証が必要です' }
+  const row = await db.prepare(
+    "SELECT shop_code, staff_id FROM auth_tokens WHERE token IN (?, ?) AND expires_at > datetime('now')"
+  ).bind(...await tokenKeys(token)).first()
+  if (!row?.shop_code) return { _status: 401, error: '認証が必要です' }
+  if (row.staff_id) return { _status: 403, code: 'forbidden', error: 'オーナーの暗証番号を変えられるのはオーナーだけです' }
+  const code = row.shop_code
+  const currentPin = String(body?.currentPin ?? '').replace(/\D/g, '')
+  const newPin     = String(body?.newPin ?? '').replace(/\D/g, '')
+  const bad = pinProblem(newPin)
+  if (bad) return { _status: 400, code: 'invalid_pin', error: bad }
+  if (newPin === currentPin) return { _status: 400, code: 'same_pin', error: '今と同じ暗証番号です' }
+  try {
+    const since = new Date(Date.now() - LOGIN_WINDOW_MS).toISOString()
+    const fails = await db.prepare('SELECT COUNT(*) AS n FROM login_attempts WHERE shop_code = ? AND attempted_at > ?').bind(code, since).first()
+    if ((fails?.n ?? 0) >= LOGIN_MAX_FAILS) return { _status: 429, error: '間違いが多すぎます。15分ほど待ってから再度お試しください' }
+  } catch (e) { console.error('[auth] login_attempts check failed (fail-open):', e?.message ?? e) }
+  const store = await db.prepare('SELECT pin_hash, deleted_at, deletion_pending_at FROM stores WHERE shop_code = ?').bind(code).first()
+  if (!store || store.deleted_at || store.deletion_pending_at) return { _status: 401, error: '認証が必要です' }
+  const { ok } = await verifyPinHash(code, currentPin, store.pin_hash)
+  if (!ok) {
+    await db.prepare('INSERT INTO login_attempts (shop_code, attempted_at) VALUES (?, ?)').bind(code, _now()).run().catch(() => {})
+    return { _status: 401, code: 'wrong_pin', error: '今の暗証番号が正しくありません' }
+  }
+  await db.prepare('UPDATE stores SET pin_hash = ?, updated_at = ? WHERE shop_code = ?').bind(await _hashPin(newPin), _now(), code).run()
+  await _setPinDigits(db, code, newPin.length, null)
+  return { ok: true, pinUpgrade: null }
 }
 
 // POST /auth/logout

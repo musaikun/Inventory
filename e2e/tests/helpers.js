@@ -1,7 +1,7 @@
 // 画面操作の共通手順。文言で探す（ユーザーが見ているものと同じ物を押す）。
 import { expect } from '@playwright/test'
 
-export const PIN = '1234'
+export const PIN = '583920'   // オーナーの暗証番号は6桁（D-036）
 
 /** confirm() は自動で OK。出た文言は記録して、テストから確かめられるようにする */
 export function acceptDialogs(page) {
@@ -16,7 +16,7 @@ export async function registerStore(page, storeName = 'E2E店') {
   await page.getByText('ログイン・店舗の登録').click()
   await page.getByRole('button', { name: '新規登録' }).click()
   await page.getByPlaceholder('例：渋谷カフェ').fill(storeName)
-  const pins = page.getByPlaceholder('●●●●', { exact: true })
+  const pins = page.getByPlaceholder('●●●●●●', { exact: true })
   await pins.nth(0).fill(PIN)
   await pins.nth(1).fill(PIN)
   await page.getByRole('button', { name: '登録して店舗コードを発行' }).click()
@@ -32,7 +32,7 @@ export async function login(page, code, pin = PIN) {
   await page.goto('/')
   await page.getByText('ログイン・店舗の登録').click()
   await page.getByPlaceholder('例：ABCDEF').first().fill(code)
-  await page.getByPlaceholder('●●●●', { exact: true }).first().fill(pin)
+  await page.getByPlaceholder('●●●●●●', { exact: true }).first().fill(pin)
   await page.getByRole('button', { name: /ログイン/ }).last().click()
 }
 
