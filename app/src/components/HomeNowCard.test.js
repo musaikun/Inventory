@@ -16,6 +16,15 @@ beforeEach(() => { localStorage.clear(); vi.resetModules(); localStorage.setItem
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null })
 
 describe('店の今', () => {
+  it('進行中の最終日は「本日まで」（今日のやることには出さない・User 2026-11-11）', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
+    const T = await import('../composables/useTasks.js')
+    const d = localDateKey(), y = new Date(); y.setDate(y.getDate() - 3)
+    T.addTask(localDateKey(y), '見積もりの返事', null, null, { progress: 'doing', deadline: d })
+    await mount()
+    expect(host.querySelector('.hn-pt em.d').textContent).toBe('本日まで')
+    expect(host.querySelector('.hn-pm .last').textContent).toBe('本日まで')
+  })
   it('出すものが無ければカードごと出さない', async () => {
     await mount()
     expect(host.querySelector('.hn')).toBeNull()
