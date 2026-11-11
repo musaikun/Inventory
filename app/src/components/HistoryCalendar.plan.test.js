@@ -65,7 +65,7 @@ describe('日別メモ（日誌のその日のタイムラインで書く。以�
     return host
   }
   async function openMemo(root) {
-    ;(root.querySelector('.dt [aria-label="メモ"]') || root.querySelector('.dt-ad.note .dt-ct')).dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    root.querySelector('.dt-ad.note .dt-ct').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     for (let i = 0; i < 3; i++) await nextTick()
     return document.querySelector('.jp-sheet')
   }
@@ -77,21 +77,39 @@ describe('日別メモ（日誌のその日のタイムラインで書く。以�
     ;[...sheet.querySelectorAll('button')].find(b => b.textContent.trim() === '保存').click()
     for (let i = 0; i < 3; i++) await nextTick()
   }
+  const seed = notes => localStorage.setItem(STORAGE_KEYS.dayNotes, JSON.stringify(notes))
 
-  it('定型チップは置かず、自由記述と学習除外だけにする', async () => {
-    const sheet = await openMemo(await mountDay('2026-09-15'))
+  it('見出しにメモのボタンは無い（新しくは書かない・User決定 2026-11-11）。前のメモは終日の行から開き、定型チップは無い', async () => {
+    seed({ '2026-09-15': { text: '近隣で花火大会', tags: [], excluded: false } })
+    const root = await mountDay('2026-09-15')
+    expect(root.querySelector('.dt-h [aria-label="メモ"]')).toBeNull()
+    const sheet = await openMemo(root)
     for (const t of ['貸切', 'イベント', 'メニュー変更', '悪天候', '仕込み過多']) {
       expect([...sheet.querySelectorAll('button')].some(b => b.textContent.trim() === t)).toBe(false)
     }
-    expect(sheet.querySelector('.jp-memo')).not.toBeNull()
+    expect(sheet.querySelector('.jp-memo').value).toBe('近隣で花火大会')
     expect(sheet.querySelector('.jp-excl input[type=checkbox]')).not.toBeNull()
   })
 
-  it('新しいメモには本文を保存し、タグは追加しない', async () => {
-    await write(await openMemo(await mountDay('2026-09-15')), '近隣で花火大会')
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.dayNotes))
-    expect(saved['2026-09-15'].text).toBe('近隣で花火大会')
-    expect(saved['2026-09-15'].tags).toEqual([])
+  it('メモは消せる（本文も発注の見込みから外す印も）', async () => {
+    seed({ '2026-09-15': { text: '貸切', tags: ['貸切'], excluded: true }, '2026-09-16': { text: '', tags: [], excluded: true } })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    let root = await mountDay('2026-09-15')
+    let sheet = await openMemo(root)
+    ;[...sheet.querySelectorAll('button')].find(b => b.textContent.trim() === 'このメモを消す').click()
+    for (let i = 0; i < 3; i++) await nextTick()
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.dayNotes))['2026-09-15']).toBeUndefined()
+    expect(root.querySelector('.dt-ad.note')).toBeNull()
+    expect(document.querySelector('.jp-sheet')).toBeNull()
+    // 本文が無く印だけの日も、行に出て消せる
+    app.unmount(); host.remove()
+    root = await mountDay('2026-09-16')
+    expect(root.querySelector('.dt-ad.note').textContent).toContain('発注の見込みから外した日')
+    sheet = await openMemo(root)
+    ;[...sheet.querySelectorAll('button')].find(b => b.textContent.trim() === 'このメモを消す').click()
+    for (let i = 0; i < 3; i++) await nextTick()
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.dayNotes))['2026-09-16']).toBeUndefined()
+    confirm.mockRestore()
   })
 
   it('既存メモを書き直しても以前のタグと学習除外を失わない', async () => {

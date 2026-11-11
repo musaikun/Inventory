@@ -274,24 +274,21 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     expect([...dt.querySelectorAll('.dt-ad.missed')].map(x => x.textContent).join()).toContain('見積もりの返事')
   })
 
-  it('メモ: その日のメモを書く（発注の見込みから外す印も）。月のマスに札、タイムラインの終日に出る', async () => {
+  it('メモ: 見出しから新しくは書かない。前のメモは月のマスに札、終日の行から直す（User決定 2026-11-11）', async () => {
     const { localDateKey } = await import('../utils/localDate.js')
     const { STORAGE_KEYS } = await import('../utils/storageKeys.js')
     const today = localDateKey()
+    localStorage.setItem(STORAGE_KEYS.dayNotes, JSON.stringify({ [today]: { text: '近隣で花火大会', tags: [], excluded: false } }))
     const { default: JournalPage } = await import('./JournalPage.vue')
     await mount(JournalPage)
+    expect(host.querySelector(`.jm-c[aria-label^="${today}"] .tag.plan`).textContent).toBe('近隣で花火大会')
     await openDay(today)
-    await click(host.querySelector('.dt [aria-label="メモ"]'))
+    expect(host.querySelector('.dt [aria-label="メモ"]')).toBeNull()
+    await click(host.querySelector('.dt-ad.note .dt-ct'))
     const sheet = document.body.querySelector('.jp-sheet')
-    for (const t of ['貸切', 'イベント', 'メニュー変更']) expect([...sheet.querySelectorAll('button')].some(b => b.textContent.trim() === t)).toBe(false)
-    const ta = sheet.querySelector('.jp-memo')
-    ta.value = '近隣で花火大会'; ta.dispatchEvent(new Event('input')); await tick()
     const ex = sheet.querySelector('.jp-excl input'); ex.checked = true; ex.dispatchEvent(new Event('change')); await tick()
     await click(btn('保存', sheet))
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.dayNotes))
-    expect(saved[today]).toEqual({ text: '近隣で花火大会', tags: [], excluded: true })
-    expect(host.querySelector('.dt-ad.note').textContent).toContain('近隣で花火大会')
-    expect(host.querySelector(`.jm-c[aria-label^="${today}"] .tag.plan`).textContent).toBe('近隣で花火大会')
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.dayNotes))[today]).toEqual({ text: '近隣で花火大会', tags: [], excluded: true })
   })
 
   it('発注スケジュール（発注日の予定）はカレンダーにもタイムラインにも出さない', async () => {

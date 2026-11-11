@@ -23,7 +23,7 @@ const props = defineProps({
   closed: { type: Boolean, default: false },
   initialView: { type: String, default: '' },   // 'board' | 'list'。外から頼まれた見せ方（好みとしては残さない）
 })
-const emit = defineEmits(['close', 'step', 'add', 'open', 'check', 'memo', 'add-at', 'move', 'place'])
+const emit = defineEmits(['close', 'step', 'add', 'open', 'check', 'add-at', 'move', 'place'])
 // 見せ方: 予定ボード（予約台帳の形・既定・User決定 2026-11-05）か、今までのタイムライン（一覧）。端末ごとに覚える
 const _view0 = (() => { try { return localStorage.getItem(STORAGE_KEYS.journalView) === 'list' ? 'list' : 'board' } catch (_) { return 'board' } })()
 const view = ref(['board', 'list'].includes(props.initialView) ? props.initialView : _view0)
@@ -91,9 +91,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
         <div><b>{{ d.getMonth() + 1 }}月{{ d.getDate() }}日</b><span>（{{ WEEK[d.getDay()] }}）</span></div>
         <small>{{ closed ? '休み' : sub }}</small>
       </div>
-      <button v-if="!tl.allDay.some(x => x.ref.type === 'note')" type="button" class="dt-b sm" aria-label="メモ" @click="emit('memo')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg>
-      </button>
+      <!-- 見出しのメモ（鉛筆）はやめた。前に書いたメモは終日の行から開いて直す・消す（User決定 2026-11-11） -->
       <span v-if="tl.count" class="dt-ring" :style="{ background: `conic-gradient(${ringColor} 0 ${pct}%, #e3ecef 0)` }"><i>{{ tl.done }}/{{ tl.count }}</i></span>
       <button type="button" class="dt-b sm" aria-label="前の日" @click="emit('step', -1)">‹</button>
       <button type="button" class="dt-b sm" aria-label="次の日" @click="emit('step', 1)">›</button>

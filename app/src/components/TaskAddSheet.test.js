@@ -345,3 +345,22 @@ describe('＋で定期を作るとき、時刻はいくつでも', () => {
     expect(saveChecklistToD1).toHaveBeenLastCalledWith(expect.objectContaining({ name: '冷蔵庫の温度', repeat: 'daily', dueTimes: ['08:00', '16:30'] }))
   })
 })
+
+describe('子タスク（User決定 2026-11-11）', () => {
+  it('子タスクは消せる。「チェック表から」のボタンは無い', async () => {
+    await seedTemplates([{ id: 'tp1', kind: 'checklist', name: '閉店チェック', data: { items: [{ text: 'ガス' }] } }])
+    const { localDateKey } = await import('../utils/localDate.js')
+    const T = await import('../composables/useTasks.js')
+    T.addTask(localDateKey(), '換気扇の掃除', null, null, { steps: [{ text: '業者に聞く' }, { text: '見積もり' }] })
+    const { default: Journal } = await import('./JournalPage.vue')
+    await mount(Journal)
+    await click(host.querySelector(`.jm-c[aria-label^="${localDateKey()}"]`))
+    const ad = [...host.querySelectorAll('.dt-ad')].find(x => x.textContent.includes('換気扇の掃除'))
+    await click(ad.querySelector('.dt-ct'))
+    const sh = document.body.querySelector('.jp-sheet')
+    expect(btn('チェック表から', sh)).toBeUndefined()
+    await click(sh.querySelector('[aria-label="業者に聞くを消す"]'))
+    expect(T.aliveTasks.value.find(x => x.text === '換気扇の掃除').steps.map(x => x.text)).toEqual(['見積もり'])
+    expect(sh.textContent).not.toContain('業者に聞く')
+  })
+})
