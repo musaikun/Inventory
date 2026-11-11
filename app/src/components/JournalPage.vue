@@ -36,7 +36,7 @@ import CopyDatesSheet from './CopyDatesSheet.vue'
 import { addTemplate, canAddTemplate, pullTemplates } from '../composables/useTemplates.js'
 import { pullChecklists, checklists, checklistsForDay, saveChecklist, newItemId, markChecklistItem, canMarkChecklist, canUnmark } from '../composables/useChecklists.js'
 import { monthDaysLabel, isSimple, WHOLE } from '../services/checklistSchedule.js'
-import { tasksOn, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, editTask, setTaskAssign, TASK_TEXT_MAX, TASK_NOTE_MAX, dueProgress, toggleTask, canToggleTask, canEditTask, canNoteTask, setTaskNote, startTask, canProgress, canRemoveTask, removeTask, aliveTasks, progressTasks, isStale } from '../composables/useTasks.js'
+import { tasksOn, eventsOn, isEvent, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, editTask, setTaskAssign, TASK_TEXT_MAX, TASK_NOTE_MAX, dueProgress, toggleTask, canToggleTask, canEditTask, canNoteTask, setTaskNote, startTask, canProgress, canRemoveTask, removeTask, aliveTasks, progressTasks, isStale } from '../composables/useTasks.js'
 import { can, staffNames, loadStaffNames, getSessions, isAdmin } from '../composables/useAuth.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
@@ -121,6 +121,8 @@ function dayInfo(d) {
     : total && done === total ? 'y' : planned ? 'f' : ''
   const fut = d > today
   const tags = []
+  // イベントは先に（細い札・数には入れない・User 2026-11-11）
+  for (const e of eventsOn(d)) tags.push({ label: e.text.slice(0, 8), kind: 'event' })
   if (stockDays.value.has(d) || (d === today && props.activeSession)) tags.push({ label: '棚卸', kind: 'stock' })
   // 発注スケジュール（発注日の予定）はカレンダーに出さない（User決定 2026-10-26）。実際にした発注だけ
   if (orderDays.value.has(d) || (d === today && props.activeOrderSession)) tags.push({ label: '発注', kind: 'order' })
@@ -142,7 +144,7 @@ const timeline = computed(() => {
   return buildDayTimeline({
     date: d, today, tasks: _plain(d), lists: checklistsForDay(d), records: recordsOn(d), live,
     late: isToday ? overdueTasks(today) : [], carry: isToday ? carriedTasks(today) : [], progress: isToday ? dueProgress(today) : progressOn(d),
-    note: _noteText(d), someday: isToday ? somedayTasks.value : [],
+    note: _noteText(d), someday: isToday ? somedayTasks.value : [], events: eventsOn(d),
   })
 })
 const picked = ref(null)     // 直す: やること1件（TaskRow を出す）
@@ -213,7 +215,8 @@ function _openOutside(it) {
 onMounted(() => _openOutside(_item0))
 function openItem(x) {
   const r = x.ref
-  if (r.type === 'task') picked.value = r.task
+  if (r.type === 'task' && isEvent(r.task)) addSheet.value = { editEvent: r.task }
+  else if (r.type === 'task') picked.value = r.task
   else if (r.type === 'progress') progOpen.value = r.task
   else if (r.type === 'list') clRun.value = { cl: r.run.cl, date: r.run.date, slot: r.run.slot }
   else if (r.type === 'record' && r.rec.kind === 'stock') emit('viewSession', r.rec.session)
@@ -237,7 +240,8 @@ onUnmounted(registerInnerLayerCloser(() => {
 // ── 追加（＋）: ただ1つの入口（TaskAddSheet・種類は入れた中身で決まる・User決定 2026-11-07）──
 const canCreate = computed(() => can('task.create'))
 const addSheet = ref(null)   // null | { startKind?, template?, checklist? }
-function openAdd(progress = false) { if (canCreate.value) addSheet.value = { startKind: progress === true ? 'progress' : '' } }
+// 過ぎた日はイベントだけ足せる（やることは過去に入れない・User決定 2026-11-11）
+function openAdd(progress = false) { if (canCreate.value) addSheet.value = { startKind: progress === true ? 'progress' : (date.value || today) < today ? 'event' : '' } }
 const ctOpen = ref(false)    // チェック表（ひな形）の画面
 // 追加の途中でチェック表を作りに行ったら、戻るときに打った中身ごと追加へ戻す（User 2026-11-10）
 let _ctBack = null
@@ -252,7 +256,7 @@ const okMsg = ref('')
 let _okT = null
 function say(m) { okMsg.value = m; clearTimeout(_okT); _okT = setTimeout(() => { okMsg.value = '' }, 2600) }
 onUnmounted(() => clearTimeout(_okT))
-function onAdded({ name, edited }) { say(edited ? `「${name}」を直しました` : `「${name}」を足しました`) }
+function onAdded({ name, edited, removed }) { say(removed ? `「${name}」を消しました` : edited ? `「${name}」を直しました` : `「${name}」を足しました`) }
 
 // ── 予定ボード（予約台帳の形・2026-11-05）──
 // 空いているマス → その時間・その人で「やること」を足す
@@ -341,7 +345,7 @@ async function favChecklist(cl) {
     <!-- カレンダーからも＋で追加（日付は追加の画面で選ぶ。既定は今日・User 2026-11-08） -->
     <button v-if="canCreate && !open" type="button" class="app-fab jp-fab" aria-label="業務を追加" @click="addSheet = { date: today }"><LineIcon name="plus" size="28" stroke="2.4" /></button>
     <DayTimeline
-      v-if="open && date" :key="date" :date="date" :today="today" :origin="origin" :timeline="timeline" :can-add="canCreate && date >= today" :initial-view="viewOnce"
+      v-if="open && date" :key="date" :date="date" :today="today" :origin="origin" :timeline="timeline" :can-add="canCreate" :initial-view="viewOnce"
       @close="closeDay" @step="stepDay" @add="openAdd()" @check="check" @open="openItem"
       @add-at="addAt" @move="moveTask" @place="placeSomeday"
     />
@@ -383,7 +387,7 @@ async function favChecklist(cl) {
     />
     <TaskAddSheet
       v-if="addSheet" :date="addSheet.date || date || today" :start-kind="addSheet.startKind || ''" :template="addSheet.template || null"
-      :checklist="addSheet.checklist || null" :draft="addSheet.draft || null" :edit-of="addSheet.editOf || null" :preset-time="addSheet.time || ''" :preset-who="addSheet.who || ''"
+      :checklist="addSheet.checklist || null" :draft="addSheet.draft || null" :edit-of="addSheet.editOf || null" :edit-event="addSheet.editEvent || null" :preset-time="addSheet.time || ''" :preset-who="addSheet.who || ''"
       @close="addSheet = null" @added="onAdded" @templates="toTemplates"
     />
     <ChecklistTemplatesPage v-if="ctOpen" @close="fromTemplates()" @use-checklist="t => fromTemplates({ checklist: t })" @use-template="t => fromTemplates({ template: t })" />

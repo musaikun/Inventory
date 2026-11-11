@@ -108,20 +108,24 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
       </div>
     </div>
     <DayBoard
-      v-if="view === 'board'" :date="date" :today="today" :timeline="timeline" :can-add="canAdd" :zoom="zoom"
+      v-if="view === 'board'" :date="date" :today="today" :timeline="timeline" :can-add="canAdd && date >= today" :zoom="zoom"
       @open="x => emit('open', x)" @check="x => emit('check', x)"
       @add-at="p => emit('add-at', p)" @move="(t, p) => emit('move', t, p)" @place="(x, p) => emit('place', x, p)"
     />
     <div v-else class="dt-body">
       <div v-if="tl.allDay.length" class="dt-all">
         <span class="dt-lab">終日</span>
-        <div v-for="x in tl.allDay" :key="x.key" :class="['dt-ad', x.state, x.ref.type]">
+        <template v-for="x in tl.allDay" :key="x.key">
+        <!-- イベントは細い線で: [名前]──────（User 2026-11-11） -->
+        <button v-if="x.event" type="button" class="dt-evt" @click="emit('open', x)"><span>{{ x.title }}</span><i aria-hidden="true"></i><small v-if="x.note">{{ x.note }}</small></button>
+        <div v-else :class="['dt-ad', x.state, x.ref.type]">
           <button type="button" class="dt-dot" :class="x.state" :disabled="!canCheck(x)" :aria-label="`${x.title}${x.state === 'done' ? ' 済み' : ''}`" @click="emit('check', x)">{{ DOT[x.state] }}</button>
           <button type="button" class="dt-ct" @click="emit('open', x)">
             <b>{{ x.title }}</b><small v-if="x.sub">{{ x.sub }}</small><small v-if="x.note" class="dt-note"><LineIcon name="note" /> {{ x.note }}</small>
           </button>
           <span :class="['dt-k', x.kind]">{{ x.kind }}</span>
         </div>
+        </template>
       </div>
 
       <!-- 今がどの行よりも前なら、線は最初の行の上に -->
@@ -131,10 +135,11 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
           <span class="dt-tm">{{ i > 0 && rows[i - 1].time === x.time ? '' : x.time.replace(/^0/, '') }}</span>
           <span :class="['dt-band', x.band]" aria-hidden="true"></span>
           <div class="dt-rail">
-            <span v-if="x.ev || x.fold" :class="['dt-evdot', x.ev]"></span>
+            <span v-if="x.ev || x.fold || x.event" :class="['dt-evdot', x.ev, { evt: x.event }]"></span>
             <button v-else type="button" class="dt-dot" :class="x.state" :disabled="!canCheck(x)" :aria-label="`${x.title}${x.state === 'done' ? ' 済み' : ''}`" @click="emit('check', x)">{{ DOT[x.state] }}</button>
           </div>
           <button v-if="x.fold" type="button" class="dt-fold" :aria-expanded="x.open" @click="toggleSpan(x.fold)">{{ x.title }} {{ x.open ? '▲' : '▼' }}</button>
+          <button v-else-if="x.event" type="button" class="dt-evt" @click="emit('open', x)"><span>{{ x.title }}</span><i aria-hidden="true"></i><small>{{ x.sub }}</small></button>
           <button v-else-if="x.ev" type="button" :class="['dt-ev', x.ev]" @click="emit('open', x)"><b>{{ x.title }}</b><small v-if="x.sub">{{ x.sub }}</small></button>
           <button v-else type="button" :class="['dt-card', x.state]" @click="emit('open', x)">
             <span class="dt-l1"><span :class="['dt-k', x.kind]">{{ x.kind }}</span><b>{{ x.title }}</b></span>
@@ -200,6 +205,11 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 .dt-card.plan { background: transparent; box-shadow: inset 0 0 0 1.5px #c9d6db; }
 .dt-l1 { display: flex; align-items: center; gap: 6px; }
 .dt-k { flex: none; font-size: 9.5px; font-weight: 900; padding: 2px 6px; border-radius: 6px; background: #e6f0f3; color: #21515e; }
+.dt-evt { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 2px 2px; border: none; background: none; font: inherit; cursor: pointer; text-align: left; color: #c2410c; }
+.dt-evt span { flex: none; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 900; padding: 1px 8px; border: 1.5px solid currentColor; border-radius: 6px; background: #fff7ed; }
+.dt-evt i { flex: 1; min-width: 16px; height: 0; border-top: 1.5px solid currentColor; opacity: .7; }
+.dt-evt small { flex: none; font-size: 11px; font-weight: 800; color: #9a3412; }
+.dt-evdot.evt { background: #c2410c; border-color: #c2410c; }
 .dt-k.定期 { background: #ece9fd; color: #4c35b5; }
 .dt-k.棚卸 { background: #e0f4f8; color: #0b5f73; }
 .dt-k.発注 { background: #fdeedd; color: #9a4a07; }

@@ -53,6 +53,7 @@ import { missingSnapshots } from './services/historyBackfill.js'
 import { useOrders } from './composables/useOrders.js'
 import { useMovements } from './composables/useMovements.js'
 import { useDayNotes } from './composables/useDayNotes.js'
+import { isEventSkipDay } from './composables/useTasks.js'
 import { parLevel as calcParLevel, weekdayOf } from './services/orderLearning.js'
 import { orderBaseFor } from './services/orderBase.js'
 import { allOrderDays, orderIntervalDays } from './services/orderScheduleUtil.js'
@@ -202,7 +203,7 @@ function _todayStr() { return localDateKey() }
 // 日別メモで「学習から除外」した異常日（貸切・イベント等）は par 学習から外す。
 const { isExcluded: _isDateExcluded } = useDayNotes()
 function _parLevelFor(item) {
-  const events = getLearningEvents().filter(e => !_isDateExcluded(e.date))
+  const events = getLearningEvents().filter(e => !_isDateExcluded(e.date) && !isEventSkipDay(e.date))   // イベントの「発注の見込みから外す」も（2026-11-11）
   return calcParLevel(events, item, weekdayOf(_todayStr()))
 }
 // 理論在庫は発注の入力画面に出さない（消費が入らず、日をまたぐと当てにならない・User決定 2026-11-02）

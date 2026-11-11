@@ -11,7 +11,7 @@ import LineIcon from './LineIcon.vue'
 import TimeGrid from './TimeGrid.vue'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { ref, computed, onUnmounted } from 'vue'
-import { addTask, TASK_TEXT_MAX, TASK_NOTE_MAX } from '../composables/useTasks.js'
+import { addTask, editTask, setTaskNote, removeTask, canEditTask, canRemoveTask, TASK_TEXT_MAX, TASK_NOTE_MAX } from '../composables/useTasks.js'
 import { saveChecklist, setChecklistPaused, removeChecklist, newItemId, CL_NAME_MAX, CL_ITEM_MAX, CL_ITEMS_MAX, CL_TIMES_MAX } from '../composables/useChecklists.js'
 import { checklistTemplates } from '../composables/useTemplates.js'
 import { staffNames, isAdmin } from '../composables/useAuth.js'
@@ -29,9 +29,14 @@ const props = defineProps({
   presetWho: { type: String, default: '' },   // 予定ボードのマスから（'all' | 'p:<id>'）
   draft: { type: Object, default: null },     // チェック表を作りに行く前に打っていた中身（戻ってきたら入れ直す）
   editOf: { type: Object, default: null },    // 定期（チェック表）を直す。作るのと同じ画面で直す（User決定 2026-11-11）
+  editEvent: { type: Object, default: null }, // イベントを直す
 })
 const emit = defineEmits(['close', 'added', 'templates'])
 const editing = !!props.editOf
+// イベント（やることではない出来事。過去の日にも入れられる・済みの印なし・User決定 2026-11-11）
+const isEventMode = ref(props.startKind === 'event' || !!props.editEvent)
+const eventSkip = ref(false)   // 発注の見込みから外す日
+const evEditable = !props.editEvent || canEditTask(props.editEvent)
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 const today = localDateKey()
@@ -39,7 +44,7 @@ const _md = k => { const d = new Date(k + 'T00:00:00'); return `${d.getMonth() +
 const _dayLabel = k => (k === today ? '今日' : k === localDateKey(new Date(Date.now() + 86400_000)) ? '明日' : _md(k))
 
 const name = ref(''), note = ref('')
-const day = ref(props.date && props.date >= today ? props.date : today)
+const day = ref(props.date && (props.date >= today || isEventMode.value) ? props.date : today)
 const time = ref(''), endTime = ref('')
 const times = ref([])                        // 定期の時刻（いくつでも＝1日に何回も）
 const deadline = ref('')
@@ -105,6 +110,11 @@ if (props.editOf) {
   if (repeat.value === 'none') time.value = ts[0] || ''; else times.value = [...ts]
   who.value = cl.assign === 'person' && people.value.some(p => p.id === cl.assigneeId) ? `p:${cl.assigneeId}` : 'all'
 }
+if (props.editEvent) {
+  const e = props.editEvent
+  name.value = e.text; note.value = e.note || ''; day.value = e.date || today
+  time.value = e.dueTime || ''; endTime.value = e.endTime || ''; eventSkip.value = e.category === 'event_skip'
+}
 if (repeat.value !== 'none' && !times.value.length) {
   const ts = props.template?.data?.dueTimes
   times.value = ts?.length ? [...ts] : time.value ? [time.value] : []
@@ -112,7 +122,7 @@ if (repeat.value !== 'none' && !times.value.length) {
 
 // ── 閉じる前の確認（入力中なら。外を触っただけで消えないように・User 2026-11-08）──
 // 開いたときの中身を控えて、変わっていれば確かめる。担当は後から既定が入ることがあるので見ない
-const _form = () => JSON.stringify([name.value.trim(), note.value.trim(), day.value, time.value, endTime.value, times.value, deadline.value,
+const _form = () => JSON.stringify([isEventMode.value, eventSkip.value, name.value.trim(), note.value.trim(), day.value, time.value, endTime.value, times.value, deadline.value,
   repeat.value, weekdays.value, monthDays.value, items.value.map(x => x.text), adminsOnly.value])
 const _snap = _form()
 // チェック表を作りに行って戻ってきたとき: 打っていた中身を入れ直す（付けたチェック表は新しく選んだもの・User 2026-11-10）
@@ -139,12 +149,21 @@ function tryClose() {
 
 // ── 種類（入れた中身で決まる）──
 const kind = computed(() => {
+  if (isEventMode.value) return { k: 'event', label: 'イベント' }
   if (repeat.value !== 'none') return { k: 'repeat', label: '定期' }
   if (deadline.value) return { k: 'progress', label: `${_md(deadline.value).replace(/（.）/, '')}まで` }
   if (!day.value) return { k: 'someday', label: 'いつか' }
   if (day.value === today) return { k: 'today', label: '本日' }
   return { k: 'plan', label: '予定' }
 })
+
+/** やること／イベントの切り替え */
+function setMode(ev) {
+  isEventMode.value = ev
+  if (ev) { deadline.value = ''; repeat.value = 'none'; adminsOnly.value = false; if (!day.value) day.value = today }
+  else { eventSkip.value = false; if (day.value && day.value < today) day.value = today }   // やることは過去に入れない
+  open.value = ''
+}
 
 // ── 月のカレンダー（日付・締め切り）──
 const calYm = ref({ y: 0, m: 0 })
@@ -163,7 +182,7 @@ const calCells = computed(() => {
   const { y, m } = calYm.value
   const first = new Date(y, m, 1).getDay(), last = new Date(y, m + 1, 0).getDate()
   const sel = open.value === 'deadline' ? deadline.value : day.value
-  const min = open.value === 'deadline' ? (day.value || today) : today
+  const min = open.value === 'deadline' ? (day.value || today) : isEventMode.value ? '' : today
   const out = []
   for (let i = 0; i < first; i++) out.push({ key: `b${i}` })
   for (let d = 1; d <= last; d++) {
@@ -229,11 +248,14 @@ function addItemText() {
 function fixItem(i) { if (!items.value[i]?.text.trim()) items.value.splice(i, 1) }
 function removeItem(i) { items.value.splice(i, 1); if (!items.value.length) itemsName.value = '' }
 // メモはやることだけ（定期・チェック表のついた日のものには残らないので出さない）
-const showNote = computed(() => !editing && repeat.value === 'none' && !(items.value.length && day.value && !deadline.value))
+const showNote = computed(() => isEventMode.value || !editing && repeat.value === 'none' && !(items.value.length && day.value && !deadline.value))
 
 // ── 行 ──
 const whoName = computed(() => (who.value.startsWith('p:') ? (people.value.find(p => p.id === who.value.slice(2))?.name || '') : '全員'))
-const rows = computed(() => [
+const rows = computed(() => isEventMode.value ? [
+  { id: 'day', icon: 'date', color: '#0e7490', label: '日付', value: _dayLabel(day.value || today), set: true },
+  { id: 'time', icon: 'timer', color: '#0369a1', label: '時刻', value: time.value ? `${time.value}${endTime.value ? `〜${endTime.value}` : ''}` : 'なし', set: !!time.value },
+] : [
   { id: 'day', icon: 'date', color: '#0e7490', label: '日付', value: day.value ? _dayLabel(day.value) : 'なし', set: !!day.value },
   ...(day.value ? [{ id: 'time', icon: 'timer', color: '#0369a1', label: '時刻', ...(repeat.value !== 'none'
     ? { value: times.value.length ? times.value.join('・') : 'なし', set: times.value.length > 0 }
@@ -263,7 +285,7 @@ onUnmounted(() => itemDrag.cleanup())
 function pickList(t) { if (t) _setItems(t.data?.items, t.name); else _setItems([], ''); open.value = '' }
 
 // ── 足す ──
-const canSubmit = computed(() => !!name.value.trim() && !busy.value && (repeat.value === 'none' || repeatOk.value))
+const canSubmit = computed(() => !!name.value.trim() && !busy.value && evEditable && (isEventMode.value || repeat.value === 'none' || repeatOk.value))
 function _assignTask() {
   const v = who.value
   return v.startsWith('p:') ? { mode: 'person', id: v.slice(2), name: whoName.value } : { mode: hasStaff.value ? 'all' : 'anyone' }
@@ -280,6 +302,16 @@ async function submit() {
   const visibility = adminsOnly.value ? 'admins' : null
   busy.value = true
   try {
+    if (k === 'event') {
+      const fields = { text, date: day.value || today, dueTime: time.value || null, endTime: time.value && endTime.value > time.value ? endTime.value : null, category: eventSkip.value ? 'event_skip' : 'event' }
+      if (props.editEvent) {
+        if (!editTask(props.editEvent.id, fields)) throw new Error('直せませんでした')
+        if ((props.editEvent.note || '') !== note.value.trim()) setTaskNote(props.editEvent.id, note.value)
+      } else if (!addTask(fields.date, text, null, fields.dueTime, { note: note.value, endTime: fields.endTime, category: fields.category })) throw new Error('足せませんでした')
+      emit('added', { kind: k, name: text, edited: !!props.editEvent })
+      emit('close')
+      return
+    }
     if (editing || k === 'repeat' || ((k === 'today' || k === 'plan') && items.value.length)) {
       await saveChecklist({
         ...(editing ? { id: props.editOf.id } : {}),
@@ -308,6 +340,11 @@ async function submit() {
   }
 }
 
+// イベントを消す
+function removeEvent() {
+  if (!window.confirm(`「${props.editEvent.text}」を消しますか？`)) return
+  if (removeTask(props.editEvent.id)) { emit('added', { kind: 'event', name: props.editEvent.text, removed: true }); emit('close') }
+}
 // 定期を直すときだけ: お休み・消す（直す画面にあったもの）
 async function togglePause() {
   busy.value = true; err.value = ''
@@ -325,11 +362,15 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
 <template>
   <Teleport to="body">
     <div class="ta-bg" @click.self="tryClose">
-      <form class="ta" role="dialog" :aria-label="editing ? '定期を直す' : '業務を追加'" @submit.prevent="submit">
+      <form class="ta" role="dialog" :aria-label="editing ? '定期を直す' : editEvent ? 'イベントを直す' : '業務を追加'" @submit.prevent="submit">
         <div class="ta-h">
           <button type="button" class="ta-x" @click="tryClose">やめる</button>
           <span :key="kind.label" :class="['ta-kind', kind.k]" data-test="kind">{{ kind.label }}</span>
-          <button type="submit" class="ta-go" :disabled="!canSubmit">{{ editing ? '保存' : '追加' }}</button>
+          <button type="submit" class="ta-go" :disabled="!canSubmit">{{ editing || editEvent ? '保存' : '追加' }}</button>
+        </div>
+        <div v-if="!editing && !editEvent" class="ta-seg ta-mode" role="radiogroup" aria-label="やること・イベント">
+          <button type="button" role="radio" :aria-checked="!isEventMode" :class="{ on: !isEventMode }" @click="setMode(false)">やること</button>
+          <button type="button" role="radio" :aria-checked="isEventMode" :class="{ on: isEventMode }" @click="setMode(true)">イベント</button>
         </div>
 
         <div class="ta-card">
@@ -377,7 +418,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
                     <button v-else type="button" :class="['d', { on: c.on, today: c.today }]" :disabled="c.off" :data-day="c.key" @click="pickDay(c)">{{ c.d }}</button>
                   </template>
                 </div>
-                <button v-if="open === 'day' && day && !editing" type="button" class="ta-clear" @click="clearDay">日付なし（いつか）にする</button>
+                <button v-if="open === 'day' && day && !editing && !isEventMode" type="button" class="ta-clear" @click="clearDay">日付なし（いつか）にする</button>
                 <button v-if="open === 'deadline' && deadline" type="button" class="ta-clear" @click="clearDeadline">締め切りを外す</button>
               </div>
 
@@ -434,7 +475,10 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
               </div>
           </section>
         </div>
+        <label v-if="isEventMode" class="ta-skip"><input v-model="eventSkip" type="checkbox" :disabled="!evEditable" /> 発注の見込みから外す（いつもと違う日）</label>
         <p v-if="err" class="ta-err" role="alert">{{ err }}</p>
+        <p v-if="editEvent && !evEditable" class="ta-edit-note">直す・消すのは、作った人と管理者です</p>
+        <button v-if="editEvent && canRemoveTask(editEvent)" type="button" class="ta-edit-b danger" @click="removeEvent">このイベントを消す</button>
         <template v-if="editing">
           <p class="ta-edit-note">直した中身は、まだ✓を付けていない日から使います</p>
           <div class="ta-edit-row">
@@ -462,6 +506,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
 .ta-kind.plan { background: #e6f5f8; color: #0b5f73; }
 .ta-kind.progress { background: #fef9c3; color: #a16207; }
 .ta-kind.repeat { background: #ecfdf5; color: #047857; }
+.ta-kind.event { background: #fff7ed; color: #c2410c; }
 @keyframes ta-pop { from { transform: scale(.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .ta-kind { animation: none; } }
 .ta-card { background: var(--surface, #fff); border-radius: 16px; overflow: hidden; }
@@ -537,6 +582,8 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
 .ta-times { display: flex; flex-wrap: wrap; gap: 6px; min-height: 34px; align-items: center; }
 .ta-time { min-height: 32px; border: none; border-radius: 999px; background: #0369a1; color: #fff; font: inherit; font-size: 13px; font-weight: 800; padding: 0 12px; cursor: pointer; font-variant-numeric: tabular-nums; }
 .ta-times-none { font-size: 12.5px; font-weight: 700; color: #8aa0a8; }
+.ta-mode { margin: 0 2px; }
+.ta-skip { display: flex; align-items: center; gap: 8px; padding: 0 6px; font-size: 13px; font-weight: 700; color: var(--text); }
 .ta-edit-note { margin: 0; font-size: 12px; font-weight: 700; color: #5b6f78; text-align: center; }
 .ta-edit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .ta-edit-b { min-height: 44px; border: 1px solid #d5e1e5; border-radius: 12px; background: #fff; font: inherit; font-size: 14px; font-weight: 800; color: var(--text); cursor: pointer; }

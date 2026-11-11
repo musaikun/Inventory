@@ -28,8 +28,9 @@ const _md = k => { const [, m, d] = String(k).split('-').map(Number); return m ?
  * @param {{ kind: 'stock'|'order', session: object, count: number }[]} [p.live] 今日だけ: 途中の棚卸・発注
  * @param {string} [p.note] その日のメモ
  * @param {object[]} [p.someday] 今日だけ: いつか（日付なし）。数には入れない
+ * @param {object[]} [p.events] その日のイベント（やることではない出来事）。細い線で出し、数には入れない（User決定 2026-11-11）
  */
-export function buildDayTimeline({ date, today, tasks = [], late = [], carry = [], progress = [], lists = [], records = [], live = [], note = '', someday = [] }) {
+export function buildDayTimeline({ date, today, tasks = [], late = [], carry = [], progress = [], lists = [], records = [], live = [], note = '', someday = [], events = [] }) {
   const past = date < today, future = date > today
   const _taskState = t => (t.doneAt ? 'done' : past ? 'missed' : future ? 'plan' : 'todo')
   const _who = t => (t.assign === 'person' ? t.assigneeName || '' : '')
@@ -85,6 +86,7 @@ export function buildDayTimeline({ date, today, tasks = [], late = [], carry = [
   for (const l of live) {
     out.push({ key: `live-${l.kind}`, time: l.session?.startedAt ? _hhmm(l.session.startedAt) : '', kind: l.kind === 'order' ? '発注' : '棚卸', title: `${l.kind === 'order' ? '発注' : '棚卸'} 途中`, sub: `${l.count}品目`, state: 'live', ref: { type: 'live', session: l.session } })
   }
+  for (const t of events) out.push({ key: t.id, time: t.dueTime || '', kind: 'イベント', title: t.text, sub: t.dueTime ? `${t.dueTime.replace(/^0/, '')}${t.endTime ? `〜${t.endTime.replace(/^0/, '')}` : ''}` : '', state: 'info', event: true, note: t.note || '', ref: { type: 'task', task: t } })
   for (const t of someday) out.push({ key: t.id, time: '', kind: 'いつか', title: t.text, sub: _who(t), state: 'todo', someday: true, ref: { type: 'task', task: t } })
   if (note) out.push({ key: 'note', time: '', kind: 'メモ', title: note, sub: '', state: 'info', ref: { type: 'note' } })
   const allDay = out.filter(x => !x.time)

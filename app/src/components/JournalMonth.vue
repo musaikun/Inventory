@@ -156,6 +156,7 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し', f: '予定
 .jm-c .hol { font-size: 8px; font-weight: 800; color: #c2410c; line-height: 1.1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tag { font-size: 9.5px; font-weight: 800; line-height: 1.3; padding: 1px 4px; border-radius: 5px; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tag.stock { background: #e0f4f8; color: #0b5f73; } .tag.order { background: #fdeedd; color: #9a4a07; } .tag.plan { background: #efe9fd; color: #5b33b6; } .tag.more { background: #eef2f4; color: #4c6a72; }
+.tag.event { background: #fff7ed; color: #c2410c; border-left: 2.5px solid #c2410c; border-radius: 2px 5px 5px 2px; }
 .tag.fut { background: transparent; border: 1px dashed currentColor; }
 .st { margin-top: auto; align-self: stretch; height: 5px; border-radius: 3px; }
 .st.y { background: #22a55a; } .st.p { background: #e89b0c; } .st.x { background: #dc3b3b; } .st.f { background: #3b82f6; }

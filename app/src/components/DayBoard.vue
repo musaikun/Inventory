@@ -65,7 +65,9 @@ const W = computed(() => (END - START) * hourW.value)
 // ── 中身 ──
 const tl = computed(() => props.timeline)
 const lane = computed(() => tl.value.allDay.filter(x => x.ref.type === 'progress'))
-const strip = computed(() => tl.value.allDay.filter(x => x.ref.type !== 'progress' && !x.someday))
+const strip = computed(() => tl.value.allDay.filter(x => x.ref.type !== 'progress' && !x.someday && !x.event))
+// イベント: ボードの上に細い線で（時刻のあるものも。マスには置かない・User 2026-11-11）
+const evts = computed(() => [...tl.value.allDay, ...tl.value.timed].filter(x => x.event))
 const someday = computed(() => tl.value.allDay.filter(x => x.someday))
 const laneOpen = ref(true)
 const drag = ref(null)   // { id, start, end, row } 掴んでいる間の見た目
@@ -73,6 +75,7 @@ const blocks = computed(() => {
   const out = []
   for (const x of tl.value.timed) {
     const r = x.ref
+    if (x.event) continue
     if (r.type === 'task') {
       const t = r.task
       const d = drag.value?.id === t.id ? drag.value : null
@@ -188,6 +191,9 @@ const KIND_LABEL = { prep: '仕込み', clean: '清掃', order: '発注・納品
 
 <template>
   <div class="db">
+    <div v-if="evts.length" class="db-evts">
+      <button v-for="x in evts" :key="x.key" type="button" class="db-evt" @click="emit('open', x)"><span>{{ x.title }}</span><i aria-hidden="true"></i><small v-if="x.sub">{{ x.sub }}</small></button>
+    </div>
 
     <div v-if="strip.length" class="db-all">
       <span class="db-lab">終日</span>
@@ -254,6 +260,11 @@ const KIND_LABEL = { prep: '仕込み', clean: '清掃', order: '発注・納品
 
 <style scoped>
 .db { position: relative; display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.db-evts { display: grid; gap: 2px; padding: 6px 12px 0; }
+.db-evt { display: flex; align-items: center; gap: 8px; min-height: 26px; padding: 0; border: none; background: none; font: inherit; cursor: pointer; text-align: left; color: #c2410c; }
+.db-evt span { flex: none; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 900; padding: 0 7px; border: 1.5px solid currentColor; border-radius: 6px; background: #fff7ed; }
+.db-evt i { flex: 1; min-width: 16px; border-top: 1.5px solid currentColor; opacity: .7; }
+.db-evt small { flex: none; font-size: 11px; font-weight: 800; color: #9a3412; }
 .db-all { display: flex; gap: 6px; align-items: center; padding: 6px 12px; overflow-x: auto; scrollbar-width: none; }
 .db-lab { flex: none; font-size: 10.5px; font-weight: 800; color: var(--text-muted); }
 .db-ad { flex: none; border: 1px solid var(--border); background: var(--surface); border-radius: 8px; padding: 5px 9px; font: inherit; font-size: 12px; font-weight: 800; color: var(--text); cursor: pointer; white-space: nowrap; }

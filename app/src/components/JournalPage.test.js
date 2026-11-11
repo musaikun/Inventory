@@ -363,7 +363,7 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     expect(saveChecklistToD1).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'ゴミ出し', items: [], repeat: 'daily' }))
   })
 
-  it('過ぎた日には＋を出さない。先の日の登録業務は青い帯（予定あり）。やることは開いて消せる（User決定 2026-11-07）', async () => {
+  it('過ぎた日の＋はイベントだけ（2026-11-11）。先の日の登録業務は青い帯（予定あり）。やることは開いて消せる（User決定 2026-11-07）', async () => {
     const { localDateKey } = await import('../utils/localDate.js')
     const T = await import('../composables/useTasks.js')
     const k = n => localDateKey(new Date(Date.now() + n * 86400_000))
@@ -374,7 +374,9 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     if (cell) expect(cell.querySelector('.st.f')).not.toBeNull()
     if (host.querySelector(`.jm-c[aria-label^="${k(-1)}"]`)) {
       await openDay(k(-1))
-      expect(host.querySelector('.dt-fab')).toBeNull()
+      await click(host.querySelector('.dt-fab'))
+      expect(document.body.querySelector('.ta [data-test="kind"]').textContent).toBe('イベント')
+      await click(btn('やめる', document.body.querySelector('.ta')))
       await click(host.querySelector('[aria-label="月にもどる"]'))
     }
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)

@@ -51,6 +51,10 @@ export function resetLocalData() {
 function _uid() { return 't_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8) }
 const _now = () => new Date().toISOString()
 const _alive = t => !t.deletedAt
+/** イベント（やることではない出来事。済みの印は付けず、数にも入れない・過去の日にも入れられる・User決定 2026-11-11） */
+export const EVENT_CATEGORIES = ['event', 'event_skip']   // event_skip = 発注の見込みから外す日
+export const isEvent = t => EVENT_CATEGORIES.includes(t?.category)
+const _todo = t => _alive(t) && !isEvent(t)
 const _DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const _dateOk = d => d === '' || _DATE_RE.test(d)
 
@@ -64,8 +68,14 @@ const _byTime = (a, b) =>
 
 /** その日のやること（時刻の順、時刻なしは追加した順で後ろ） */
 export function tasksOn(date) {
-  return _data.list.filter(t => t.date === date && _alive(t)).sort(_byTime)
+  return _data.list.filter(t => t.date === date && _todo(t)).sort(_byTime)
 }
+/** その日のイベント（時刻の順） */
+export function eventsOn(date) {
+  return _data.list.filter(t => t.date === date && _alive(t) && isEvent(t)).sort(_byTime)
+}
+/** 発注の見込みから外す日（イベントの印） */
+export function isEventSkipDay(date) { return _data.list.some(t => t.date === date && _alive(t) && t.category === 'event_skip') }
 
 /**
  * 期限切れ: today より前の日付で、まだ終わっていないもの（古い日から）。進行中は済むまで毎日出すので入れない。
@@ -73,13 +83,13 @@ export function tasksOn(date) {
  */
 export function overdueTasks(today = localDateKey()) {
   return _data.list
-    .filter(t => _alive(t) && !t.doneAt && t.date && t.date < today && !t.progress && (!t.deadline || t.deadline < today))
+    .filter(t => _todo(t) && !t.doneAt && t.date && t.date < today && !t.progress && (!t.deadline || t.deadline < today))
     .sort((a, b) => a.date.localeCompare(b.date) || _byTime(a, b))
 }
 /** 期限つきで、前の日に作ってまだ期限の来ていないもの（今日の「終日」に「期限 m/d」で出す） */
 export function carriedTasks(today = localDateKey()) {
   return _data.list
-    .filter(t => _alive(t) && !t.doneAt && t.date && t.date < today && !t.progress && t.deadline && t.deadline >= today)
+    .filter(t => _todo(t) && !t.doneAt && t.date && t.date < today && !t.progress && t.deadline && t.deadline >= today)
     .sort((a, b) => a.deadline.localeCompare(b.deadline) || _byTime(a, b))
 }
 export const overdueCount = computed(() => overdueTasks().length)
@@ -88,7 +98,7 @@ export const overdueCount = computed(() => overdueTasks().length)
 export const aliveTasks = computed(() => _data.list.filter(_alive))
 /** いつか（日付なし）の、まだ終わっていないもの（追加した順） */
 export const somedayTasks = computed(() => _data.list
-  .filter(t => _alive(t) && t.date === '' && !t.doneAt)
+  .filter(t => _todo(t) && t.date === '' && !t.doneAt)
   .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '')))
 /** 自分に関係するもの: 自分が担当（特定の人）か、「全員」で自分がまだ印を付けていない／付けたもの */
 export function isForMe(t) { return isAssignedToMe(t) || t?.assign === 'all' }
@@ -126,14 +136,14 @@ const _time = v => (typeof v === 'string' && TIME_RE.test(v) ? v : null)
 /** 日付 → まだ終わっていないやることの数。カレンダーの印に使う */
 export const openTaskCounts = computed(() => {
   const m = new Map()
-  for (const t of _data.list) if (_alive(t) && !t.doneAt && t.date) m.set(t.date, (m.get(t.date) || 0) + 1)
+  for (const t of _data.list) if (_todo(t) && !t.doneAt && t.date) m.set(t.date, (m.get(t.date) || 0) + 1)
   return m
 })
 /** 日付 → { total: その日のやることの数, open: まだ終わっていない数 }。月のマスの件数と状態に使う（2026-10-14） */
 export const taskDayStats = computed(() => {
   const m = new Map()
   for (const t of _data.list) {
-    if (!_alive(t) || !t.date) continue
+    if (!_todo(t) || !t.date) continue
     const s = m.get(t.date) ?? m.set(t.date, { total: 0, open: 0 }).get(t.date)
     s.total++
     if (!t.doneAt) s.open++
@@ -152,7 +162,7 @@ function _assignFields(a) {
 
 /** @param {{ mode: string, id?: string, name?: string }} [assign] 担当（省略は「誰でも」） */
 /** @param {{ visibility?: 'admins'|null }} [opts] 'admins' ＝ 管理者だけに見せる（管理者だけが付けられる・2026-10-15） */
-export const TASK_CATEGORIES = ['prep', 'clean', 'order']   // 予定ボードの色（null＝やること・migration 0036）
+export const TASK_CATEGORIES = ['prep', 'clean', 'order', ...EVENT_CATEGORIES]   // 予定ボードの色（null＝やること・migration 0036）とイベント
 export function addTask(date, text, assign = null, dueTime = null, { visibility = null, progress = null, deadline = null, note = null, endTime = null, category = null, steps = null } = {}) {
   const body = String(text ?? '').trim().slice(0, TASK_TEXT_MAX)
   if (!body || !_dateOk(date)) return null
@@ -194,7 +204,7 @@ const _dayLocal = iso => (iso ? localDateKey(new Date(iso)) : '')
 function _me() { return { id: actorId(), admin: isAdmin.value, canCreate: can('task.create') } }
 /** 完了の印を押せるか（未完了なら付ける、完了なら取り消す。「全員」は自分の印） */
 export function canToggleTask(t) {
-  if (!t || t.deletedAt) return false
+  if (!t || t.deletedAt || isEvent(t)) return false   // イベントは済みにしない
   if (t.assign === 'all') return isMarkedByMe(t) ? R.canUnmark({ doneList: (t.doneList || []).map(x => (isMeId(x.id) ? { ...x, id: actorId() } : x)) }, _me(), localDateKey(), _dayLocal) : true
   return t.doneAt ? R.canUndo(t, _me(), localDateKey(), _dayLocal) : R.canComplete(t, _me())
 }
@@ -329,7 +339,7 @@ export function markTasksSeen() {
 /** 今日の未完了のやることの数（ナビのバッジ） */
 export const todayOpenCount = computed(() => {
   const today = localDateKey()
-  return _data.list.filter(t => t.date && t.date <= today && _alive(t) && !t.doneAt).length   // 期限切れも含める
+  return _data.list.filter(t => t.date && t.date <= today && _todo(t) && !t.doneAt).length   // 期限切れも含める
 })
 
 export function isMyTask(t) { return !!t && isMeId(t.createdById) }
