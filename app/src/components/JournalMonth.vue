@@ -6,7 +6,8 @@
  * 月を送るときは横に滑らせる（User決定 2026-10-26。次の月は右から、前の月は左から）
  * info(date) → { st: 'y'|'p'|'x'|'f'|'', tags: [{ label, kind: 'stock'|'order'|'plan', future }] }
  * spans: 進行中（何日かかかるもの）を実施日〜締め切りの連日の帯で（User決定 2026-11-08・モック docs/mocks/calendar-progress.html）。
- *   [{ id, text, start, end, state: 'doing'|'wait'|'stale'|'over', future }]。1週に2本まで、あふれたら「ほかn」。押すと @span(id)
+ *   [{ id, text, start, end, state: 'doing'|'wait'|'stale'|'over'|'event', future }]。1週に2本まで、あふれたら「ほかn」。押すと @span(id)
+ *   event はイベント: 塗りの帯ではなく細い線「[名前]────」で、やることと見分ける（User決定 2026-11-11）
  */
 import { ref, computed, watch } from 'vue'
 import { localDateKey } from '../utils/localDate.js'
@@ -59,7 +60,7 @@ const cells = computed(() => {
 })
 const rowsN = computed(() => cells.value[0]?.rows ?? 5)
 // 週ごとの帯（行の中の列の範囲）。締め切り過ぎを先に、次に始まりが早い順
-const SPAN_RANK = { over: 0, stale: 1, doing: 2, wait: 3 }
+const SPAN_RANK = { event: -1, over: 0, stale: 1, doing: 2, wait: 3 }
 const weekSpans = computed(() => {
   const out = []
   for (let r = 0; r < rowsN.value; r++) {
@@ -75,7 +76,9 @@ const weekSpans = computed(() => {
   return out
 })
 const lanesOf = r => Math.min(SPAN_MAX, (weekSpans.value[r]?.shown.length ?? 0) + (weekSpans.value[r]?.more ? 1 : 0))
-const SPAN_LABEL = { doing: '進行中', wait: '待ち', stale: '止まっている', over: '締め切り過ぎ' }
+const SPAN_LABEL = { doing: '進行中', wait: '待ち', stale: '止まっている', over: '締め切り過ぎ', event: 'イベント' }
+const hasEvent = computed(() => props.spans.some(s => s.state === 'event'))
+const hasProg = computed(() => props.spans.some(s => s.state !== 'event'))
 const md = k => `${Number(k.slice(5, 7))}/${Number(k.slice(8, 10))}`
 const swipe = useHorizontalSwipe({ onLeft: () => step(1), onRight: () => step(-1), threshold: 60 })
 const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し', f: '予定あり' }
@@ -111,11 +114,11 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し', f: '予定
           :style="{ gridRow: w.row + 1, gridColumn: `${s.a + 1} / ${s.b + 2}`, marginTop: 30 + s.lane * 16 + 'px' }"
           :aria-label="`${s.text}（${SPAN_LABEL[s.state]}）${md(s.start)}〜${md(s.end)}`"
           @click="emit('span', s.id)"
-        >{{ s.contL ? '… ' : '' }}{{ s.text }}</button>
+        ><template v-if="s.state === 'event'"><span v-if="!s.contL" class="lb">{{ s.text }}</span><i aria-hidden="true"></i></template><template v-else>{{ s.contL ? '… ' : '' }}{{ s.text }}</template></button>
         <span v-if="w.more" class="jm-more" :style="{ gridRow: w.row + 1, gridColumn: 7, marginTop: 30 + w.shown.length * 16 + 'px' }">ほか{{ w.more }}</span>
       </template>
     </div>
-    <div class="jm-leg"><span><i class="y"></i>全部済み</span><span><i class="p"></i>一部</span><span><i class="x"></i>やり残し</span><span><i class="f"></i>予定あり</span><span v-if="spans.length"><i class="pg"></i>進行中</span></div>
+    <div class="jm-leg"><span><i class="y"></i>全部済み</span><span><i class="p"></i>一部</span><span><i class="x"></i>やり残し</span><span><i class="f"></i>予定あり</span><span v-if="hasProg"><i class="pg"></i>進行中</span><span v-if="hasEvent"><i class="ev"></i>イベント</span></div>
   </div>
 </template>
 
@@ -148,6 +151,11 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し', f: '予定
 .jm-span.cl { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: 0; }
 .jm-span.cr { border-top-right-radius: 0; border-bottom-right-radius: 0; margin-right: 0; }
 .jm-span.fut { opacity: .55; }
+/* イベント: 細い線 [名前]──── （塗りの帯＝やることと違うと分かるように） */
+.jm-span.event { background: none; color: #c2410c; padding: 0; display: flex; align-items: center; gap: 2px; border-radius: 0; }
+.jm-span.event .lb { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: 0 3px; border: 1.2px solid currentColor; border-radius: 4px; background: #fff7ed; line-height: 11px; }
+.jm-span.event i { flex: 1; min-width: 4px; border-top: 1.5px solid currentColor; opacity: .75; }
+.jm-span.event.fut { opacity: 1; }
 .jm-more { align-self: start; justify-self: end; z-index: 1; margin-right: 4px; font-size: 9px; font-weight: 900; color: var(--text-muted); pointer-events: none; }
 .jm-c .n { display: grid; place-items: center; min-width: 22px; height: 22px; font-size: 13px; font-weight: 800; }
 .jm-c.out .n { color: #a9b8bf; }
@@ -164,6 +172,7 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し', f: '予定
 .jm-leg span { display: flex; align-items: center; gap: 4px; }
 .jm-leg i { width: 16px; height: 5px; border-radius: 3px; }
 .jm-leg i.pg { height: 8px; background: #3b82f6; border-radius: 3px; }
+.jm-leg i.ev { height: 0; border-top: 1.5px solid #c2410c; border-radius: 0; }
 .jm-leg { flex-wrap: wrap; row-gap: 3px; }
 .jm-leg i.y { background: #22a55a; } .jm-leg i.p { background: #e89b0c; } .jm-leg i.x { background: #dc3b3b; } .jm-leg i.f { background: #3b82f6; }
 </style>

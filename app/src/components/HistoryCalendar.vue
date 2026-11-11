@@ -272,7 +272,7 @@ const listRows = computed(() => {
   }
   if (want('memo')) for (const k of noteDates()) {
     const n = getNote(k)
-    rows.push({ id: 'n:' + k, key: k, kind: 'memo', info: n?.text || (n?.excluded ? '発注学習から除外' : 'メモ'), amount: null })
+    rows.push({ id: 'n:' + k, key: k, kind: 'memo', info: n?.text || 'メモ', amount: null })
   }
   const ORDER = { stock: 0, order: 1, in: 2, out: 3, memo: 4 }
   rows.sort((a, b) => b.key.localeCompare(a.key) || ORDER[a.kind] - ORDER[b.kind])

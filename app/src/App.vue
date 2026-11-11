@@ -52,8 +52,6 @@ import { isSnapshotComplete } from './utils/snapshotSync.js'
 import { missingSnapshots } from './services/historyBackfill.js'
 import { useOrders } from './composables/useOrders.js'
 import { useMovements } from './composables/useMovements.js'
-import { useDayNotes } from './composables/useDayNotes.js'
-import { isEventSkipDay } from './composables/useTasks.js'
 import { parLevel as calcParLevel, weekdayOf } from './services/orderLearning.js'
 import { orderBaseFor } from './services/orderBase.js'
 import { allOrderDays, orderIntervalDays } from './services/orderScheduleUtil.js'
@@ -200,10 +198,9 @@ function _orderId() { return pendingSession.value?.id ? `ord_${pendingSession.va
 function _todayStr() { return localDateKey() }
 
 // この品目・今日の曜日の適正在庫（学習不足なら null）。
-// 日別メモで「学習から除外」した異常日（貸切・イベント等）は par 学習から外す。
-const { isExcluded: _isDateExcluded } = useDayNotes()
+// 日ごとに「発注の見込みから外す」機能はやめた（User決定 2026-11-11・D-041）。発注の行ごとの除外（excluded）はそのまま
 function _parLevelFor(item) {
-  const events = getLearningEvents().filter(e => !_isDateExcluded(e.date) && !isEventSkipDay(e.date))   // イベントの「発注の見込みから外す」も（2026-11-11）
+  const events = getLearningEvents()
   return calcParLevel(events, item, weekdayOf(_todayStr()))
 }
 // 理論在庫は発注の入力画面に出さない（消費が入らず、日をまたぐと当てにならない・User決定 2026-11-02）

@@ -286,9 +286,10 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     expect(host.querySelector('.dt [aria-label="メモ"]')).toBeNull()
     await click(host.querySelector('.dt-ad.note .dt-ct'))
     const sheet = document.body.querySelector('.jp-sheet')
-    const ex = sheet.querySelector('.jp-excl input'); ex.checked = true; ex.dispatchEvent(new Event('change')); await tick()
+    expect(sheet.querySelector('.jp-excl')).toBeNull()   // 「発注の見込みから外す」はやめた（D-041）
+    const ta = sheet.querySelector('.jp-memo'); ta.value = '近隣で花火大会（20時〜）'; ta.dispatchEvent(new Event('input')); await tick()
     await click(btn('保存', sheet))
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.dayNotes))[today]).toEqual({ text: '近隣で花火大会', tags: [], excluded: true })
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.dayNotes))[today]).toEqual({ text: '近隣で花火大会（20時〜）', tags: [] })
   })
 
   it('発注スケジュール（発注日の予定）はカレンダーにもタイムラインにも出さない', async () => {

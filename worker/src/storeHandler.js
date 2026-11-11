@@ -2130,7 +2130,7 @@ export async function handleTasksGet(db, code, sinceDays, { admin = true } = {})
 }
 
 export const TASK_PROGRESS = ['doing', 'waiting']
-export const TASK_CATEGORY = ['prep', 'clean', 'order', 'event', 'event_skip']   // 予定ボードの色（NULL＝やること・migration 0036）。event＝イベント（やることではない出来事・event_skip は発注の見込みから外す日・2026-11-11）
+export const TASK_CATEGORY = ['prep', 'clean', 'order', 'event']   // 予定ボードの色（NULL＝やること・migration 0036）。event＝イベント（やることではない出来事・期間は deadline＝終わりの日・2026-11-11）
 const STEPS_MAX = 20
 /** 小さな手順 [{ id, text, done }] */
 function _steps(v) {

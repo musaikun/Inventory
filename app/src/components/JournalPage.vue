@@ -36,7 +36,7 @@ import CopyDatesSheet from './CopyDatesSheet.vue'
 import { addTemplate, canAddTemplate, pullTemplates } from '../composables/useTemplates.js'
 import { pullChecklists, checklists, checklistsForDay, saveChecklist, newItemId, markChecklistItem, canMarkChecklist, canUnmark } from '../composables/useChecklists.js'
 import { monthDaysLabel, isSimple, WHOLE } from '../services/checklistSchedule.js'
-import { tasksOn, eventsOn, isEvent, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, editTask, setTaskAssign, TASK_TEXT_MAX, TASK_NOTE_MAX, dueProgress, toggleTask, canToggleTask, canEditTask, canNoteTask, setTaskNote, startTask, canProgress, canRemoveTask, removeTask, aliveTasks, progressTasks, isStale } from '../composables/useTasks.js'
+import { tasksOn, eventsOn, aliveEvents, isEvent, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, editTask, setTaskAssign, TASK_TEXT_MAX, TASK_NOTE_MAX, dueProgress, toggleTask, canToggleTask, canEditTask, canNoteTask, setTaskNote, startTask, canProgress, canRemoveTask, removeTask, aliveTasks, progressTasks, isStale } from '../composables/useTasks.js'
 import { can, staffNames, loadStaffNames, getSessions, isAdmin } from '../composables/useAuth.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
@@ -100,8 +100,7 @@ function recordsOn(d) {
 const stockDays = computed(() => new Set(completedStock.value.map(s => stockDateKey(s, getSnapshotBySessionId(s.id)))))
 const orderDays = computed(() => new Set(getOrders().map(o => o.date)))
 const _plain = d => tasksOn(d).filter(t => !t.progress)
-// メモの見出し。本文が無く「発注の見込みから外す」印だけの日も出す（開いて消せるように）
-const _noteText = d => { const n = getNote(d); return n?.text || (n?.excluded ? '発注の見込みから外した日' : '') }
+const _noteText = d => getNote(d)?.text || ''
 
 /** 月のマス: 済み具合の帯と札（棚卸・発注・メモ。先の日は予定を点線） */
 // 帯: 過ぎた日は 全部済み／一部／やり残し。今日から先で登録した業務があれば青の「予定あり」（User決定 2026-11-07）。
@@ -121,8 +120,6 @@ function dayInfo(d) {
     : total && done === total ? 'y' : planned ? 'f' : ''
   const fut = d > today
   const tags = []
-  // イベントは先に（細い札・数には入れない・User 2026-11-11）
-  for (const e of eventsOn(d)) tags.push({ label: e.text.slice(0, 8), kind: 'event' })
   if (stockDays.value.has(d) || (d === today && props.activeSession)) tags.push({ label: '棚卸', kind: 'stock' })
   // 発注スケジュール（発注日の予定）はカレンダーに出さない（User決定 2026-10-26）。実際にした発注だけ
   if (orderDays.value.has(d) || (d === today && props.activeOrderSession)) tags.push({ label: '発注', kind: 'order' })
@@ -169,10 +166,10 @@ function editPicked() { const t = picked.value; if (!t) return; picked.value = n
 function savePickedNote() { if (picked.value) setTaskNote(picked.value.id, pNote.value); picked.value = null }
 const progOpen = ref(null)
 const recOpen = ref(null)    // { focus } ルーティンの記録
-const memoOpen = ref(false), memoText = ref(''), memoExcluded = ref(false)
-function openMemo() { const n = getNote(date.value) || {}; memoText.value = n.text || ''; memoExcluded.value = !!n.excluded; memoOpen.value = true }
-function saveMemo() { setNote(date.value, { text: memoText.value, tags: getNote(date.value)?.tags || [], excluded: memoExcluded.value }); memoOpen.value = false }
-// その日のメモを消す（本文・発注の見込みから外す印ごと・User決定 2026-11-11）
+const memoOpen = ref(false), memoText = ref('')
+function openMemo() { const n = getNote(date.value) || {}; memoText.value = n.text || ''; memoOpen.value = true }
+function saveMemo() { setNote(date.value, { text: memoText.value, tags: getNote(date.value)?.tags || [] }); memoOpen.value = false }
+// その日のメモを消す（User決定 2026-11-11）
 function deleteMemo() {
   if (!window.confirm('この日のメモを消しますか？')) return
   setNote(date.value, {}); memoOpen.value = false; say('メモを消しました')
@@ -203,7 +200,16 @@ function progressOn(d) {
   const ids = new Set(progSpans.value.filter(s => s.start <= d && d <= s.end).map(s => s.id))
   return progressTasks.value.filter(t => ids.has(t.id))
 }
-function openSpan(id) { progOpen.value = progressTasks.value.find(t => t.id === id) ?? null }
+// イベントの線（始まりの日〜終わりの日）。進行中の帯より上に（User決定 2026-11-11）
+const monthSpans = computed(() => [
+  ...aliveEvents.value.map(t => ({ id: t.id, text: t.text, start: t.date, end: t.deadline && t.deadline > t.date ? t.deadline : t.date, state: 'event' })),
+  ...progSpans.value,
+])
+function openSpan(id) {
+  const ev = aliveEvents.value.find(t => t.id === id)
+  if (ev) { addSheet.value = { editEvent: ev }; return }
+  progOpen.value = progressTasks.value.find(t => t.id === id) ?? null
+}
 // 外から頼まれた中身を開く（無くなっていれば日だけ）
 function _openOutside(it) {
   if (!it) return
@@ -343,7 +349,7 @@ async function favChecklist(cl) {
 
 <template>
   <div class="jp">
-    <JournalMonth :today="today" :focus="date" :selected="open ? date : ''" :info="dayInfo" :spans="progSpans" @pick="pick" @span="openSpan" />
+    <JournalMonth :today="today" :focus="date" :selected="open ? date : ''" :info="dayInfo" :spans="monthSpans" @pick="pick" @span="openSpan" />
     <!-- カレンダーからも＋で追加（日付は追加の画面で選ぶ。既定は今日・User 2026-11-08） -->
     <button v-if="canCreate && !open" type="button" class="app-fab jp-fab" aria-label="業務を追加" @click="addSheet = { date: today }"><LineIcon name="plus" size="28" stroke="2.4" /></button>
     <DayTimeline
@@ -375,7 +381,6 @@ async function favChecklist(cl) {
         <form class="jp-sheet" role="dialog" aria-label="メモ" @submit.prevent="saveMemo">
           <b class="jp-sheet-t">メモ</b>
           <textarea v-model="memoText" rows="3" class="jp-in jp-memo" aria-label="メモ" placeholder="貸切・近隣イベント・メニュー変更 など"></textarea>
-          <label class="jp-chk jp-excl"><input v-model="memoExcluded" type="checkbox" /> 発注の見込みから外す（いつもと違う日）</label>
           <div class="jp-row end"><button type="button" class="jp-mini" @click="memoOpen = false">やめる</button><button type="submit" class="jp-save">保存</button></div>
           <button type="button" class="jp-del" @click="deleteMemo">このメモを消す</button>
         </form>

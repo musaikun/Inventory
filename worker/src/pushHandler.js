@@ -235,7 +235,7 @@ export async function sendScheduledPushes(env, now) {
         SELECT task_date, body FROM tasks
         WHERE shop_code = ? AND task_date >= ? AND task_date <= ? AND done_at IS NULL AND deleted_at IS NULL
           AND visibility IS NULL   -- 管理者だけのやることは、店の全端末へのまとめの通知には入れない（2026-10-15）
-          AND (category IS NULL OR category NOT IN ('event', 'event_skip'))   -- イベントはやることではない（2026-11-11）
+          AND (category IS NULL OR category <> 'event')   -- イベントはやることではない（2026-11-11）
         ORDER BY created_at
       `).bind(shop, t.key, until).all()
       openTasks = (tasks ?? []).map(r => ({ date: r.task_date, text: r.body }))

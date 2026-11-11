@@ -1,9 +1,8 @@
 import { reactive } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 
-// 日別メモ（内部イベント要因の記録＋学習除外フラグ）。端末保存（localStorage）。
-// 形: { 'YYYY-MM-DD': { text, tags:[], excluded } }
-//   excluded=true の日は par 学習から除外（貸切・イベント等の異常日が推奨を歪めないため）。
+// 日別メモ。端末保存（localStorage）。形: { 'YYYY-MM-DD': { text, tags:[] } }
+// 以前の「学習から除外（excluded）」はやめた（User決定 2026-11-11・D-041）。古い値は読んでも使わない
 const KEY = STORAGE_KEYS.dayNotes
 const _data = reactive({ notes: {} })
 
@@ -26,18 +25,17 @@ export function resetLocalData() {
 
 export function useDayNotes() {
   function getNote(date)   { return _data.notes[date] || null }
-  function hasNote(date)   { const n = _data.notes[date]; return !!(n && (n.text || (n.tags && n.tags.length) || n.excluded)) }
-  function isExcluded(date) { return !!_data.notes[date]?.excluded }
+  function hasNote(date)   { const n = _data.notes[date]; return !!(n && (n.text || (n.tags && n.tags.length))) }
   function noteDates()     { return Object.keys(_data.notes).filter(hasNote) }
 
-  function setNote(date, { text = '', tags = [], excluded = false } = {}) {
+  function setNote(date, { text = '', tags = [] } = {}) {
     if (!date) return
     const t  = String(text || '').trim().slice(0, 500)
     const tg = Array.isArray(tags) ? [...new Set(tags.filter(Boolean))] : []
-    if (!t && tg.length === 0 && !excluded) delete _data.notes[date]
-    else _data.notes[date] = { text: t, tags: tg, excluded: !!excluded }
+    if (!t && tg.length === 0) delete _data.notes[date]
+    else _data.notes[date] = { text: t, tags: tg }
     _persist()
   }
 
-  return { getNote, hasNote, isExcluded, setNote, noteDates }
+  return { getNote, hasNote, setNote, noteDates }
 }

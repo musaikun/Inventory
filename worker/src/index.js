@@ -683,7 +683,7 @@ export default {
           // 新しく追加されたときだけ、他の端末へ通知（応答は待たせない）
           const except = typeof body.pushEndpoint === 'string' ? body.pushEndpoint : ''
           // イベント（やることではない出来事）は「やることを追加した」の通知を出さない（2026-11-11）
-          if (result?.created && result.task && !String(result.task.category || '').startsWith('event')) {
+          if (result?.created && result.task && result.task.category !== 'event') {
             const job = notifyTaskAdded(env, code, result.task, except)
               .catch(e => console.warn('[push] task notify failed:', e?.message ?? e))
             if (ctx?.waitUntil) ctx.waitUntil(job)

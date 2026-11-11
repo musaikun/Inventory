@@ -52,7 +52,7 @@ function _uid() { return 't_' + Date.now().toString(36) + Math.random().toString
 const _now = () => new Date().toISOString()
 const _alive = t => !t.deletedAt
 /** イベント（やることではない出来事。済みの印は付けず、数にも入れない・過去の日にも入れられる・User決定 2026-11-11） */
-export const EVENT_CATEGORIES = ['event', 'event_skip']   // event_skip = 発注の見込みから外す日
+export const EVENT_CATEGORIES = ['event']
 export const isEvent = t => EVENT_CATEGORIES.includes(t?.category)
 const _todo = t => _alive(t) && !isEvent(t)
 const _DATE_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -70,12 +70,12 @@ const _byTime = (a, b) =>
 export function tasksOn(date) {
   return _data.list.filter(t => t.date === date && _todo(t)).sort(_byTime)
 }
-/** その日のイベント（時刻の順） */
+/** その日にかかるイベント（期間のあるものは 始まりの日〜終わりの日（deadline）のどの日にも。時刻の順） */
 export function eventsOn(date) {
-  return _data.list.filter(t => t.date === date && _alive(t) && isEvent(t)).sort(_byTime)
+  return _data.list.filter(t => _alive(t) && isEvent(t) && t.date && t.date <= date && date <= (t.deadline && t.deadline > t.date ? t.deadline : t.date)).sort(_byTime)
 }
-/** 発注の見込みから外す日（イベントの印） */
-export function isEventSkipDay(date) { return _data.list.some(t => t.date === date && _alive(t) && t.category === 'event_skip') }
+/** イベントすべて（月のカレンダーの線） */
+export const aliveEvents = computed(() => _data.list.filter(t => _alive(t) && isEvent(t) && t.date))
 
 /**
  * 期限切れ: today より前の日付で、まだ終わっていないもの（古い日から）。進行中は済むまで毎日出すので入れない。

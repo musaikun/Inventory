@@ -36,7 +36,6 @@ const emit = defineEmits(['close', 'added', 'templates'])
 const editing = !!props.editOf
 // イベント（やることではない出来事。過去の日にも入れられる・済みの印なし・User決定 2026-11-11）
 const isEventMode = ref(props.startKind === 'event' || !!props.editEvent)
-const eventSkip = ref(false)   // 発注の見込みから外す日
 const evEditable = !props.editEvent || canEditTask(props.editEvent)
 const taskEdit = !!props.editTaskOf
 
@@ -115,7 +114,7 @@ if (props.editOf) {
 if (props.editEvent) {
   const e = props.editEvent
   name.value = e.text; note.value = e.note || ''; day.value = e.date || today
-  time.value = e.dueTime || ''; endTime.value = e.endTime || ''; eventSkip.value = e.category === 'event_skip'
+  time.value = e.dueTime || ''; endTime.value = e.endTime || ''; deadline.value = e.deadline && e.deadline > e.date ? e.deadline : ''
 }
 if (props.editTaskOf) {
   const x = props.editTaskOf
@@ -131,7 +130,7 @@ if (repeat.value !== 'none' && !times.value.length) {
 
 // ── 閉じる前の確認（入力中なら。外を触っただけで消えないように・User 2026-11-08）──
 // 開いたときの中身を控えて、変わっていれば確かめる。担当は後から既定が入ることがあるので見ない
-const _form = () => JSON.stringify([isEventMode.value, eventSkip.value, name.value.trim(), note.value.trim(), day.value, time.value, endTime.value, times.value, deadline.value,
+const _form = () => JSON.stringify([isEventMode.value, name.value.trim(), note.value.trim(), day.value, time.value, endTime.value, times.value, deadline.value,
   repeat.value, weekdays.value, monthDays.value, items.value.map(x => x.text), adminsOnly.value])
 const _snap = _form()
 // チェック表を作りに行って戻ってきたとき: 打っていた中身を入れ直す（付けたチェック表は新しく選んだもの・User 2026-11-10）
@@ -170,7 +169,7 @@ const kind = computed(() => {
 function setMode(ev) {
   isEventMode.value = ev
   if (ev) { deadline.value = ''; repeat.value = 'none'; adminsOnly.value = false; if (!day.value) day.value = today }
-  else { eventSkip.value = false; if (day.value && day.value < today) day.value = today }   // やることは過去に入れない
+  else { deadline.value = ''; if (day.value && day.value < today) day.value = today }   // やることは過去に入れない
   open.value = ''
 }
 
@@ -262,7 +261,9 @@ const showNote = computed(() => isEventMode.value || taskEdit || !editing && rep
 // ── 行 ──
 const whoName = computed(() => (who.value.startsWith('p:') ? (people.value.find(p => p.id === who.value.slice(2))?.name || '') : '全員'))
 const rows = computed(() => isEventMode.value ? [
-  { id: 'day', icon: 'date', color: '#0e7490', label: '日付', value: _dayLabel(day.value || today), set: true },
+  { id: 'day', icon: 'date', color: '#0e7490', label: deadline.value ? '始まりの日' : '日付', value: _dayLabel(day.value || today), set: true },
+  // 期間: 終わりの日（締め切りの欄を使う。何日も続くイベント・User決定 2026-11-11）
+  { id: 'deadline', icon: 'date', color: '#c2410c', label: '終わりの日', value: deadline.value ? _dayLabel(deadline.value) : 'なし（1日だけ）', set: !!deadline.value },
   { id: 'time', icon: 'timer', color: '#0369a1', label: '時刻', value: time.value ? `${time.value}${endTime.value ? `〜${endTime.value}` : ''}` : 'なし', set: !!time.value },
 ] : [
   { id: 'day', icon: 'date', color: '#0e7490', label: '日付', value: day.value ? _dayLabel(day.value) : 'なし', set: !!day.value },
@@ -313,11 +314,13 @@ async function submit() {
   try {
     if (taskEdit) { _saveTaskEdit(text); emit('added', { kind: k, name: text, edited: true }); emit('close'); return }
     if (k === 'event') {
-      const fields = { text, date: day.value || today, dueTime: time.value || null, endTime: time.value && endTime.value > time.value ? endTime.value : null, category: eventSkip.value ? 'event_skip' : 'event' }
+      const fields = { text, date: day.value || today, dueTime: time.value || null, endTime: time.value && endTime.value > time.value ? endTime.value : null, category: 'event' }
+      const until = deadline.value && deadline.value > fields.date ? deadline.value : null   // 終わりの日（期間）
       if (props.editEvent) {
         if (!editTask(props.editEvent.id, fields)) throw new Error('直せませんでした')
         if ((props.editEvent.note || '') !== note.value.trim()) setTaskNote(props.editEvent.id, note.value)
-      } else if (!addTask(fields.date, text, null, fields.dueTime, { note: note.value, endTime: fields.endTime, category: fields.category })) throw new Error('足せませんでした')
+        if ((props.editEvent.deadline || null) !== until) updateProgress(props.editEvent.id, { deadline: until })
+      } else if (!addTask(fields.date, text, null, fields.dueTime, { note: note.value, endTime: fields.endTime, category: fields.category, deadline: until })) throw new Error('足せませんでした')
       emit('added', { kind: k, name: text, edited: !!props.editEvent })
       emit('close')
       return
@@ -444,7 +447,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
                   </template>
                 </div>
                 <button v-if="open === 'day' && day && !editing && !isEventMode" type="button" class="ta-clear" @click="clearDay">日付なし（いつか）にする</button>
-                <button v-if="open === 'deadline' && deadline" type="button" class="ta-clear" @click="clearDeadline">締め切りを外す</button>
+                <button v-if="open === 'deadline' && deadline" type="button" class="ta-clear" @click="clearDeadline">{{ isEventMode ? '終わりの日を外す（1日だけ）' : '締め切りを外す' }}</button>
               </div>
 
               <div v-if="open === 'time' && repeat !== 'none'" class="ta-tm">
@@ -500,7 +503,6 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
               </div>
           </section>
         </div>
-        <label v-if="isEventMode" class="ta-skip"><input v-model="eventSkip" type="checkbox" :disabled="!evEditable" /> 発注の見込みから外す（いつもと違う日）</label>
         <p v-if="err" class="ta-err" role="alert">{{ err }}</p>
         <p v-if="editEvent && !evEditable" class="ta-edit-note">直す・消すのは、作った人と管理者です</p>
         <button v-if="editEvent && canRemoveTask(editEvent)" type="button" class="ta-edit-b danger" @click="removeEvent">このイベントを消す</button>
@@ -608,7 +610,6 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
 .ta-time { min-height: 32px; border: none; border-radius: 999px; background: #0369a1; color: #fff; font: inherit; font-size: 13px; font-weight: 800; padding: 0 12px; cursor: pointer; font-variant-numeric: tabular-nums; }
 .ta-times-none { font-size: 12.5px; font-weight: 700; color: #8aa0a8; }
 .ta-mode { margin: 0 2px; }
-.ta-skip { display: flex; align-items: center; gap: 8px; padding: 0 6px; font-size: 13px; font-weight: 700; color: var(--text); }
 .ta-edit-note { margin: 0; font-size: 12px; font-weight: 700; color: #5b6f78; text-align: center; }
 .ta-edit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .ta-edit-b { min-height: 44px; border: 1px solid #d5e1e5; border-radius: 12px; background: #fff; font: inherit; font-size: 14px; font-weight: 800; color: var(--text); cursor: pointer; }

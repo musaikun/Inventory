@@ -88,11 +88,11 @@ describe('日別メモ（日誌のその日のタイムラインで書く。以�
       expect([...sheet.querySelectorAll('button')].some(b => b.textContent.trim() === t)).toBe(false)
     }
     expect(sheet.querySelector('.jp-memo').value).toBe('近隣で花火大会')
-    expect(sheet.querySelector('.jp-excl input[type=checkbox]')).not.toBeNull()
+    expect(sheet.querySelector('.jp-excl')).toBeNull()   // 「発注の見込みから外す」はやめた（D-041）
   })
 
-  it('メモは消せる（本文も発注の見込みから外す印も）', async () => {
-    seed({ '2026-09-15': { text: '貸切', tags: ['貸切'], excluded: true }, '2026-09-16': { text: '', tags: [], excluded: true } })
+  it('メモは消せる', async () => {
+    seed({ '2026-09-15': { text: '貸切', tags: ['貸切'], excluded: true } })
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
     let root = await mountDay('2026-09-15')
     let sheet = await openMemo(root)
@@ -101,18 +101,10 @@ describe('日別メモ（日誌のその日のタイムラインで書く。以�
     expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.dayNotes))['2026-09-15']).toBeUndefined()
     expect(root.querySelector('.dt-ad.note')).toBeNull()
     expect(document.querySelector('.jp-sheet')).toBeNull()
-    // 本文が無く印だけの日も、行に出て消せる
-    app.unmount(); host.remove()
-    root = await mountDay('2026-09-16')
-    expect(root.querySelector('.dt-ad.note').textContent).toContain('発注の見込みから外した日')
-    sheet = await openMemo(root)
-    ;[...sheet.querySelectorAll('button')].find(b => b.textContent.trim() === 'このメモを消す').click()
-    for (let i = 0; i < 3; i++) await nextTick()
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.dayNotes))['2026-09-16']).toBeUndefined()
     confirm.mockRestore()
   })
 
-  it('既存メモを書き直しても以前のタグと学習除外を失わない', async () => {
+  it('既存メモを書き直しても以前のタグを失わない（学習除外の印は持たない・D-041）', async () => {
     localStorage.setItem(STORAGE_KEYS.dayNotes, JSON.stringify({
       '2026-09-15': { text: '以前の記録', tags: ['貸切'], excluded: true },
     }))
@@ -120,7 +112,7 @@ describe('日別メモ（日誌のその日のタイムラインで書く。以�
     expect(root.querySelector('.dt-ad.note').textContent).toContain('以前の記録')
     await write(await openMemo(root), '貸切の詳細を追記')
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.dayNotes))
-    expect(saved['2026-09-15']).toEqual({ text: '貸切の詳細を追記', tags: ['貸切'], excluded: true })
+    expect(saved['2026-09-15']).toEqual({ text: '貸切の詳細を追記', tags: ['貸切'] })
     expect(saved['2026-09-16']).toBeUndefined()
   })
 })

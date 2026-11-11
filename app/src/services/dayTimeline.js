@@ -86,7 +86,8 @@ export function buildDayTimeline({ date, today, tasks = [], late = [], carry = [
   for (const l of live) {
     out.push({ key: `live-${l.kind}`, time: l.session?.startedAt ? _hhmm(l.session.startedAt) : '', kind: l.kind === 'order' ? '発注' : '棚卸', title: `${l.kind === 'order' ? '発注' : '棚卸'} 途中`, sub: `${l.count}品目`, state: 'live', ref: { type: 'live', session: l.session } })
   }
-  for (const t of events) out.push({ key: t.id, time: t.dueTime || '', kind: 'イベント', title: t.text, sub: t.dueTime ? `${t.dueTime.replace(/^0/, '')}${t.endTime ? `〜${t.endTime.replace(/^0/, '')}` : ''}` : '', state: 'info', event: true, note: t.note || '', ref: { type: 'task', task: t } })
+  // 何日も続くイベントの時刻は始まりの日だけ（ほかの日は終日）
+  for (const t of events) out.push({ key: t.id, time: t.dueTime && t.date === date ? t.dueTime : '', kind: 'イベント', title: t.text, sub: [t.deadline && t.deadline > t.date ? `${_md(t.date)}〜${_md(t.deadline)}` : '', t.dueTime ? `${t.dueTime.replace(/^0/, '')}${t.endTime ? `〜${t.endTime.replace(/^0/, '')}` : ''}` : ''].filter(Boolean).join(' ・ '), state: 'info', event: true, note: t.note || '', ref: { type: 'task', task: t } })
   for (const t of someday) out.push({ key: t.id, time: '', kind: 'いつか', title: t.text, sub: _who(t), state: 'todo', someday: true, ref: { type: 'task', task: t } })
   if (note) out.push({ key: 'note', time: '', kind: 'メモ', title: note, sub: '', state: 'info', ref: { type: 'note' } })
   const allDay = out.filter(x => !x.time)
