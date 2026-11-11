@@ -126,7 +126,7 @@ if (props.draft) {
   // 新しく選ばずに戻ったら、前に付けていたチェック表のまま
   if (!props.checklist && d.items?.length) { items.value = d.items.map(x => ({ ...x })); itemsName.value = d.itemsName ?? '' }
 }
-/** チェック表を作る・直すへ（打った中身を親に預ける） */
+/** チェック表の編集へ（打った中身を親に預ける） */
 function toTemplates() {
   emit('templates', { name: name.value, note: note.value, day: day.value, time: time.value, endTime: endTime.value, deadline: deadline.value,
     repeat: repeat.value, weekdays: [...weekdays.value], monthDays: [...monthDays.value], times: [...times.value], who: who.value, adminsOnly: adminsOnly.value,
@@ -424,7 +424,7 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
                 <button v-for="t in checklistTemplates" :key="t.id" type="button" @click="pickList(t)">
                   <span class="tl"><span>{{ t.name }}</span><small>{{ t.data.items.map(x => x.text).join('・') }}</small></span><b v-if="itemsName === t.name">✓</b>
                 </button>
-                <button v-if="!editing" type="button" class="ta-manage" @click="toTemplates"><LineIcon name="pencil" size="15" /><span>チェック表を作る・直す</span></button>
+                <button v-if="!editing" type="button" class="ta-manage" @click="toTemplates"><LineIcon name="pencil" size="17" /><span>チェック表の編集</span></button>
               </div>
               <div v-if="open === 'vis'" class="ta-sub">
                 <div class="ta-seg" role="radiogroup" aria-label="見せる人">
@@ -516,7 +516,9 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
 .ta-list b { color: var(--primary, #0e7490); }
 .ta-list .av { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 12px; font-weight: 900; color: #fff; background: #0e7490; }
 .ta-list .av.all { background: #94a3b8; }
-.ta-list .ta-manage { color: var(--primary, #0e7490); font-weight: 800; }
+/* チェック表の編集はボタンとして目立たせる（User 2026-11-11） */
+.ta-list .ta-manage { width: calc(100% - 16px); justify-content: center; gap: 8px; margin: 10px 0 4px; padding: 0 16px; min-height: 48px; border: none; border-radius: 12px; background: var(--grad-btn); color: #08323c; font-size: 15px; font-weight: 900; box-shadow: 0 2px 8px rgba(14,116,144,.18); }
+.ta-list .ta-manage span { flex: none; }
 .ta-none { margin: 0; padding: 10px 16px 12px 0; font-size: 13px; color: #8aa0a8; }
 .ta-items { list-style: none; margin: 0; padding: 0 16px 12px 56px; display: grid; gap: 4px; }
 .ta-items li { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #3d545d; }
