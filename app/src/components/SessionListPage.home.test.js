@@ -117,7 +117,7 @@ describe('ホームの骨組み', () => {
     }
     expect(host.querySelector('.mp').textContent).not.toContain('各種設定')
     // 業務: ルーティンの一覧とチェック表は設定に（業務管理の見出しから移した・User決定 2026-11-07）
-    await click([...host.querySelectorAll('.mp .sl-it')].find(b => b.textContent.includes('ルーティン')))
+    await click([...host.querySelectorAll('.mp .sl-it')].find(b => b.textContent.includes('定期')))
     expect(document.body.querySelector('.cp')).not.toBeNull()
     await click(btn(document.body.querySelector('.cp'), '戻る'))
     await click([...host.querySelectorAll('.mp .sl-it')].find(b => b.textContent.includes('チェック表')))

@@ -45,7 +45,7 @@ const hmShort = m => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`
 
 // ── 行（人）──
 const people = computed(() => staffNames.value)
-const rows = computed(() => [{ id: 'all', name: '全員', sub: 'みんな' }, ...people.value.map(p => ({ id: p.id, name: p.name, sub: p.owner ? 'オーナー' : '' }))])
+const rows = computed(() => [{ id: 'all', name: '全員', sub: '' }, ...people.value.map(p => ({ id: p.id, name: p.name, sub: p.owner && p.name !== 'オーナー' ? 'オーナー' : '' }))])
 const rowIdx = id => Math.max(0, rows.value.findIndex(r => r.id === id))
 const _rowOf = (assign, id) => (assign === 'person' && rows.value.some(r => r.id === id) ? id : 'all')
 

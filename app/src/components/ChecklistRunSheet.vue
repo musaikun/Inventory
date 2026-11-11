@@ -34,7 +34,7 @@ const dateLabel = computed(() => {
   const d = new Date(props.date + 'T00:00:00')
   return `${d.getMonth() + 1}/${d.getDate()}（${WEEK[d.getDay()]}）${props.date === localDateKey() ? ' 今日' : ''}`
 })
-const who = computed(() => (props.cl.assign === 'person' ? `担当 ${props.cl.assigneeName || ''}` : '誰でも'))
+const who = computed(() => (props.cl.assign === 'person' ? `担当 ${props.cl.assigneeName || ''}` : '全員'))
 const hm = iso => { const d = new Date(iso); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}` }
 
 const err = ref('')

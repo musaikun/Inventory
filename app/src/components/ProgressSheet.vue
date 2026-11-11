@@ -86,7 +86,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
         <dl class="ps-kv">
           <dt>期限</dt>
           <dd><input type="date" class="ps-date" :value="t.deadline || ''" :disabled="!can" aria-label="期限" @change="e => setDeadline(e.target.value)" /><span v-if="!t.deadline" class="ps-muted">なし</span></dd>
-          <dt>担当</dt><dd>{{ t.assign === 'person' ? t.assigneeName : t.assign === 'all' ? '全員' : '誰でも' }}</dd>
+          <dt>担当</dt><dd>{{ t.assign === 'person' ? t.assigneeName : '全員' }}</dd>
           <dt>動き</dt><dd :class="{ stale: idleDays(t) >= 5 }">{{ idleDays(t) ? `${idleDays(t)}日前` : '今日' }}</dd>
         </dl>
 

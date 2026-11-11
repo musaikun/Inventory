@@ -71,7 +71,7 @@ export function canEditChecklist(cl) { return !!cl && (isAdmin.value || isMeId(c
  */
 export async function saveChecklist(fields) {
   const prev = fields.id ? _data.lists.find(x => x.id === fields.id) : null
-  if (prev ? !canEditChecklist(prev) : !canEditChecklists.value) throw new Error(prev ? 'このチェック表を直すのは、作った人と管理者だけです' : 'チェック表・ルーティンを作る権限がありません')
+  if (prev ? !canEditChecklist(prev) : !canEditChecklists.value) throw new Error(prev ? 'このチェック表を直すのは、作った人と管理者だけです' : 'チェック表・定期を作る権限がありません')
   const today = localDateKey()
   const schedChanged = !prev || prev.repeat !== fields.repeat || (prev.repeatDays ?? null) !== (fields.repeatDays ?? null)
     || (fields.repeat === 'none' && prev.startDate !== fields.startDate)
@@ -109,12 +109,12 @@ async function _send(cl, prev) {
 }
 export function setChecklistPaused(id, paused) {
   const prev = _data.lists.find(x => x.id === id)
-  if (!prev || !canEditChecklist(prev)) return Promise.reject(new Error('このルーティンを直すのは、作った人と管理者だけです'))
+  if (!prev || !canEditChecklist(prev)) return Promise.reject(new Error('この定期を直すのは、作った人と管理者だけです'))
   return _send({ ...prev, paused: !!paused, updatedAt: _now() }, prev)
 }
 export function removeChecklist(id) {
   const prev = _data.lists.find(x => x.id === id)
-  if (!prev || !canEditChecklist(prev)) return Promise.reject(new Error('このルーティンを消すのは、作った人と管理者だけです'))
+  if (!prev || !canEditChecklist(prev)) return Promise.reject(new Error('この定期を消すのは、作った人と管理者だけです'))
   return _send({ ...prev, deletedAt: _now(), updatedAt: _now() }, prev)
 }
 
@@ -137,7 +137,7 @@ export function canUnmark(mark) {
  */
 export async function markChecklistItem(cl, date, slot, itemId, state, reason = '') {
   if (date > localDateKey()) throw new Error('その日になってから✓を付けてください')
-  if (!canMarkChecklist(cl)) throw new Error('このルーティンに✓を付けられるのは、担当の人と管理者だけです')
+  if (!canMarkChecklist(cl)) throw new Error('この定期に✓を付けられるのは、担当の人と管理者だけです')
   const key = runKey(cl.id, date, slot)
   const before = _data.runs[key] ?? null
   const items = before?.items?.length ? before.items : cl.items

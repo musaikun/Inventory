@@ -202,7 +202,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 .dt-card.plan { background: transparent; box-shadow: inset 0 0 0 1.5px #c9d6db; }
 .dt-l1 { display: flex; align-items: center; gap: 6px; }
 .dt-k { flex: none; font-size: 9.5px; font-weight: 900; padding: 2px 6px; border-radius: 6px; background: #e6f0f3; color: #21515e; }
-.dt-k.ルーティン { background: #ece9fd; color: #4c35b5; }
+.dt-k.定期 { background: #ece9fd; color: #4c35b5; }
 .dt-k.棚卸 { background: #e0f4f8; color: #0b5f73; }
 .dt-k.発注 { background: #fdeedd; color: #9a4a07; }
 .dt-k.入庫, .dt-k.出庫 { background: #e8f5ec; color: #1f6b3a; }

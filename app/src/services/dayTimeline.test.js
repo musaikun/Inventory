@@ -21,7 +21,7 @@ describe('日誌のタイムライン（User決定 2026-10-26）', () => {
     expect(tl.allDay[0].sub).toBe('10/24から')
     expect(tl.timed.map(x => x.time)).toEqual(['09:05', '10:00', '11:00', '21:00', '22:30'])
     expect(tl.timed.map(x => x.title)).toEqual(['入庫 2品目', '冷蔵庫の温度（1回目）', '野菜の検品', '冷蔵庫の温度（2回目）', '棚卸 途中'])
-    expect(tl.timed[1]).toMatchObject({ state: 'done', kind: 'ルーティン' })
+    expect(tl.timed[1]).toMatchObject({ state: 'done', kind: '定期' })
     expect(tl.timed[4]).toMatchObject({ state: 'live', sub: '28品目' })
     // 数: やること・ルーティン（記録と途中は入れない）
     expect([tl.done, tl.count]).toEqual([1, 5])
@@ -82,7 +82,7 @@ describe('日誌のタイムライン（User決定 2026-10-26）', () => {
       note: '20時から貸切',
     })
     expect(tl.allDay.map(x => [x.kind, x.title, x.sub])).toEqual([
-      ['やること', 'パッキン交換', '期限 10/28 ・ 佐藤'],
+      ['本日', 'パッキン交換', '期限 10/28 ・ 佐藤'],
       ['進行中', 'エアコンの修理', '待ち・見積もり'],
       ['いつか', 'メニュー表の作り直し', ''],
       ['メモ', '20時から貸切', ''],

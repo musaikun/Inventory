@@ -33,13 +33,15 @@ export function buildDayTimeline({ date, today, tasks = [], late = [], carry = [
   const past = date < today, future = date > today
   const _taskState = t => (t.doneAt ? 'done' : past ? 'missed' : future ? 'plan' : 'todo')
   const _who = t => (t.assign === 'person' ? t.assigneeName || '' : '')
+  // 札は短く: 今日のものは「本日」、ほかの日のものは「予定」（User決定 2026-11-11）。期限切れ・持ち越しは今日だけに出るので「本日」
+  const _tk = t => (t.date === today ? '本日' : '予定')
   const out = []
-  for (const t of late) out.push({ key: t.id, time: '', kind: 'やること', title: t.text, sub: [`${_md(t.date)}から`, _who(t)].filter(Boolean).join(' ・ '), state: 'missed', note: t.note || '', ref: { type: 'task', task: t } })
-  for (const t of carry) out.push({ key: t.id, time: '', kind: 'やること', title: t.text, sub: [`期限 ${_md(t.deadline)}`, _who(t)].filter(Boolean).join(' ・ '), state: 'todo', note: t.note || '', ref: { type: 'task', task: t } })
+  for (const t of late) out.push({ key: t.id, time: '', kind: '本日', title: t.text, sub: [`${_md(t.date)}から`, _who(t)].filter(Boolean).join(' ・ '), state: 'missed', note: t.note || '', ref: { type: 'task', task: t } })
+  for (const t of carry) out.push({ key: t.id, time: '', kind: '本日', title: t.text, sub: [`期限 ${_md(t.deadline)}`, _who(t)].filter(Boolean).join(' ・ '), state: 'todo', note: t.note || '', ref: { type: 'task', task: t } })
   for (const t of progress) out.push({ key: t.id, time: '', kind: '進行中', title: t.text, sub: [t.progress === 'waiting' ? `待ち${t.waitNote ? `・${t.waitNote}` : ''}` : '', t.lastNote?.body || '', _who(t)].filter(Boolean).join(' ・ '), state: 'live', ref: { type: 'progress', task: t } })
   for (const t of tasks) {
     const sub = t.doneAt ? [t.doneBy, _hm(t.doneAt)].filter(Boolean).join(' ') : [t.deadline ? `期限 ${_md(t.deadline)}` : '', _who(t)].filter(Boolean).join(' ・ ')
-    out.push({ key: t.id, time: t.dueTime || '', kind: 'やること', title: t.text, sub, state: _taskState(t), note: t.note || '', ref: { type: 'task', task: t } })
+    out.push({ key: t.id, time: t.dueTime || '', kind: _tk(t), title: t.text, sub, state: _taskState(t), note: t.note || '', ref: { type: 'task', task: t } })
   }
   for (const r of lists) {
     const many = r.slots.length > 1
@@ -48,7 +50,7 @@ export function buildDayTimeline({ date, today, tasks = [], late = [], carry = [
       const count = isSimple(r.cl) ? '' : `${s.filled}/${s.total}`
       const sub = s.complete ? [by && `${by} ${s.lastAt ? _hm(s.lastAt) : ''}`.trim(), count].filter(Boolean).join(' ・ ') : count
       const state = s.complete ? 'done' : past ? 'missed' : future ? 'plan' : 'todo'
-      out.push({ key: `cl-${r.cl.id}-${s.slot}`, time: s.slot || '', kind: 'ルーティン', title: many ? `${r.cl.name}（${i + 1}回目）` : r.cl.name, sub, state, ref: { type: 'list', run: s } })
+      out.push({ key: `cl-${r.cl.id}-${s.slot}`, time: s.slot || '', kind: '定期', title: many ? `${r.cl.name}（${i + 1}回目）` : r.cl.name, sub, state, ref: { type: 'list', run: s } })
     })
   }
   const REC = { stock: '棚卸', order: '発注', in: '入庫', out: '出庫' }

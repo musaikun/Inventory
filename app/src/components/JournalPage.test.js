@@ -213,7 +213,7 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     expect(ad.textContent).toContain('いつか')
   })
 
-  it('管理者は「見せる人」の行で、みんな／管理者だけを選べる（既定はみんな）', async () => {
+  it('管理者は「見せる人」の行で、全員／管理者だけを選べる（既定は全員）', async () => {
     const T = await import('../composables/useTasks.js')
     const { default: JournalPage } = await import('./JournalPage.vue')
     T.addTask(new Date().toISOString().slice(0, 10), 'x')   // 何もない店の画面にしない
@@ -224,7 +224,7 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     await click(btn('管理者だけ', form))
     await click(form.querySelector('.ta-go'))
     form = await addForm('冷蔵庫の掃除')
-    expect(row(form, 'vis').textContent).toContain('みんな')
+    expect(row(form, 'vis').textContent).toContain('全員')
     form.dispatchEvent(new Event('submit', { cancelable: true })); await tick()   // Enter でも足せる
     const vis = Object.fromEntries(T.aliveTasks.value.map(t => [t.text, t.visibility ?? null]))
     expect(vis).toEqual({ x: null, 面談の準備: 'admins', 冷蔵庫の掃除: null })
@@ -347,7 +347,7 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     expect(T.aliveTasks.value.find(x => x.id === t.id).note).toBe('業者に連絡済み')
   })
 
-  it('「＋」で繰り返しを選ぶとルーティンになる。月の見出しにチェック表・ルーティンのボタンは無い（見本も無い）', async () => {
+  it('「＋」で定期を選ぶと定期（チェック表）になる。月の見出しにチェック表・定期のボタンは無い（見本も無い）', async () => {
     const { default: JournalPage } = await import('./JournalPage.vue')
     await mount(JournalPage)
     expect(host.querySelector('[aria-label="ルーティンの設定"]')).toBeNull()
@@ -360,7 +360,7 @@ describe('日誌（月のカレンダー → 日を押すとタイムライン�
     await click(btn('毎月', form))
     await click(btn('月末', form))
     expect(row(form, 'repeat').textContent).toContain('月末')
-    expect(kindOf(form)).toBe('繰り返し')
+    expect(kindOf(form)).toBe('定期')
     await click(btn('毎日', form))
     await click(form.querySelector('.ta-go'))
     expect(saveChecklistToD1).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'ゴミ出し', items: [], repeat: 'daily' }))

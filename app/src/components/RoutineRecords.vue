@@ -53,10 +53,10 @@ const rateCls = r => (r == null ? '' : r < RED_BELOW ? 'bad' : 'good')
 
 <template>
   <Teleport to="body">
-    <div class="rtr" role="dialog" :aria-label="target ? `${target.name}の記録` : 'ルーティンの記録'">
+    <div class="rtr" role="dialog" :aria-label="target ? `${target.name}の記録` : '定期の記録'">
       <div class="rtr-top">
         <button type="button" class="rtr-back" @click="back">‹ 戻る</button>
-        <div class="rtr-t"><b>{{ target ? target.name : 'ルーティンの記録' }}</b><small>{{ target ? whenLabel(target) : `この4週間 ・ ${md(days28[0])}〜${md(today)}` }}</small></div>
+        <div class="rtr-t"><b>{{ target ? target.name : '定期の記録' }}</b><small>{{ target ? whenLabel(target) : `この4週間 ・ ${md(days28[0])}〜${md(today)}` }}</small></div>
       </div>
 
       <!-- 一覧 -->
@@ -72,7 +72,7 @@ const rateCls = r => (r == null ? '' : r < RED_BELOW ? 'bad' : 'good')
             <span class="rtr-sq" aria-hidden="true"><i v-for="(m, i) in r.marks" :key="i" :class="m"></i></span>
             <span :class="['rtr-pc', rateCls(r.stats.rate)]">{{ r.stats.rate == null ? '—' : `${r.stats.rate}%` }}</span>
           </button>
-          <p v-if="!rows.length" class="rtr-empty">ルーティンがまだありません</p>
+          <p v-if="!rows.length" class="rtr-empty">定期がまだありません</p>
         </div>
         <div class="rtr-leg"><span><i class="y"></i>やった</span><span><i class="n"></i>抜け</span><span><i class="p"></i>途中</span><span><i class="o"></i>予定なし</span></div>
       </div>

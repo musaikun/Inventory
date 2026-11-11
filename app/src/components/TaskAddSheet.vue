@@ -12,7 +12,7 @@ import TimeGrid from './TimeGrid.vue'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { ref, computed, onUnmounted } from 'vue'
 import { addTask, TASK_TEXT_MAX, TASK_NOTE_MAX } from '../composables/useTasks.js'
-import { saveChecklist, newItemId, CL_NAME_MAX } from '../composables/useChecklists.js'
+import { saveChecklist, setChecklistPaused, removeChecklist, newItemId, CL_NAME_MAX, CL_ITEM_MAX, CL_ITEMS_MAX, CL_TIMES_MAX } from '../composables/useChecklists.js'
 import { checklistTemplates } from '../composables/useTemplates.js'
 import { staffNames, isAdmin } from '../composables/useAuth.js'
 import { isMeId } from '../composables/useDeviceId.js'
@@ -28,8 +28,10 @@ const props = defineProps({
   presetTime: { type: String, default: '' },  // 予定ボードのマスから（始まりの時刻）
   presetWho: { type: String, default: '' },   // 予定ボードのマスから（'all' | 'p:<id>'）
   draft: { type: Object, default: null },     // チェック表を作りに行く前に打っていた中身（戻ってきたら入れ直す）
+  editOf: { type: Object, default: null },    // 定期（チェック表）を直す。作るのと同じ画面で直す（User決定 2026-11-11）
 })
 const emit = defineEmits(['close', 'added', 'templates'])
+const editing = !!props.editOf
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 const today = localDateKey()
@@ -39,6 +41,7 @@ const _dayLabel = k => (k === today ? '今日' : k === localDateKey(new Date(Dat
 const name = ref(''), note = ref('')
 const day = ref(props.date && props.date >= today ? props.date : today)
 const time = ref(''), endTime = ref('')
+const times = ref([])                        // 定期の時刻（いくつでも＝1日に何回も）
 const deadline = ref('')
 const repeat = ref('none'), weekdays = ref([]), monthDays = ref([])
 const who = ref('all')
@@ -88,9 +91,28 @@ if (props.template) {
   else if (d.assign) who.value = 'all'
 }
 
+// 定期を直す: 今の中身を入れる
+if (props.editOf) {
+  const cl = props.editOf
+  name.value = cl.name
+  items.value = (cl.items ?? []).map(x => ({ id: x.id || newItemId(), text: x.text }))
+  itemsName.value = ''
+  repeat.value = cl.repeat || 'none'
+  if (cl.repeat === 'weekly') weekdays.value = String(cl.repeatDays ?? '').split(',').filter(Boolean).map(Number)
+  if (cl.repeat === 'monthly') monthDays.value = String(cl.repeatDays ?? '').split(',').filter(Boolean)
+  day.value = cl.repeat === 'none' ? (cl.startDate || today) : (cl.startDate > today ? cl.startDate : today)
+  const ts = (cl.dueTimes ?? []).filter(Boolean)
+  if (repeat.value === 'none') time.value = ts[0] || ''; else times.value = [...ts]
+  who.value = cl.assign === 'person' && people.value.some(p => p.id === cl.assigneeId) ? `p:${cl.assigneeId}` : 'all'
+}
+if (repeat.value !== 'none' && !times.value.length) {
+  const ts = props.template?.data?.dueTimes
+  times.value = ts?.length ? [...ts] : time.value ? [time.value] : []
+}
+
 // ── 閉じる前の確認（入力中なら。外を触っただけで消えないように・User 2026-11-08）──
 // 開いたときの中身を控えて、変わっていれば確かめる。担当は後から既定が入ることがあるので見ない
-const _form = () => JSON.stringify([name.value.trim(), note.value.trim(), day.value, time.value, endTime.value, deadline.value,
+const _form = () => JSON.stringify([name.value.trim(), note.value.trim(), day.value, time.value, endTime.value, times.value, deadline.value,
   repeat.value, weekdays.value, monthDays.value, items.value.map(x => x.text), adminsOnly.value])
 const _snap = _form()
 // チェック表を作りに行って戻ってきたとき: 打っていた中身を入れ直す（付けたチェック表は新しく選んだもの・User 2026-11-10）
@@ -98,7 +120,7 @@ if (props.draft) {
   const d = props.draft
   name.value = d.name ?? ''; note.value = d.note ?? ''
   day.value = d.day ?? day.value; time.value = d.time ?? ''; endTime.value = d.endTime ?? ''; deadline.value = d.deadline ?? ''
-  repeat.value = d.repeat ?? 'none'; weekdays.value = [...(d.weekdays ?? [])]; monthDays.value = [...(d.monthDays ?? [])]
+  repeat.value = d.repeat ?? 'none'; weekdays.value = [...(d.weekdays ?? [])]; monthDays.value = [...(d.monthDays ?? [])]; times.value = [...(d.times ?? [])]
   if (d.who && (d.who === 'all' || people.value.some(p => `p:${p.id}` === d.who))) who.value = d.who
   adminsOnly.value = !!d.adminsOnly
   // 新しく選ばずに戻ったら、前に付けていたチェック表のまま
@@ -107,7 +129,7 @@ if (props.draft) {
 /** チェック表を作る・直すへ（打った中身を親に預ける） */
 function toTemplates() {
   emit('templates', { name: name.value, note: note.value, day: day.value, time: time.value, endTime: endTime.value, deadline: deadline.value,
-    repeat: repeat.value, weekdays: [...weekdays.value], monthDays: [...monthDays.value], who: who.value, adminsOnly: adminsOnly.value,
+    repeat: repeat.value, weekdays: [...weekdays.value], monthDays: [...monthDays.value], times: [...times.value], who: who.value, adminsOnly: adminsOnly.value,
     items: items.value.map(x => ({ ...x })), itemsName: itemsName.value })
 }
 function tryClose() {
@@ -117,7 +139,7 @@ function tryClose() {
 
 // ── 種類（入れた中身で決まる）──
 const kind = computed(() => {
-  if (repeat.value !== 'none') return { k: 'repeat', label: '繰り返し' }
+  if (repeat.value !== 'none') return { k: 'repeat', label: '定期' }
   if (deadline.value) return { k: 'progress', label: `${_md(deadline.value).replace(/（.）/, '')}まで` }
   if (!day.value) return { k: 'someday', label: 'いつか' }
   if (day.value === today) return { k: 'today', label: '本日' }
@@ -170,6 +192,9 @@ function clearDeadline() { deadline.value = ''; open.value = '' }
 
 // ── 繰り返し ──
 function setRepeat(r) {
+  const was = repeat.value
+  if (was === 'none' && r !== 'none') { times.value = time.value ? [time.value] : []; endTime.value = '' }
+  if (was !== 'none' && r === 'none') { time.value = times.value[0] || ''; endTime.value = '' }
   repeat.value = r
   if (r !== 'none') deadline.value = ''
   const d = new Date((day.value || today) + 'T00:00:00')
@@ -188,16 +213,36 @@ const repeatLabel = computed(() => {
   return 'しない'
 })
 
+// 定期の時刻: 選ぶたびに足す（✕で外す）
+function addTime(v) {
+  if (!/^\d{2}:\d{2}$/.test(v) || times.value.includes(v) || times.value.length >= CL_TIMES_MAX) { time.value = ''; return }
+  times.value = [...times.value, v].sort(); time.value = ''
+}
+function removeTime(v) { times.value = times.value.filter(x => x !== v) }
+// 項目: その場で書き直す・消す・足す（空にすると消える）
+const itemDraft = ref('')
+function addItemText() {
+  const t = itemDraft.value.trim()
+  if (!t || items.value.length >= CL_ITEMS_MAX) return
+  items.value = [...items.value, { id: newItemId(), text: t.slice(0, CL_ITEM_MAX) }]; itemDraft.value = ''
+}
+function fixItem(i) { if (!items.value[i]?.text.trim()) items.value.splice(i, 1) }
+function removeItem(i) { items.value.splice(i, 1); if (!items.value.length) itemsName.value = '' }
+// メモはやることだけ（定期・チェック表のついた日のものには残らないので出さない）
+const showNote = computed(() => !editing && repeat.value === 'none' && !(items.value.length && day.value && !deadline.value))
+
 // ── 行 ──
 const whoName = computed(() => (who.value.startsWith('p:') ? (people.value.find(p => p.id === who.value.slice(2))?.name || '') : '全員'))
 const rows = computed(() => [
   { id: 'day', icon: 'date', color: '#0e7490', label: '日付', value: day.value ? _dayLabel(day.value) : 'なし', set: !!day.value },
-  ...(day.value ? [{ id: 'time', icon: 'timer', color: '#0369a1', label: '時刻', value: time.value ? `${time.value}${endTime.value ? `〜${endTime.value}` : ''}` : 'なし', set: !!time.value }] : []),
-  ...(repeat.value === 'none' ? [{ id: 'deadline', icon: 'hourglass', color: '#ca8a04', label: '締め切り', value: deadline.value ? _dayLabel(deadline.value) : 'なし', set: !!deadline.value }] : []),
-  ...(day.value && !deadline.value ? [{ id: 'repeat', icon: 'repeat', color: '#059669', label: '繰り返し', value: repeatLabel.value, set: repeat.value !== 'none' }] : []),
+  ...(day.value ? [{ id: 'time', icon: 'timer', color: '#0369a1', label: '時刻', ...(repeat.value !== 'none'
+    ? { value: times.value.length ? times.value.join('・') : 'なし', set: times.value.length > 0 }
+    : { value: time.value ? `${time.value}${endTime.value ? `〜${endTime.value}` : ''}` : 'なし', set: !!time.value }) }] : []),
+  ...(repeat.value === 'none' && !editing ? [{ id: 'deadline', icon: 'hourglass', color: '#ca8a04', label: '締め切り', value: deadline.value ? _dayLabel(deadline.value) : 'なし', set: !!deadline.value }] : []),
+  ...(day.value && !deadline.value ? [{ id: 'repeat', icon: 'repeat', color: '#059669', label: '定期', value: repeatLabel.value, set: repeat.value !== 'none' }] : []),
   ...(hasStaff.value ? [{ id: 'who', icon: 'user', color: '#7c3aed', label: '担当', value: whoName.value, set: true }] : []),
-  { id: 'list', icon: 'clipboard', color: '#db2777', label: 'チェック表', value: itemsName.value || 'なし', set: !!itemsName.value },
-  ...(isAdmin.value && repeat.value === 'none' && !(items.value.length && day.value && !deadline.value) ? [{ id: 'vis', icon: 'eye', color: '#475569', label: '見せる人', value: adminsOnly.value ? '管理者だけ' : 'みんな', set: adminsOnly.value }] : []),
+  { id: 'list', icon: 'clipboard', color: '#db2777', label: 'チェック表', value: itemsName.value || (items.value.length ? `${items.value.length}項目` : 'なし'), set: items.value.length > 0 },
+  ...(!editing && isAdmin.value && repeat.value === 'none' && !(items.value.length && day.value && !deadline.value) ? [{ id: 'vis', icon: 'eye', color: '#475569', label: '見せる人', value: adminsOnly.value ? '管理者だけ' : '全員', set: adminsOnly.value }] : []),
 ])
 const modalTitle = computed(() => rows.value.find(r => r.id === open.value)?.label || '')
 function pickWho(v) { who.value = v; open.value = '' }
@@ -235,13 +280,14 @@ async function submit() {
   const visibility = adminsOnly.value ? 'admins' : null
   busy.value = true
   try {
-    if (k === 'repeat' || ((k === 'today' || k === 'plan') && items.value.length)) {
+    if (editing || k === 'repeat' || ((k === 'today' || k === 'plan') && items.value.length)) {
       await saveChecklist({
+        ...(editing ? { id: props.editOf.id } : {}),
         name: text.slice(0, CL_NAME_MAX), items: items.value,
         repeat: k === 'repeat' ? repeat.value : 'none',
         repeatDays: k === 'repeat' ? repeatDays.value : null,
         startDate: day.value || undefined,   // 繰り返しも選んだ日付から（今日以前なら今日から）
-        dueTimes: time.value ? [time.value] : [],
+        dueTimes: k === 'repeat' ? times.value : time.value ? [time.value] : [],
         ..._assignChecklist(),
       })
     } else {
@@ -253,7 +299,7 @@ async function submit() {
           : addTask(day.value, text, _assignTask(), time.value || null, { visibility, note: note.value, endTime: time.value && endTime.value > time.value ? endTime.value : null })
       if (!ok) throw new Error('足せませんでした')
     }
-    emit('added', { kind: k, name: text })
+    emit('added', { kind: k, name: text, edited: editing })
     emit('close')
   } catch (e) {
     err.value = e?.message || '保存できませんでした'
@@ -262,23 +308,36 @@ async function submit() {
   }
 }
 
+// 定期を直すときだけ: お休み・消す（直す画面にあったもの）
+async function togglePause() {
+  busy.value = true; err.value = ''
+  try { await setChecklistPaused(props.editOf.id, !props.editOf.paused); emit('close') } catch (e) { err.value = e?.message || '保存できませんでした' } finally { busy.value = false }
+}
+async function removeEdit() {
+  if (!window.confirm(`「${props.editOf.name}」を消しますか？\n今までの記録も見られなくなります。使わない時期だけなら「お休み」にしてください。`)) return
+  busy.value = true; err.value = ''
+  try { await removeChecklist(props.editOf.id); emit('close') } catch (e) { err.value = e?.message || '消せませんでした' } finally { busy.value = false }
+}
+
 onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; return true } tryClose(); return true }))
 </script>
 
 <template>
   <Teleport to="body">
     <div class="ta-bg" @click.self="tryClose">
-      <form class="ta" role="dialog" aria-label="業務を追加" @submit.prevent="submit">
+      <form class="ta" role="dialog" :aria-label="editing ? '定期を直す' : '業務を追加'" @submit.prevent="submit">
         <div class="ta-h">
           <button type="button" class="ta-x" @click="tryClose">やめる</button>
           <span :key="kind.label" :class="['ta-kind', kind.k]" data-test="kind">{{ kind.label }}</span>
-          <button type="submit" class="ta-go" :disabled="!canSubmit">追加</button>
+          <button type="submit" class="ta-go" :disabled="!canSubmit">{{ editing ? '保存' : '追加' }}</button>
         </div>
 
         <div class="ta-card">
           <input v-model="name" type="text" class="ta-name" :maxlength="TASK_TEXT_MAX" aria-label="名前" placeholder="名前" />
-          <i class="ta-hr"></i>
-          <input v-model="note" type="text" class="ta-memo" :maxlength="TASK_NOTE_MAX" aria-label="メモ" placeholder="メモ" />
+          <template v-if="showNote">
+            <i class="ta-hr"></i>
+            <input v-model="note" type="text" class="ta-memo" :maxlength="TASK_NOTE_MAX" aria-label="メモ" placeholder="メモ" />
+          </template>
         </div>
 
         <div class="ta-card">
@@ -294,9 +353,14 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
               @pointercancel="itemDrag.onUp" @lostpointercapture="itemDrag.onUp" @touchmove="itemDrag.onTouchMove">
               <li v-for="(it, i) in items" :key="it.id" :data-id="it.id" :class="['ta-it', { many: items.length > 1 }]">
                 <button v-if="items.length > 1" type="button" class="ta-handle" :aria-label="`${it.text} を運ぶ。現在 ${i + 1} 番目。上下矢印キーで移動`" @keydown="itemDrag.onKeydown($event, it.id)">⋮⋮</button>
-                <span>{{ it.text }}</span>
+                <input v-model="it.text" type="text" class="ta-it-in" :maxlength="CL_ITEM_MAX" :aria-label="`項目${i + 1}`" @blur="fixItem(i)" @keydown.enter.prevent="$event.target.blur()" />
+                <button type="button" class="ta-it-x" :aria-label="`${it.text}を消す`" @click="removeItem(i)">✕</button>
               </li>
             </ul>
+            <div v-if="r.id === 'list' && (items.length || editing)" class="ta-it-add">
+              <input v-model="itemDraft" type="text" :maxlength="CL_ITEM_MAX" aria-label="項目を足す" placeholder="＋ 項目を足す" @keydown.enter.prevent="addItemText" />
+              <button v-if="itemDraft.trim()" type="button" class="ta-it-go" @click="addItemText">足す</button>
+            </div>
           </template>
         </div>
 
@@ -313,11 +377,18 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
                     <button v-else type="button" :class="['d', { on: c.on, today: c.today }]" :disabled="c.off" :data-day="c.key" @click="pickDay(c)">{{ c.d }}</button>
                   </template>
                 </div>
-                <button v-if="open === 'day' && day" type="button" class="ta-clear" @click="clearDay">日付なし（いつか）にする</button>
+                <button v-if="open === 'day' && day && !editing" type="button" class="ta-clear" @click="clearDay">日付なし（いつか）にする</button>
                 <button v-if="open === 'deadline' && deadline" type="button" class="ta-clear" @click="clearDeadline">締め切りを外す</button>
               </div>
 
-              <div v-if="open === 'time'" class="ta-tm">
+              <div v-if="open === 'time' && repeat !== 'none'" class="ta-tm">
+                <div class="ta-times">
+                  <button v-for="t in times" :key="t" type="button" class="ta-time" :aria-label="`${t}を外す`" @click="removeTime(t)">{{ t }} ✕</button>
+                  <span v-if="!times.length" class="ta-times-none">選ぶと足します（1日に何回も）</span>
+                </div>
+                <TimeGrid v-if="times.length < CL_TIMES_MAX" v-model="time" @done="addTime" />
+              </div>
+              <div v-else-if="open === 'time'" class="ta-tm">
                 <div class="ta-seg" role="tablist" aria-label="始まり・終わり">
                   <button type="button" role="tab" :aria-selected="timeEnd === 'start'" :class="{ on: timeEnd === 'start' }" data-time="start" @click="timeEnd = 'start'">始まり <b>{{ time || '—' }}</b></button>
                   <button type="button" role="tab" :aria-selected="timeEnd === 'end'" :class="{ on: timeEnd === 'end' }" :disabled="!time" data-time="end" @click="timeEnd = 'end'">終わり <b>{{ endTime || 'なし' }}</b></button>
@@ -353,17 +424,24 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
                 <button v-for="t in checklistTemplates" :key="t.id" type="button" @click="pickList(t)">
                   <span class="tl"><span>{{ t.name }}</span><small>{{ t.data.items.map(x => x.text).join('・') }}</small></span><b v-if="itemsName === t.name">✓</b>
                 </button>
-                <button type="button" class="ta-manage" @click="toTemplates"><LineIcon name="pencil" size="15" /><span>チェック表を作る・直す</span></button>
+                <button v-if="!editing" type="button" class="ta-manage" @click="toTemplates"><LineIcon name="pencil" size="15" /><span>チェック表を作る・直す</span></button>
               </div>
               <div v-if="open === 'vis'" class="ta-sub">
                 <div class="ta-seg" role="radiogroup" aria-label="見せる人">
-                  <button type="button" role="radio" :aria-checked="!adminsOnly" :class="{ on: !adminsOnly }" @click="adminsOnly = false; open = ''">みんな</button>
+                  <button type="button" role="radio" :aria-checked="!adminsOnly" :class="{ on: !adminsOnly }" @click="adminsOnly = false; open = ''">全員</button>
                   <button type="button" role="radio" :aria-checked="adminsOnly" :class="{ on: adminsOnly }" @click="adminsOnly = true; open = ''">管理者だけ</button>
                 </div>
               </div>
           </section>
         </div>
         <p v-if="err" class="ta-err" role="alert">{{ err }}</p>
+        <template v-if="editing">
+          <p class="ta-edit-note">直した中身は、まだ✓を付けていない日から使います</p>
+          <div class="ta-edit-row">
+            <button type="button" class="ta-edit-b" :disabled="busy" @click="togglePause">{{ editOf.paused ? 'お休みをやめる' : 'お休みにする' }}</button>
+            <button type="button" class="ta-edit-b danger" :disabled="busy" @click="removeEdit">消す</button>
+          </div>
+        </template>
       </form>
     </div>
   </Teleport>
@@ -448,5 +526,18 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
 .ta-items li.holding { color: var(--primary, #0e7490); }
 .ta-items li.drag { background: #fff; border-radius: 10px; box-shadow: 0 8px 20px rgba(6,34,43,.18); position: relative; z-index: 2; }
 .ta-handle { flex: none; width: 36px; min-height: 36px; border: none; background: none; color: #8aa0a8; font-size: 15px; letter-spacing: -3px; cursor: grab; touch-action: none; }
+.ta-it-in { flex: 1; min-width: 0; min-height: 32px; border: none; border-bottom: 1px dashed transparent; background: none; font: inherit; font-size: 13px; font-weight: 700; color: #3d545d; padding: 0; }
+.ta-it-in:focus { outline: none; border-bottom-color: #9ccfdb; }
+.ta-it-x { flex: none; width: 32px; min-height: 32px; border: none; background: none; color: #8aa0a8; font-size: 13px; cursor: pointer; }
+.ta-it-add { display: flex; align-items: center; gap: 6px; padding: 0 16px 12px 56px; }
+.ta-it-add input { flex: 1; min-width: 0; min-height: 34px; border: 1px dashed #c8d8de; border-radius: 9px; background: none; font: inherit; font-size: 13px; padding: 0 10px; color: var(--text); }
+.ta-it-go { flex: none; min-height: 34px; border: none; border-radius: 9px; background: #db2777; color: #fff; font: inherit; font-size: 12.5px; font-weight: 800; padding: 0 12px; cursor: pointer; }
+.ta-times { display: flex; flex-wrap: wrap; gap: 6px; min-height: 34px; align-items: center; }
+.ta-time { min-height: 32px; border: none; border-radius: 999px; background: #0369a1; color: #fff; font: inherit; font-size: 13px; font-weight: 800; padding: 0 12px; cursor: pointer; font-variant-numeric: tabular-nums; }
+.ta-times-none { font-size: 12.5px; font-weight: 700; color: #8aa0a8; }
+.ta-edit-note { margin: 0; font-size: 12px; font-weight: 700; color: #5b6f78; text-align: center; }
+.ta-edit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ta-edit-b { min-height: 44px; border: 1px solid #d5e1e5; border-radius: 12px; background: #fff; font: inherit; font-size: 14px; font-weight: 800; color: var(--text); cursor: pointer; }
+.ta-edit-b.danger { border-color: #fecaca; color: #b91c1c; }
 .ta-err { margin: 0; font-size: 12.5px; font-weight: 700; color: #b91c1c; }
 </style>

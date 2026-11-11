@@ -486,10 +486,10 @@ onUnmounted(registerInnerLayerCloser(() => {
 
     <OrderScheduleModal v-if="showOrderSchedule" @close="showOrderSchedule = false" />
     <!-- 業務: ルーティンの一覧とチェック表（設定から・User決定 2026-11-07） -->
-    <ChecklistsPage v-if="routinesOpen" @close="routinesOpen = false" @open-run="x => routineRun = x" @add="routinesOpen = false; taskAdd = {}" />
+    <ChecklistsPage v-if="routinesOpen" @close="routinesOpen = false" @edit="cl => taskAdd = { editOf: cl }" @open-run="x => routineRun = x" @add="routinesOpen = false; taskAdd = {}" />
     <ChecklistRunSheet v-if="routineRun" :cl="routineRun.cl" :date="routineRun.date" :slot="routineRun.slot || ''" @close="routineRun = null" />
     <ChecklistTemplatesPage v-if="templatesOpen" @close="fromTemplates()" @use-checklist="t => fromTemplates({ checklist: t })" @use-template="t => fromTemplates({ template: t })" />
-    <TaskAddSheet v-if="taskAdd" :checklist="taskAdd.checklist || null" :template="taskAdd.template || null" :draft="taskAdd.draft || null" @close="taskAdd = null" @templates="toTemplates" />
+    <TaskAddSheet v-if="taskAdd" :checklist="taskAdd.checklist || null" :template="taskAdd.template || null" :draft="taskAdd.draft || null" :edit-of="taskAdd.editOf || null" @close="taskAdd = null" @templates="toTemplates" />
     <OrderBaseModal
       v-if="showOrderBase"
       :rows="orderBaseRows"

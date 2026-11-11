@@ -108,7 +108,7 @@ async function save() {
       <div class="sl-sec">業務</div>
       <div class="sl-box">
         <button type="button" class="sl-it" @click="emit('routines')">
-          <span class="sl-ic"><LineIcon name="repeat" /></span><span class="sl-tx"><b>ルーティン</b><small>一覧・直す・お休み・消す</small></span><span class="sl-ar" aria-hidden="true">›</span>
+          <span class="sl-ic"><LineIcon name="repeat" /></span><span class="sl-tx"><b>定期</b><small>一覧・直す・お休み・消す</small></span><span class="sl-ar" aria-hidden="true">›</span>
         </button>
         <button type="button" class="sl-it" @click="emit('templates')">
           <span class="sl-ic"><LineIcon name="clipboard" /></span><span class="sl-tx"><b>チェック表</b><small>項目のひな形・お気に入り</small></span><span class="sl-ar" aria-hidden="true">›</span>

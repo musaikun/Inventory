@@ -245,7 +245,7 @@ const okMsg = ref('')
 let _okT = null
 function say(m) { okMsg.value = m; clearTimeout(_okT); _okT = setTimeout(() => { okMsg.value = '' }, 2600) }
 onUnmounted(() => clearTimeout(_okT))
-function onAdded({ name }) { say(`「${name}」を足しました`) }
+function onAdded({ name, edited }) { say(edited ? `「${name}」を直しました` : `「${name}」を足しました`) }
 
 // ── 予定ボード（予約台帳の形・2026-11-05）──
 // 空いているマス → その時間・その人で「やること」を足す
@@ -366,16 +366,16 @@ async function favChecklist(cl) {
         </form>
       </div>
     </Teleport>
-    <ChecklistsPage v-if="clPage" :key="clPage.historyOf?.id || clPage.editOf?.id || (clPage.create ? 'new' : 'list')" :history-of="clPage.historyOf" :edit-of="clPage.editOf || null" :create="!!clPage.create" @close="clPage = null" @open-run="x => clRun = x" @add="clPage = null; addSheet = { startKind: '' }" />
+    <ChecklistsPage v-if="clPage" :key="clPage.historyOf?.id || 'list'" :history-of="clPage.historyOf" @close="clPage = null" @edit="cl => addSheet = { editOf: cl }" @open-run="x => clRun = x" @add="clPage = null; addSheet = { startKind: '' }" />
     <ProgressSheet v-if="progOpen" :task="progOpen" @close="progOpen = null" />
     <RoutineRecords v-if="recOpen" :focus="recOpen.focus" @close="recOpen = null" @open-run="x => clRun = x" />
     <ChecklistRunSheet
       v-if="clRun" :cl="clRun.cl" :date="clRun.date" :slot="clRun.slot || ''" :can-copy="canCreate"
-      @close="clRun = null" @history="openClHistory" @edit="cl => { clRun = null; clPage = { editOf: cl } }" @copy="copyChecklist(clRun.cl, clRun.date, clRun.slot || '')" @fav="favChecklist(clRun.cl)"
+      @close="clRun = null" @history="openClHistory" @edit="cl => { clRun = null; addSheet = { editOf: cl } }" @copy="copyChecklist(clRun.cl, clRun.date, clRun.slot || '')" @fav="favChecklist(clRun.cl)"
     />
     <TaskAddSheet
       v-if="addSheet" :date="addSheet.date || date || today" :start-kind="addSheet.startKind || ''" :template="addSheet.template || null"
-      :checklist="addSheet.checklist || null" :draft="addSheet.draft || null" :preset-time="addSheet.time || ''" :preset-who="addSheet.who || ''"
+      :checklist="addSheet.checklist || null" :draft="addSheet.draft || null" :edit-of="addSheet.editOf || null" :preset-time="addSheet.time || ''" :preset-who="addSheet.who || ''"
       @close="addSheet = null" @added="onAdded" @templates="toTemplates"
     />
     <ChecklistTemplatesPage v-if="ctOpen" @close="fromTemplates()" @use-checklist="t => fromTemplates({ checklist: t })" @use-template="t => fromTemplates({ template: t })" />
