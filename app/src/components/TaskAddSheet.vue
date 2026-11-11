@@ -11,7 +11,7 @@ import LineIcon from './LineIcon.vue'
 import TimeGrid from './TimeGrid.vue'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import { ref, computed, onUnmounted } from 'vue'
-import { addTask, editTask, setTaskNote, removeTask, canEditTask, canRemoveTask, TASK_TEXT_MAX, TASK_NOTE_MAX } from '../composables/useTasks.js'
+import { addTask, editTask, setTaskNote, setTaskAssign, updateProgress, removeTask, canEditTask, canRemoveTask, TASK_TEXT_MAX, TASK_NOTE_MAX } from '../composables/useTasks.js'
 import { saveChecklist, setChecklistPaused, removeChecklist, newItemId, CL_NAME_MAX, CL_ITEM_MAX, CL_ITEMS_MAX, CL_TIMES_MAX } from '../composables/useChecklists.js'
 import { checklistTemplates } from '../composables/useTemplates.js'
 import { staffNames, isAdmin } from '../composables/useAuth.js'
@@ -30,6 +30,7 @@ const props = defineProps({
   draft: { type: Object, default: null },     // チェック表を作りに行く前に打っていた中身（戻ってきたら入れ直す）
   editOf: { type: Object, default: null },    // 定期（チェック表）を直す。作るのと同じ画面で直す（User決定 2026-11-11）
   editEvent: { type: Object, default: null }, // イベントを直す
+  editTaskOf: { type: Object, default: null }, // 登録したやることを直す（期限・日付・時刻・担当など・User決定 2026-11-11）
 })
 const emit = defineEmits(['close', 'added', 'templates'])
 const editing = !!props.editOf
@@ -37,6 +38,7 @@ const editing = !!props.editOf
 const isEventMode = ref(props.startKind === 'event' || !!props.editEvent)
 const eventSkip = ref(false)   // 発注の見込みから外す日
 const evEditable = !props.editEvent || canEditTask(props.editEvent)
+const taskEdit = !!props.editTaskOf
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 const today = localDateKey()
@@ -114,6 +116,13 @@ if (props.editEvent) {
   const e = props.editEvent
   name.value = e.text; note.value = e.note || ''; day.value = e.date || today
   time.value = e.dueTime || ''; endTime.value = e.endTime || ''; eventSkip.value = e.category === 'event_skip'
+}
+if (props.editTaskOf) {
+  const x = props.editTaskOf
+  name.value = x.text; note.value = x.note || ''; day.value = x.date ?? ''
+  time.value = x.dueTime || ''; endTime.value = x.endTime || ''; deadline.value = x.deadline || ''
+  who.value = x.assign === 'person' && people.value.some(p => p.id === x.assigneeId) ? `p:${x.assigneeId}` : 'all'
+  adminsOnly.value = x.visibility === 'admins'
 }
 if (repeat.value !== 'none' && !times.value.length) {
   const ts = props.template?.data?.dueTimes
@@ -248,7 +257,7 @@ function addItemText() {
 function fixItem(i) { if (!items.value[i]?.text.trim()) items.value.splice(i, 1) }
 function removeItem(i) { items.value.splice(i, 1); if (!items.value.length) itemsName.value = '' }
 // メモはやることだけ（定期・チェック表のついた日のものには残らないので出さない）
-const showNote = computed(() => isEventMode.value || !editing && repeat.value === 'none' && !(items.value.length && day.value && !deadline.value))
+const showNote = computed(() => isEventMode.value || taskEdit || !editing && repeat.value === 'none' && !(items.value.length && day.value && !deadline.value))
 
 // ── 行 ──
 const whoName = computed(() => (who.value.startsWith('p:') ? (people.value.find(p => p.id === who.value.slice(2))?.name || '') : '全員'))
@@ -261,9 +270,9 @@ const rows = computed(() => isEventMode.value ? [
     ? { value: times.value.length ? times.value.join('・') : 'なし', set: times.value.length > 0 }
     : { value: time.value ? `${time.value}${endTime.value ? `〜${endTime.value}` : ''}` : 'なし', set: !!time.value }) }] : []),
   ...(repeat.value === 'none' && !editing ? [{ id: 'deadline', icon: 'hourglass', color: '#ca8a04', label: '締め切り', value: deadline.value ? _dayLabel(deadline.value) : 'なし', set: !!deadline.value }] : []),
-  ...(day.value && !deadline.value ? [{ id: 'repeat', icon: 'repeat', color: '#059669', label: '定期', value: repeatLabel.value, set: repeat.value !== 'none' }] : []),
+  ...(day.value && !deadline.value && !taskEdit ? [{ id: 'repeat', icon: 'repeat', color: '#059669', label: '定期', value: repeatLabel.value, set: repeat.value !== 'none' }] : []),
   ...(hasStaff.value ? [{ id: 'who', icon: 'user', color: '#7c3aed', label: '担当', value: whoName.value, set: true }] : []),
-  { id: 'list', icon: 'clipboard', color: '#db2777', label: 'チェック表', value: itemsName.value || (items.value.length ? `${items.value.length}項目` : 'なし'), set: items.value.length > 0 },
+  ...(taskEdit ? [] : [{ id: 'list', icon: 'clipboard', color: '#db2777', label: 'チェック表', value: itemsName.value || (items.value.length ? `${items.value.length}項目` : 'なし'), set: items.value.length > 0 }]),
   ...(!editing && isAdmin.value && repeat.value === 'none' && !(items.value.length && day.value && !deadline.value) ? [{ id: 'vis', icon: 'eye', color: '#475569', label: '見せる人', value: adminsOnly.value ? '管理者だけ' : '全員', set: adminsOnly.value }] : []),
 ])
 const modalTitle = computed(() => rows.value.find(r => r.id === open.value)?.label || '')
@@ -285,7 +294,7 @@ onUnmounted(() => itemDrag.cleanup())
 function pickList(t) { if (t) _setItems(t.data?.items, t.name); else _setItems([], ''); open.value = '' }
 
 // ── 足す ──
-const canSubmit = computed(() => !!name.value.trim() && !busy.value && evEditable && (isEventMode.value || repeat.value === 'none' || repeatOk.value))
+const canSubmit = computed(() => !!name.value.trim() && !busy.value && evEditable && (!taskEdit || canEditTask(props.editTaskOf)) && (isEventMode.value || repeat.value === 'none' || repeatOk.value))
 function _assignTask() {
   const v = who.value
   return v.startsWith('p:') ? { mode: 'person', id: v.slice(2), name: whoName.value } : { mode: hasStaff.value ? 'all' : 'anyone' }
@@ -302,6 +311,7 @@ async function submit() {
   const visibility = adminsOnly.value ? 'admins' : null
   busy.value = true
   try {
+    if (taskEdit) { _saveTaskEdit(text); emit('added', { kind: k, name: text, edited: true }); emit('close'); return }
     if (k === 'event') {
       const fields = { text, date: day.value || today, dueTime: time.value || null, endTime: time.value && endTime.value > time.value ? endTime.value : null, category: eventSkip.value ? 'event_skip' : 'event' }
       if (props.editEvent) {
@@ -340,6 +350,21 @@ async function submit() {
   }
 }
 
+// 登録したやることを直す: 文・日付・時刻・担当・見せる人・メモ・期限（期限を付けると進行中・＋で足すときと同じ）
+function _saveTaskEdit(text) {
+  const x = props.editTaskOf
+  const d = deadline.value && !day.value ? today : day.value   // 期限だけなら今日から（＋と同じ）
+  const ok = editTask(x.id, {
+    text, date: d, dueTime: d ? (time.value || null) : null, endTime: d && time.value && endTime.value > time.value ? endTime.value : null,
+    ...(isAdmin.value ? { visibility: adminsOnly.value ? 'admins' : null } : {}),
+  })
+  if (!ok) throw new Error('直せませんでした')
+  const a = _assignTask()
+  const was = x.assign === 'person' ? `p:${x.assigneeId}` : 'all'
+  if (who.value !== was) setTaskAssign(x.id, a)
+  if ((x.note || '') !== note.value.trim()) setTaskNote(x.id, note.value)
+  if ((x.deadline || '') !== deadline.value) updateProgress(x.id, { deadline: deadline.value || null, ...(deadline.value && !x.progress ? { progress: 'doing' } : {}) })
+}
 // イベントを消す
 function removeEvent() {
   if (!window.confirm(`「${props.editEvent.text}」を消しますか？`)) return
@@ -362,13 +387,13 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
 <template>
   <Teleport to="body">
     <div class="ta-bg" @click.self="tryClose">
-      <form class="ta" role="dialog" :aria-label="editing ? '定期を直す' : editEvent ? 'イベントを直す' : '業務を追加'" @submit.prevent="submit">
+      <form class="ta" role="dialog" :aria-label="editing ? '定期を直す' : editEvent ? 'イベントを直す' : taskEdit ? 'やることを直す' : '業務を追加'" @submit.prevent="submit">
         <div class="ta-h">
           <button type="button" class="ta-x" @click="tryClose">やめる</button>
           <span :key="kind.label" :class="['ta-kind', kind.k]" data-test="kind">{{ kind.label }}</span>
-          <button type="submit" class="ta-go" :disabled="!canSubmit">{{ editing || editEvent ? '保存' : '追加' }}</button>
+          <button type="submit" class="ta-go" :disabled="!canSubmit">{{ editing || editEvent || taskEdit ? '保存' : '追加' }}</button>
         </div>
-        <div v-if="!editing && !editEvent" class="ta-seg ta-mode" role="radiogroup" aria-label="やること・イベント">
+        <div v-if="!editing && !editEvent && !taskEdit" class="ta-seg ta-mode" role="radiogroup" aria-label="やること・イベント">
           <button type="button" role="radio" :aria-checked="!isEventMode" :class="{ on: !isEventMode }" @click="setMode(false)">やること</button>
           <button type="button" role="radio" :aria-checked="isEventMode" :class="{ on: isEventMode }" @click="setMode(true)">イベント</button>
         </div>

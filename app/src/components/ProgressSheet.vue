@@ -8,11 +8,11 @@
  * 変えられるのは担当の人・作った人・管理者（canProgress）。経過は見える人なら誰でも書ける
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { updateProgress, finishProgress, canProgress, canRemoveTask, removeTask, loadNotes, addNote, newStepId, idleDays } from '../composables/useTasks.js'
+import { updateProgress, finishProgress, canProgress, canEditTask, canRemoveTask, removeTask, loadNotes, addNote, newStepId, idleDays } from '../composables/useTasks.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 
 const props = defineProps({ task: { type: Object, required: true } })
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'edit'])
 const t = computed(() => props.task)
 const can = computed(() => canProgress(t.value))
 const at = iso => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}` }
@@ -122,6 +122,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
           <li v-for="n in notes" :key="n.id">{{ n.body }}<small>{{ at(n.at) }} {{ n.by }}</small></li>
           <li v-if="!loading && !notes.length" class="none">まだ経過はありません<small>{{ at(t.createdAt) }} {{ t.createdBy }}（作った人）</small></li>
         </ol>
+        <button v-if="canEditTask(t)" type="button" class="ps-edit" @click="emit('edit', t)">直す（名前・期限・担当など）</button>
         <button v-if="canRemoveTask(t)" type="button" class="ps-del" @click="del">この進行中を消す</button>
       </div>
     </div>
@@ -132,6 +133,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 .ps-bg { position: fixed; inset: 0; z-index: 125; background: rgba(15,23,42,.4); display: flex; align-items: flex-end; justify-content: center; }
 .ps { width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; background: var(--surface); border-radius: 22px 22px 0 0; padding: 16px 16px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 10px; box-sizing: border-box; }
 .ps-h { display: flex; align-items: center; gap: 8px; } .ps-h b { flex: 1; font-size: 18px; }
+.ps-edit { min-height: 44px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); font: inherit; font-size: 14px; font-weight: 800; cursor: pointer; }
 .ps-del { justify-self: center; min-height: 44px; border: none; background: none; color: #b91c1c; font: inherit; font-size: 14px; font-weight: 800; cursor: pointer; }
 .ps-x { width: 34px; height: 34px; border-radius: 50%; border: none; background: #f1f5f9; color: #64748b; font-weight: 900; cursor: pointer; }
 .ps-seg { display: flex; gap: 4px; }

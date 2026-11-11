@@ -164,6 +164,8 @@ function startPicked() {
   picked.value = null
   say(`「${t.text}」を始めました`)
 }
+// 登録したやることを直す: ＋と同じ画面で（期限も・User決定 2026-11-11）
+function editPicked() { const t = picked.value; if (!t) return; picked.value = null; addSheet.value = { editTaskOf: t } }
 function savePickedNote() { if (picked.value) setTaskNote(picked.value.id, pNote.value); picked.value = null }
 const progOpen = ref(null)
 const recOpen = ref(null)    // { focus } ルーティンの記録
@@ -353,7 +355,8 @@ async function favChecklist(cl) {
     <Teleport to="body">
       <div v-if="picked" class="jp-sheet-bg" @click.self="picked = null">
         <div class="jp-sheet" role="dialog" aria-label="やること">
-          <TaskRow :task="picked" :show-date="picked.date < (date || today)" />
+          <TaskRow :task="picked" :show-date="picked.date < (date || today)" external-edit @edit="editPicked" />
+          <button v-if="canEditTask(picked) && !picked.kind" type="button" class="jp-edit" @click="editPicked"><LineIcon name="pencil" /> 直す（日付・時刻・期限・担当）</button>
           <TaskSteps v-if="!picked.kind && (picked.steps?.length || canProgress(picked))" :task="picked" />
           <button v-if="!picked.date && !picked.progress && !picked.doneAt && canProgress(picked)" type="button" class="jp-start" @click="startPicked">始める</button>
           <template v-if="canNoteTask(picked) && !canEditTask(picked)">
@@ -379,7 +382,7 @@ async function favChecklist(cl) {
       </div>
     </Teleport>
     <ChecklistsPage v-if="clPage" :key="clPage.historyOf?.id || 'list'" :history-of="clPage.historyOf" @close="clPage = null" @edit="cl => addSheet = { editOf: cl }" @open-run="x => clRun = x" @add="clPage = null; addSheet = { startKind: '' }" />
-    <ProgressSheet v-if="progOpen" :task="progOpen" @close="progOpen = null" />
+    <ProgressSheet v-if="progOpen" :task="progOpen" @close="progOpen = null" @edit="x => { progOpen = null; addSheet = { editTaskOf: x } }" />
     <RoutineRecords v-if="recOpen" :focus="recOpen.focus" @close="recOpen = null" @open-run="x => clRun = x" />
     <ChecklistRunSheet
       v-if="clRun" :cl="clRun.cl" :date="clRun.date" :slot="clRun.slot || ''" :can-copy="canCreate"
@@ -387,7 +390,7 @@ async function favChecklist(cl) {
     />
     <TaskAddSheet
       v-if="addSheet" :date="addSheet.date || date || today" :start-kind="addSheet.startKind || ''" :template="addSheet.template || null"
-      :checklist="addSheet.checklist || null" :draft="addSheet.draft || null" :edit-of="addSheet.editOf || null" :edit-event="addSheet.editEvent || null" :preset-time="addSheet.time || ''" :preset-who="addSheet.who || ''"
+      :checklist="addSheet.checklist || null" :draft="addSheet.draft || null" :edit-of="addSheet.editOf || null" :edit-event="addSheet.editEvent || null" :edit-task-of="addSheet.editTaskOf || null" :preset-time="addSheet.time || ''" :preset-who="addSheet.who || ''"
       @close="addSheet = null" @added="onAdded" @templates="toTemplates"
     />
     <ChecklistTemplatesPage v-if="ctOpen" @close="fromTemplates()" @use-checklist="t => fromTemplates({ checklist: t })" @use-template="t => fromTemplates({ template: t })" />
@@ -471,6 +474,7 @@ async function favChecklist(cl) {
 .jp-sheet-t { font-size: 16px; }
 .jp-sheet label { display: grid; gap: 3px; font-size: 11.5px; font-weight: 800; color: var(--text-muted); }
 .jp-in { width: 100%; min-height: 42px; border: 1px solid var(--border); border-radius: 10px; padding: 0 10px; font: inherit; font-size: 15px; background: var(--surface); color: var(--text); box-sizing: border-box; }
+.jp-edit { min-height: 46px; border: none; border-radius: 12px; background: var(--grad-btn); color: #08323c; font: inherit; font-size: 14.5px; font-weight: 900; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .jp-del { min-height: 44px; border: none; background: none; color: #b91c1c; font: inherit; font-size: 14px; font-weight: 800; cursor: pointer; }
 .jp-start { min-height: 50px; border: none; border-radius: 14px; background: linear-gradient(135deg, #ca8a04, #a16207); color: #fff; font: inherit; font-size: 15px; font-weight: 900; cursor: pointer; }
 .jp-more { display: flex; flex-wrap: wrap; gap: 6px; border-top: 1px solid var(--border); padding-top: 10px; }

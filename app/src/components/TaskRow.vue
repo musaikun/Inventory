@@ -26,14 +26,16 @@ const props = defineProps({
   task: { type: Object, required: true },
   showDate: { type: Boolean, default: false },
   mark: { type: String, default: '' },   // 文面の前の印（申し送りから作ったもの）
+  externalEdit: { type: Boolean, default: false },   // 直すのは親（＋と同じ追加の画面・User決定 2026-11-11）。文面を押すと edit を出す
 })
+const emit = defineEmits(['edit'])
 const t = computed(() => props.task)
 
 const canEdit = computed(() => canEditTask(t.value))
 const canRemove = computed(() => canRemoveTask(t.value))
 const canToggle = computed(() => canToggleTask(t.value))
 const isJoin = computed(() => t.value.kind === 'staff_join')
-function onText() { if (isJoin.value) { if (isAdmin.value) openStaffPage() } else openEdit() }
+function onText() { if (isJoin.value) { if (isAdmin.value) openStaffPage() } else if (props.externalEdit) { if (canEdit.value) emit('edit') } else openEdit() }
 // 担当の候補（先頭はオーナー）。自分には「（自分）」を付ける
 const people = computed(() => staffNames.value)
 const hasStaff = computed(() => people.value.some(p => !p.owner))
