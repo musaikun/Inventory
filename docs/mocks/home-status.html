@@ -5,25 +5,29 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>本日の状況</title>
 <style>
-  /* ホームの「今日のやること」と「店の今」を1枚の「本日の状況」にまとめる案（2026-11-12）。
-     中身は今の部品（HomeTop の一覧の行・HomeNowCard の帯と進行中の棒）を並べ直したもの */
+  /* ホームの「本日の状況」案 v2（2026-11-12）: 今日のやること・定期・進行中を、同じ形の進み具合の棒で1列に。
+     札は 遅れ／本日まで／明日まで だけ。アプリの明るい画面の見本なので、明るい1テーマで固定（色はすべてここで明示） */
   :root {
     color-scheme: light;
     --page:#d3dfe3; --bg:#eef5f7; --surface:#fff; --text:#12303a; --muted:#4c6a72; --faint:#94a3b8; --line:#e2ecef;
-    --primary:#0e7490; --priw:#ecfeff;
-    --done:#22a55a; --now:#0e7490; --late:#dc2626; --next:#3b82f6;
-    --doing:#3b82f6; --wait:#64748b; --stale:#d97706; --over:#dc2626; --last:#c2410c;
+    --primary:#0e7490; --priw:#ecfeff; --done:#22a55a;
+    --bar:#0e7490; --barw:#dcedf2;
+    --late:#dc2626; --latew:#fef2f2; --today:#c2410c; --todayw:#fff1e6; --tmr:#a16207; --tmrw:#fef9c3;
   }
   * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
   body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:var(--page); color:var(--text);
-    padding:20px 16px 32px; display:flex; gap:28px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
-  .side { max-width:340px; display:grid; gap:10px; font-size:13px; line-height:1.7; color:var(--muted); }
+    padding-block:20px 32px; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px));
+    display:flex; gap:28px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
+  .side { max-width:360px; min-width:0; display:grid; gap:10px; font-size:13px; line-height:1.7; color:var(--muted); }
   .side h1 { font-size:19px; color:var(--text); } .side b { color:var(--text); }
   .side h2 { font-size:13px; color:var(--text); margin-top:6px; }
   .side ul { display:grid; gap:3px; } .side li { margin-left:18px; }
   .sw { display:flex; gap:5px; background:var(--surface); border-radius:12px; padding:8px; }
   .sw button { flex:1; border:1.5px solid #cfdde2; background:var(--surface); border-radius:9px; padding:7px 4px; font:inherit; font-size:12px; font-weight:800; color:var(--muted); cursor:pointer; }
   .sw button.on { border-color:var(--primary); background:var(--priw); color:var(--primary); }
+  .sw button:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
+  .tag { display:inline-block; font-size:10.5px; font-weight:900; border-radius:6px; padding:0 6px; line-height:18px; }
+  .tag.l { background:var(--latew); color:var(--late); } .tag.t { background:var(--todayw); color:var(--today); } .tag.m { background:var(--tmrw); color:var(--tmr); }
 
   .phone { width:375px; max-width:100%; height:780px; background:var(--bg); border-radius:30px; overflow:hidden; display:flex; flex-direction:column;
     box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; }
@@ -32,178 +36,98 @@
   .hero b { font-weight:900; letter-spacing:.08em; font-size:15px; } .hero span { font-size:11px; font-weight:700; padding:3px 9px; border-radius:999px; background:rgba(255,255,255,.1); margin-left:6px; }
   .hero p { margin-top:14px; font-size:18px; font-weight:800; letter-spacing:.04em; }
 
-  /* ── 本日の状況（1枚）── */
+  /* ── 本日の状況（1枚・1列）── */
   .st { position:relative; margin:-46px 12px 0; background:var(--surface); border-radius:20px; box-shadow:0 6px 20px rgba(6,34,43,.12); overflow:hidden; }
-  .st-h { display:flex; align-items:center; gap:10px; padding:14px 14px 8px; }
-  .st-h h3 { font-size:16px; font-weight:900; }
-  .st-h a { margin-left:auto; font-size:12.5px; font-weight:800; color:var(--primary); text-decoration:none; }
-  .sum { display:flex; align-items:center; gap:10px; padding:0 14px 10px; }
-  .ring { width:52px; height:52px; border-radius:50%; display:grid; place-items:center; background:conic-gradient(var(--done) 0 40%, #e3ecef 0); flex:none; }
-  .ring i { width:42px; height:42px; border-radius:50%; background:#fff; display:grid; place-items:center; font-style:normal; font-size:13px; font-weight:900; line-height:1.05; text-align:center; }
-  .ring i small { display:block; font-size:9px; color:var(--muted); }
-  .chips { display:flex; flex-wrap:wrap; gap:5px; }
-  .chip { font-size:11px; font-weight:900; border-radius:999px; padding:3px 9px; }
-  .chip.l { background:#fef2f2; color:#b91c1c; } .chip.m { background:#ecfeff; color:var(--primary); } .chip.s { background:#fffbeb; color:#b45309; }
-  .sec { display:flex; align-items:center; gap:8px; padding:8px 14px 4px; font-size:11px; font-weight:900; letter-spacing:.06em; color:var(--faint); }
-  .sec::after { content:''; flex:1; border-top:1px solid var(--line); }
-  .sec a { order:2; font-size:11.5px; letter-spacing:0; color:var(--primary); text-decoration:none; font-weight:800; }
-  /* ① 気になる */
-  .rows { padding:0 10px 4px; }
-  .row { display:flex; align-items:center; gap:8px; min-height:40px; padding:4px; border-radius:10px; }
-  .row em { flex:none; min-width:40px; text-align:center; font-style:normal; font-size:10.5px; font-weight:900; border-radius:6px; padding:2px 6px; }
-  .row em.l { background:#fef2f2; color:#b91c1c; } .row em.m { background:#ecfeff; color:var(--primary); } .row em.n { background:#eff6ff; color:#1d4ed8; }
-  .row .tm { flex:none; width:40px; font-size:12.5px; font-weight:800; color:var(--muted); font-variant-numeric:tabular-nums; }
-  .row .tx { flex:1; min-width:0; font-size:14px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .row .k { flex:none; font-size:10px; font-weight:800; border-radius:6px; padding:1px 6px; background:#ece9fd; color:#4c35b5; }
-  .row .who { flex:none; font-size:11.5px; font-weight:800; color:var(--muted); }
-  .more { display:block; padding:2px 14px 6px; font-size:12px; font-weight:800; color:var(--primary); }
-  /* ② 時間の流れ */
-  .flow { padding:2px 14px 8px; }
-  .flow.fold { display:none; }
-  .axis { position:relative; height:16px; margin-left:46px; font-size:10px; font-weight:800; color:var(--faint); }
-  .axis span { position:absolute; transform:translateX(-50%); }
-  .axis .nw { color:#dc2626; }
-  .lane { display:flex; align-items:center; gap:6px; height:26px; }
-  .lane b { width:40px; flex:none; font-size:11.5px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .track { position:relative; flex:1; height:20px; background:#f1f6f8; border-radius:6px; }
-  .bar { position:absolute; top:3px; bottom:3px; border-radius:5px; }
-  .bar.d { background:var(--done); } .bar.n { background:var(--now); } .bar.l { background:var(--late); } .bar.x { background:var(--next); opacity:.85; }
-  .nowln { position:absolute; top:-2px; bottom:-2px; width:2px; background:#dc2626; }
-  .leg { display:flex; gap:10px; margin:6px 0 0 46px; font-size:10.5px; font-weight:700; color:var(--muted); }
-  .leg i { display:inline-block; width:10px; height:6px; border-radius:2px; margin-right:3px; vertical-align:1px; }
-  .foldbtn { display:none; margin:0 14px 8px; width:calc(100% - 28px); min-height:34px; border:1px dashed #cfdde2; border-radius:10px; background:none; font:inherit; font-size:12px; font-weight:800; color:var(--muted); cursor:pointer; }
-  .foldbtn.show { display:block; }
-  /* ③ 進行中 */
-  .prog { padding:0 14px 14px; display:grid; gap:10px; }
-  .pg { display:grid; gap:4px; --c:var(--doing); --w:#dbeafe; }
-  .pg.stale { --c:var(--stale); --w:#fdecc8; } .pg.over { --c:var(--over); --w:#fde2e2; } .pg.last { --c:var(--doing); --w:#dbeafe; }
-  .pt { display:flex; align-items:center; gap:6px; }
-  .pt .t { flex:1; min-width:0; font-size:13.5px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .pt em { flex:none; font-style:normal; font-size:10px; font-weight:900; border-radius:6px; padding:1px 6px; background:var(--c); color:#fff; }
-  .pt em.d { background:var(--last); }
-  .pt small { flex:none; font-size:11px; font-weight:700; color:var(--muted); }
-  .pb { position:relative; height:8px; border-radius:4px; background:var(--w); }
-  .pb b { position:absolute; top:-3px; width:14px; height:14px; margin-left:-7px; border-radius:50%; background:var(--c); border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.2); }
-  .pm { display:flex; justify-content:space-between; font-size:10.5px; font-weight:700; color:var(--faint); }
-  .pm .last { color:var(--last); font-weight:900; }
+  .st-h { display:flex; align-items:center; gap:12px; padding:14px 14px 10px; border-bottom:1px solid var(--line); }
+  .ring { width:48px; height:48px; border-radius:50%; display:grid; place-items:center; background:conic-gradient(var(--done) 0 40%, #e3ecef 0); flex:none; }
+  .ring i { width:38px; height:38px; border-radius:50%; background:#fff; display:grid; place-items:center; font-style:normal; font-size:12.5px; font-weight:900; font-variant-numeric:tabular-nums; }
+  .st-h div { flex:1; min-width:0; } .st-h h3 { font-size:16px; font-weight:900; } .st-h small { font-size:11.5px; font-weight:700; color:var(--muted); }
+  .st-h a { font-size:12.5px; font-weight:800; color:var(--primary); text-decoration:none; }
+  .list { display:grid; padding:4px 14px 12px; }
+  .it { display:grid; gap:5px; padding:10px 0; border-top:1px solid var(--line); }
+  .it:first-child { border-top:none; }
+  .r1 { display:flex; align-items:center; gap:6px; min-width:0; }
+  .r1 .t { flex:1; min-width:0; font-size:14px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .r1 .k { flex:none; font-size:10px; font-weight:800; border-radius:6px; padding:1px 6px; background:#ece9fd; color:#4c35b5; }
+  .r1 .k.p { background:#e0f2fe; color:#075985; }
+  .pb { position:relative; height:8px; border-radius:4px; background:var(--barw); overflow:hidden; }
+  .pb i { position:absolute; inset:0 auto 0 0; border-radius:4px; background:var(--bar); }
+  .it.late .pb { background:var(--latew); } .it.late .pb i { background:var(--late); }
+  .r3 { display:flex; justify-content:space-between; gap:8px; font-size:11px; font-weight:700; color:var(--faint); font-variant-numeric:tabular-nums; }
+  .r3 .due.l { color:var(--late); font-weight:900; } .r3 .due.t { color:var(--today); font-weight:900; } .r3 .due.m { color:var(--tmr); font-weight:900; }
+  .it.done .t { color:var(--faint); text-decoration:line-through; } .it.done .pb i { background:var(--done); } .it.done .r3 { color:var(--faint); }
+  .hide-done .it.done { display:none; }
 
-  /* ショートカット（今のまま・小さく） */
   .shl { padding:16px 18px 6px; font-size:12px; font-weight:800; color:var(--muted); }
   .sc { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; padding:0 12px; }
   .sc div { background:var(--surface); border-radius:16px; height:74px; display:grid; place-items:center; font-size:12.5px; font-weight:800; }
   .nav { display:flex; justify-content:space-around; padding:8px 0 12px; background:var(--surface); border-top:1px solid var(--line); font-size:10.5px; font-weight:800; color:var(--muted); }
   .nav .on { color:var(--primary); }
-
-  /* 今（比べる用） */
-  .old { display:none; }
-  body.cmp .new { display:none; } body.cmp .old { display:block; }
-  .oc { margin:12px; background:var(--surface); border-radius:20px; padding:14px; box-shadow:0 2px 8px rgba(6,34,43,.08); font-size:12.5px; }
-  .oc:first-child { margin-top:-46px; position:relative; }
-  .oc h4 { font-size:14px; margin-bottom:8px; } .oc p { color:var(--muted); line-height:1.8; }
-  .dup { background:#fef2f2; color:#b91c1c; border-radius:4px; padding:0 4px; font-weight:800; }
 </style>
 </head>
 <body>
-  <div class="side">
-    <h1>本日の状況（案）</h1>
-    <p>ホームの「今日のやること」と「店の今」を、1枚にまとめた案です。中身は今の部品を並べ直しています。</p>
-    <h2>見る</h2>
-    <div class="sw" data-g="cmp"><button class="on" data-v="new">まとめた案</button><button data-v="old">今（2枚）</button></div>
-    <h2>② 時間の流れ</h2>
-    <div class="sw" data-g="flow"><button class="on" data-v="show">出す</button><button data-v="fold">たたむ</button><button data-v="none">出さない</button></div>
-    <h2>① 気になるの行数</h2>
-    <div class="sw" data-g="rows"><button class="on" data-v="3">3行</button><button data-v="5">5行</button></div>
-    <h2>同じものを2回出さない決まり</h2>
-    <ul>
-      <li><b>今日のやること・定期</b>は ①気になる と ②時間の流れ にだけ</li>
-      <li><b>進行中</b>は ③ にだけ。「本日まで」「締め切り過ぎ」「止まっている」は ③ の札で知らせ、① には入れない</li>
-      <li>輪（2/5）は業務管理の日の輪と同じ数（やること＋定期。進行中は数えない）</li>
-    </ul>
-    <h2>押すと</h2>
-    <ul>
-      <li>見出しの「一覧 ›」→ 今日の一覧</li>
-      <li>② の「ボード ›」・帯 → 予定ボード</li>
-      <li>① ③ の行 → その業務の中身</li>
-    </ul>
-  </div>
 
-  <div class="phone">
-    <div class="scr">
-      <div class="hero"><b>pantops</b><span>渋谷カフェ</span><p>11月12日（木）</p></div>
+<div class="side">
+  <h1>本日の状況（案2）</h1>
+  <p>今日のやること・定期・進行中を、同じ形の<b>進み具合の棒</b>で1列に並べます。「気になる」と「時間の流れ」はなくしました。</p>
+  <h2>札は3つだけ</h2>
+  <ul>
+    <li><span class="tag l">遅れ</span> 時刻や締め切りを過ぎたもの（◯日遅れ）</li>
+    <li><span class="tag t">本日まで</span> 締め切りが今日</li>
+    <li><span class="tag m">明日まで</span> 締め切りが明日（前日に限って出す）</li>
+  </ul>
+  <p>それ以外は札を出さず、右下に「本日 14:00」「11/30まで」とだけ書きます。</p>
+  <h2>棒が表すもの</h2>
+  <ul>
+    <li>どれも<b>済んだ割合</b>（子タスク・チェック表の項目）。項目が無いものは 済み＝いっぱい／まだ＝空</li>
+    <li>済んだものは緑の棒・取り消し線で下へ</li>
+  </ul>
+  <h2>並び</h2>
+  <ul><li>遅れ → 本日まで → 明日まで → 時刻の順 → 締め切りの順 → 済み</li></ul>
+  <h2>済んだものを</h2>
+  <div class="sw" data-g="done"><button class="on" data-v="show">出す</button><button data-v="hide">隠す</button></div>
+</div>
 
-      <!-- まとめた案 -->
-      <section class="st new">
-        <div class="st-h"><h3>本日の状況</h3><a href="#">一覧 ›</a></div>
-        <div class="sum">
-          <span class="ring"><i>2/5<small>済み</small></i></span>
-          <span class="chips"><span class="chip l">遅れ 1</span><span class="chip m">自分の 2</span><span class="chip s">進行中 3</span></span>
-        </div>
-
-        <div class="sec">気になる</div>
-        <div class="rows" id="rows">
-          <div class="row"><em class="l">遅れ</em><span class="tm">10:00</span><span class="tx">ゴミ出し</span><span class="who">佐藤</span></div>
-          <div class="row"><em class="m">自分</em><span class="tm">14:00</span><span class="tx">トイレ掃除</span></div>
-          <div class="row"><em class="n">次</em><span class="tm">15:30</span><span class="tx">開店準備</span><span class="k">定期</span></div>
-          <div class="row x5"><em class="m">自分</em><span class="tm">17:00</span><span class="tx">売上の確認</span></div>
-          <div class="row x5"><em class="n">次</em><span class="tm">21:30</span><span class="tx">閉店チェック</span><span class="k">定期</span></div>
-        </div>
-
-        <div class="sec" id="flowsec"><a href="#">ボード ›</a>時間の流れ</div>
-        <div class="flow" id="flow">
-          <div class="axis"><span style="left:0%">8</span><span style="left:25%">11</span><span class="nw" style="left:42%">12:30</span><span style="left:75%">17</span><span style="left:100%">20</span></div>
-          <div class="lane"><b>全員</b><span class="track"><span class="bar d" style="left:8%;width:12%"></span><span class="bar l" style="left:17%;width:6%"></span><span class="bar x" style="left:62%;width:8%"></span><span class="nowln" style="left:42%"></span></span></div>
-          <div class="lane"><b>佐藤</b><span class="track"><span class="bar n" style="left:36%;width:12%"></span><span class="nowln" style="left:42%"></span></span></div>
-          <div class="lane"><b>高木</b><span class="track"><span class="bar x" style="left:50%;width:8%"></span><span class="bar x" style="left:75%;width:6%"></span><span class="nowln" style="left:42%"></span></span></div>
-          <div class="leg"><span><i style="background:var(--done)"></i>済み</span><span><i style="background:var(--now)"></i>今</span><span><i style="background:var(--late)"></i>遅れ</span><span><i style="background:var(--next)"></i>これから</span></div>
-        </div>
-        <button class="foldbtn" id="foldbtn">時間の流れを見る ▼</button>
-
-        <div class="sec">進行中</div>
-        <div class="prog">
-          <div class="pg last"><div class="pt"><span class="t">メニュー改定</span><em class="d">本日まで</em><small>高木・手順 2/3</small></div>
-            <div class="pb"><b style="left:100%"></b></div><div class="pm"><span>11/5</span><span class="last">本日まで</span></div></div>
-          <div class="pg stale"><div class="pt"><span class="t">エアコンの修理</span><em>止まっている</em><small>全員</small></div>
-            <div class="pb"><b style="left:40%"></b></div><div class="pm"><span>11/8</span><span>11/18まで</span></div></div>
-          <div class="pg"><div class="pt"><span class="t">新しい業者の見積もり</span><small>佐藤</small></div>
-            <div class="pb"><b style="left:15%"></b></div><div class="pm"><span>11/10</span><span>11/30まで</span></div></div>
-        </div>
-      </section>
-
-      <!-- 今（2枚） -->
-      <div class="old">
-        <div class="oc"><h4>今日のやること　<small style="color:var(--muted)">1/3 完了</small></h4>
-          <p>期限切れ・遅れ・<span class="dup">止まっている（進行中）</span>・自分の・次の時刻（最大5行）</p></div>
-        <div class="oc"><h4>店の今</h4>
-          <p>今日の流れ（人×時間の帯）／ 進行中（<span class="dup">止まっている</span>・締め切り過ぎの札と棒）</p>
-          <p style="margin-top:6px">→ 止まっている進行中が2枚に出る。「今日の」と「今」で、どちらが何か分かりにくい</p></div>
+<div class="phone">
+  <div class="scr">
+    <div class="hero"><b>pantops</b><span>渋谷カフェ</span><p>11月12日（木）</p></div>
+    <section class="st" id="st">
+      <div class="st-h">
+        <span class="ring"><i>2/5</i></span>
+        <div><h3>本日の状況</h3><small>本日の分 2/5 済み ・ 進行中 3</small></div>
+        <a href="#">一覧 ›</a>
       </div>
-
-      <div class="shl">ショートカット</div>
-      <div class="sc"><div>棚卸</div><div>発注</div><div>品目リスト整理</div><div>スタッフ</div><div>データ</div><div>設定</div></div>
-    </div>
-    <div class="nav"><span class="on">ホーム</span><span>在庫</span><span>業務管理</span><span>レポート</span><span>設定</span></div>
+      <div class="list">
+        <div class="it late"><div class="r1"><span class="t">ゴミ出し</span><span class="tag l">遅れ</span></div>
+          <div class="pb"><i style="width:0%"></i></div><div class="r3"><span>佐藤</span><span class="due l">本日 10:00</span></div></div>
+        <div class="it"><div class="r1"><span class="t">メニュー改定</span><span class="k p">進行中</span><span class="tag t">本日まで</span></div>
+          <div class="pb"><i style="width:67%"></i></div><div class="r3"><span>高木 ・ 手順 2/3</span><span class="due t">11/5〜本日</span></div></div>
+        <div class="it"><div class="r1"><span class="t">エアコンの修理</span><span class="k p">進行中</span><span class="tag m">明日まで</span></div>
+          <div class="pb"><i style="width:40%"></i></div><div class="r3"><span>全員 ・ 手順 2/5</span><span class="due m">11/8〜11/13</span></div></div>
+        <div class="it"><div class="r1"><span class="t">トイレ掃除</span></div>
+          <div class="pb"><i style="width:0%"></i></div><div class="r3"><span>高木</span><span>本日 14:00</span></div></div>
+        <div class="it"><div class="r1"><span class="t">開店準備</span><span class="k">定期</span></div>
+          <div class="pb"><i style="width:33%"></i></div><div class="r3"><span>全員 ・ 1/3</span><span>本日 15:30</span></div></div>
+        <div class="it"><div class="r1"><span class="t">新しい業者の見積もり</span><span class="k p">進行中</span></div>
+          <div class="pb"><i style="width:15%"></i></div><div class="r3"><span>佐藤</span><span>11/10〜11/30</span></div></div>
+        <div class="it done"><div class="r1"><span class="t">仕込み</span></div>
+          <div class="pb"><i style="width:100%"></i></div><div class="r3"><span>佐藤 9:12 済み</span><span>本日</span></div></div>
+        <div class="it done"><div class="r1"><span class="t">レジ金の確認</span><span class="k">定期</span></div>
+          <div class="pb"><i style="width:100%"></i></div><div class="r3"><span>高木 9:40 済み</span><span>本日 9:30</span></div></div>
+      </div>
+    </section>
+    <div class="shl">ショートカット</div>
+    <div class="sc"><div>棚卸</div><div>発注</div><div>品目リスト整理</div><div>スタッフ</div><div>データ</div><div>設定</div></div>
   </div>
+  <div class="nav"><span class="on">ホーム</span><span>在庫</span><span>業務管理</span><span>レポート</span><span>設定</span></div>
+</div>
 
 <script>
-  const state = { cmp: 'new', flow: 'show', rows: '3' }
-  function apply() {
-    document.body.classList.toggle('cmp', state.cmp === 'old')
-    const flow = document.getElementById('flow'), sec = document.getElementById('flowsec'), btn = document.getElementById('foldbtn')
-    flow.classList.toggle('fold', state.flow !== 'show')
-    sec.style.display = state.flow === 'none' ? 'none' : ''
-    btn.classList.toggle('show', state.flow === 'fold')
-    document.querySelectorAll('.row.x5').forEach(r => { r.style.display = state.rows === '5' ? '' : 'none' })
-  }
   document.querySelectorAll('.sw').forEach(sw => sw.addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return
     sw.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b))
-    state[sw.dataset.g] = b.dataset.v; apply()
+    document.getElementById('st').classList.toggle('hide-done', b.dataset.v === 'hide')
   }))
-  document.getElementById('foldbtn').addEventListener('click', () => {
-    state.flow = 'show'
-    document.querySelectorAll('[data-g=flow] button').forEach(x => x.classList.toggle('on', x.dataset.v === 'show')); apply()
-  })
-  apply()
 </script>
 </body>
 </html>

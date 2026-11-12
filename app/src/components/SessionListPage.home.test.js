@@ -308,20 +308,17 @@ describe('レポートタブ（整理後）', () => {
 })
 
 describe('トップ（ホーム）とやること（User決定 2026-10-07）', () => {
-  it('ホームの2枚は行き先が違う: 今日のやること → 今日の一覧、店の今の見出し → 今日の予定ボード、店の今の業務 → その業務の中身（2026-11-08）', async () => {
+  it('本日の状況（1枚）: 見出し → 今日の一覧、行 → その業務の中身。予定ボードの入口はホームに置かない（2026-11-12）', async () => {
     const T = await import('../composables/useTasks.js')
     const { localDateKey } = await import('../utils/localDate.js')
-    T.addTask(localDateKey(), '揚げ油の交換', null, '00:00', { endTime: '23:55' })
+    const t = T.addTask(localDateKey(), '揚げ油の交換', null, '23:58')
     await mountPage()
-    await click(host.querySelector('.ht-today'))
+    expect(host.querySelector('.hn'), '店の今のカードは無い').toBeNull()
+    await click(host.querySelector('.ht-th'))
     expect(host.querySelector('.bnav button.on').textContent).toContain('業務管理')
     expect(host.querySelector('.dt-body'), '今日の一覧').not.toBeNull()
-    expect(host.querySelector('.db-canvas')).toBeNull()
     await click(btn(host.querySelector('.bnav'), 'ホーム'))
-    await click(host.querySelector('.hn-h'))
-    expect(host.querySelector('.db-canvas'), '今日の予定ボード').not.toBeNull()
-    await click(btn(host.querySelector('.bnav'), 'ホーム'))
-    await click(host.querySelector('.hn-bar'))
+    await click(host.querySelector(`.ht-it[data-key="${t.id}"]`))
     expect(document.body.querySelector('.jp-sheet'), 'その業務の中身').not.toBeNull()
     expect(document.body.querySelector('.jp-sheet').textContent).toContain('揚げ油の交換')
   })
@@ -334,11 +331,11 @@ describe('トップ（ホーム）とやること（User決定 2026-10-07）', (
     expect(host.querySelector('.ht')).not.toBeNull()
     expect(host.querySelector('.home-head')).toBeNull()          // トップは自前の見出し
     const today = host.querySelector('.ht-today')
-    expect(today.textContent).toContain('期限切れ')
-    expect(today.textContent).toContain('野菜の検品')   // 時刻を過ぎていれば「遅れ」、まだなら「11:00」で出る
+    expect(today.textContent).toContain('日遅れ')        // 期限切れは「◯日遅れ」の札（2026-11-12）
+    expect(today.textContent).toContain('野菜の検品')
     expect(today.textContent).toContain('0/2')   // 数え方は業務管理の日の輪と同じ（期限切れも入る・User 2026-11-10）
-    // 押すと日誌の今日のタイムライン。期限切れは終日に赤で
-    await click(today)
+    // 見出しを押すと日誌の今日のタイムライン。期限切れは終日に赤で
+    await click(today.querySelector('.ht-th'))
     expect(host.querySelector('.dt-ring').textContent).toBe('0/2')
     expect(host.querySelector('.bnav button.on').textContent).toContain('業務管理')
     expect(host.querySelector('.dt .dt-ad.missed')).not.toBeNull()

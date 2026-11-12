@@ -2,9 +2,9 @@
 /**
  * トップ（ホーム）。アプリを開いて最初の画面（User決定 2026-10-07・モック docs/mocks/home-top.html）。
  * - 上部: アイコンと同じ「暗い地に光る輪」に、日付・天気（あいさつはやめて帯を低くした・User決定 2026-10-30）
- * - 今日のやること: 進み具合の輪と、気になる順の一覧（期限切れ・遅れ・止まっている・自分の・次の時刻。最大5行）。押すと業務管理
- *   （User決定 2026-11-06・モック docs/mocks/home-trim.html。並べ方は services/homeAttention.js）
- * - 店の今（HomeNowCard）: 今日の流れ（人×時間の小さなガント）と進行中（締め切りまでの棒）。User決定 2026-11-08
+ * - 本日の状況: 輪（本日の分の済み）と、今日のやること・定期・期限切れ・持ち越し・進行中を同じ形の進み具合の棒で1列に
+ *   （済んだものは出さない。札は 遅れ／本日まで／明日まで だけ。進行中は「予定ではここまで」の印）。
+ *   以前の「今日のやること」と「店の今」を1枚にした（User決定 2026-11-12・D-042・モック docs/mocks/home-status.html。並べ方は services/homeStatus.js）
  * - ボードは廃止（User決定 2026-11-06）。貼り紙のデータとサーバーはそのまま（消していない）
  * - 棚卸・発注が始まっていれば、ショートカットのアイコンで知らせる（進行中のカードはやめた・User決定 2026-10-27）。
  *   だれかがルームに入っていれば「進行中」（外の輪が回る）、だれもいなければ「中断中」（光って止まっている）
@@ -14,11 +14,10 @@
  * 棚卸・発注は在庫タブの今のボタンからも始められる（両方に置く・User決定）。
  */
 import LineIcon from './LineIcon.vue'
-import HomeNowCard from './HomeNowCard.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { tasksOn, overdueTasks, carriedTasks, isAssignedToMe, isMarkedByMe, pullTasks, progressTasks, isStale } from '../composables/useTasks.js'
+import { tasksOn, overdueTasks, carriedTasks, isMarkedByMe, pullTasks, progressTasks } from '../composables/useTasks.js'
 import { checklistsForDay, pullChecklists } from '../composables/useChecklists.js'
-import { homeAttention } from '../services/homeAttention.js'
+import { homeStatus } from '../services/homeStatus.js'
 import { buildDayTimeline } from '../services/dayTimeline.js'
 import { storeName, isAuthenticated, isAdmin, can } from '../composables/useAuth.js'
 import { aliveTasks } from '../composables/useTasks.js'
@@ -77,17 +76,14 @@ _tickNow()
 let _nowTimer = null
 onMounted(() => { _nowTimer = setInterval(_tickNow, 60_000) })
 onUnmounted(() => clearInterval(_nowTimer))
-const attention = computed(() => homeAttention({
-  today: todays.value,
-  overdue: late.value,
-  stale: progressTasks.value.filter(isStale),
-  checklists: checklistsForDay(today),
-  now: nowHm.value,
-  isMine: isAssignedToMe,
+// 本日の状況: 今日のやること・定期・期限切れ・持ち越し・進行中を同じ形の棒で1列に。済んだものは出さない（User決定 2026-11-12・D-042）
+const status = computed(() => homeStatus({
+  today, now: nowHm.value,
+  tasks: todays.value, overdue: late.value, carry: carriedTasks(today),
+  checklists: checklistsForDay(today), progress: progressTasks.value,
   isDone: t => (t.assign === 'all' ? isMarkedByMe(t) || !!t.doneAt : !!t.doneAt),
 }))
-const COUNT_LABELS = [['over', '期限切れ', 'l'], ['late', '遅れ', 'l'], ['stuck', '止まっている', 's'], ['mine', '自分の', 'm']]
-const countChips = computed(() => COUNT_LABELS.map(([k, label, cls]) => ({ k, label, cls, n: attention.value.counts[k] })).filter(c => c.n))
+const BAR_PCT = x => `${Math.round(x * 100)}%`
 
 // 承認待ち（参加申請のやることのうち、まだ決まっていないもの）
 const joinWaiting = computed(() => aliveTasks.value.filter(t => t.kind === 'staff_join' && !t.doneAt).length)
@@ -192,34 +188,31 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
       </div>
     </section>
 
-    <button type="button" class="ht-today" aria-label="今日のやることの一覧を開く" @click="emit('openTodo')">
-      <span class="ht-th">
+    <!-- 本日の状況（以前の「今日のやること」と「店の今」を1枚に・User決定 2026-11-12・D-042） -->
+    <section class="ht-today" aria-label="本日の状況">
+      <button type="button" class="ht-th" aria-label="今日の一覧を開く" @click="emit('openTodo')">
         <span class="ht-pr" aria-hidden="true">
           <svg width="56" height="56" viewBox="0 0 56 56">
             <circle cx="28" cy="28" :r="R" fill="none" stroke="#e2eef1" stroke-width="6" />
             <circle cx="28" cy="28" :r="R" fill="none" :stroke="`url(#${gid})`" stroke-width="6" stroke-linecap="round" :stroke-dasharray="dash" transform="rotate(-90 28 28)" />
           </svg>
-          <span>{{ doneCount }}/{{ total }}<small>完了</small></span>
+          <span>{{ doneCount }}/{{ total }}<small>済み</small></span>
         </span>
         <span class="ht-tx">
-          <span class="ht-tt">今日のやること<i>今日の一覧 ›</i></span>
-          <span class="ht-cnt">
-            <span v-for="c in countChips" :key="c.k" :class="c.cls">{{ c.label }} {{ c.n }}</span>
-            <span v-if="!countChips.length && attention.rows.length" class="m">気になるものはありません</span>
-          </span>
+          <span class="ht-tt">本日の状況<i>一覧 ›</i></span>
+          <small class="ht-sum">本日の分 {{ doneCount }}/{{ total }} 済み<template v-if="status.progressCount"> ・ 進行中 {{ status.progressCount }}</template></small>
         </span>
-      </span>
-      <span v-if="attention.rows.length" class="ht-rows">
-        <span v-for="r in attention.rows" :key="r.key" :class="['ht-rw', { me: r.mine }]" :data-kind="r.kind">
-          <em :class="r.kind">{{ r.tag }}</em><span>{{ r.text }}</span><small>{{ r.side }}</small>
-        </span>
-      </span>
+      </button>
+      <div v-if="status.rows.length" class="ht-rows">
+        <button v-for="r in status.rows" :key="r.key" type="button" :class="['ht-it', r.tag?.k]" :data-key="r.key" :aria-label="`${r.title}を開く`" @click="emit('openItem', r.ref)">
+          <span class="ht-r1"><span class="t">{{ r.title }}</span><span v-if="r.kind" :class="['k', { p: r.kind === '進行中' }]">{{ r.kind }}</span><em v-if="r.tag" :class="r.tag.k">{{ r.tag.label }}</em></span>
+          <span class="ht-pb"><i :style="{ width: BAR_PCT(r.pct) }"></i><b v-if="r.plan !== null" class="plan" :style="{ left: BAR_PCT(r.plan) }" title="予定ではここまで"></b></span>
+          <span class="ht-r3"><span>{{ r.left }}</span><span :class="['due', r.tag?.k]">{{ r.right }}</span></span>
+        </button>
+      </div>
       <span v-else class="ht-none">{{ total ? 'ぜんぶ終わりました' : '今日のやることはありません' }}</span>
-      <span v-if="attention.more" class="ht-more">ほか {{ attention.more }}件</span>
-    </button>
-
-    <!-- 店の今（今日の流れ・進行中。User決定 2026-11-08） -->
-    <HomeNowCard @open="emit('openBoard')" @item="x => emit('openItem', x)" />
+      <button v-if="status.more" type="button" class="ht-more" @click="emit('openTodo')">ほか {{ status.more }}件</button>
+    </section>
 
 
     <div class="ht-sec">ショートカット</div>
@@ -327,32 +320,34 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-hi b { display: block; font-size: 18px; font-weight: 800; letter-spacing: .04em; line-height: 1.35; }
 .ht-wx { display: inline-block; margin-top: 8px; font-size: 12px; color: #bfeaf2; }
 
-.ht-today { position: relative; z-index: 1; width: calc(100% - 28px); margin: -64px 14px 0; border: none; text-align: left; font: inherit; color: var(--text);
-  background: rgba(255,255,255,.97); border-radius: 20px; padding: 14px; box-shadow: 0 10px 28px rgba(6,34,43,.18); display: grid; gap: 10px; cursor: pointer; }
-.ht-th { display: flex; gap: 12px; align-items: center; }
+.ht-today { position: relative; z-index: 1; width: calc(100% - 28px); margin: -64px 14px 0; color: var(--text);
+  background: rgba(255,255,255,.97); border-radius: 20px; padding: 14px; box-shadow: 0 10px 28px rgba(6,34,43,.18); display: grid; gap: 6px; }
+.ht-th { display: flex; gap: 12px; align-items: center; border: none; background: none; padding: 0 0 8px; font: inherit; color: inherit; text-align: left; cursor: pointer; border-bottom: 1px solid #e2ecef; }
 .ht-pr { flex: none; position: relative; width: 56px; height: 56px; }
-.ht-pr > span { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; line-height: 1.1; }
+.ht-pr > span { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .ht-pr small { font-size: 9px; color: var(--text-muted); font-weight: 700; }
-.ht-tx { flex: 1; min-width: 0; display: grid; gap: 5px; }
-.ht-tt { font-size: 13px; font-weight: 800; color: var(--text-muted); display: flex; justify-content: space-between; gap: 6px; }
-.ht-tt i { font-style: normal; color: var(--primary); white-space: nowrap; }
-.ht-cnt { display: flex; gap: 5px; flex-wrap: wrap; }
-.ht-cnt span { font-size: 11px; font-weight: 900; border-radius: 999px; padding: 2px 8px; }
-.ht-cnt .l { background: #fef2f2; color: #b91c1c; }
-.ht-cnt .s { background: #fffbeb; color: #b45309; }
-.ht-cnt .m { background: #ecfeff; color: var(--primary); }
-.ht-rows { display: grid; border-top: 1px solid #e2ecef; }
-.ht-rw { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; gap: 8px; align-items: baseline; padding: 8px 0 7px; border-bottom: 1px solid #e2ecef; font-size: 13px; }
-.ht-rw:last-child { border-bottom: none; padding-bottom: 0; }
-.ht-rw em { font-style: normal; font-size: 10.5px; font-weight: 900; border-radius: 6px; padding: 1px 0; text-align: center; color: var(--primary); white-space: nowrap; overflow: hidden; }
-.ht-rw em.over { background: #b91c1c; color: #fff; }
-.ht-rw em.late { background: #fef2f2; color: #b91c1c; }
-.ht-rw em.stuck { background: #fffbeb; color: #b45309; }
-.ht-rw em.mine { background: #ecfeff; }
-.ht-rw > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
-.ht-rw small { font-size: 11px; color: var(--text-muted); font-weight: 800; white-space: nowrap; }
-.ht-rw.me > span { color: var(--primary); }
-.ht-more { font-size: 11.5px; font-weight: 800; color: var(--primary); text-align: center; }
+.ht-tx { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.ht-tt { font-size: 16px; font-weight: 900; color: var(--text); display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.ht-tt i { font-style: normal; font-size: 12.5px; font-weight: 800; color: var(--primary); white-space: nowrap; }
+.ht-sum { font-size: 11.5px; font-weight: 700; color: var(--text-muted); }
+/* 1行＝名前と札・進み具合の棒（進行中は予定の印）・担当と日時 */
+.ht-rows { display: grid; }
+.ht-it { display: grid; gap: 5px; padding: 9px 0; border: none; border-top: 1px solid #e2ecef; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.ht-it:first-child { border-top: none; }
+.ht-r1 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ht-r1 .t { flex: 1; min-width: 0; font-size: 14px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ht-r1 .k { flex: none; font-size: 10px; font-weight: 800; border-radius: 6px; padding: 1px 6px; background: #ece9fd; color: #4c35b5; }
+.ht-r1 .k.p { background: #e0f2fe; color: #075985; }
+.ht-r1 em { flex: none; font-style: normal; font-size: 10.5px; font-weight: 900; border-radius: 6px; padding: 0 6px; line-height: 18px; }
+.ht-r1 em.late { background: #fef2f2; color: #dc2626; } .ht-r1 em.today { background: #fff1e6; color: #c2410c; } .ht-r1 em.tmr { background: #fef9c3; color: #a16207; }
+.ht-pb { position: relative; height: 8px; border-radius: 4px; background: #dcedf2; }
+.ht-pb i { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--primary); }
+.ht-it.late .ht-pb { background: #fef2f2; } .ht-it.late .ht-pb i { background: #dc2626; }
+.ht-pb .plan { position: absolute; top: -3px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: #fff; border: 2.5px solid #12303a; box-sizing: border-box; }
+.ht-r3 { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; font-weight: 700; color: #94a3b8; font-variant-numeric: tabular-nums; }
+.ht-r3 > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-r3 .due { flex: none; } .ht-r3 .due.late { color: #dc2626; font-weight: 900; } .ht-r3 .due.today { color: #c2410c; font-weight: 900; } .ht-r3 .due.tmr { color: #a16207; font-weight: 900; }
+.ht-more { border: none; background: none; font: inherit; font-size: 11.5px; font-weight: 800; color: var(--primary); text-align: center; cursor: pointer; min-height: 32px; }
 .ht-none { font-size: 13px; color: var(--text-muted); font-weight: 700; text-align: center; padding: 4px 0 2px; }
 
 
