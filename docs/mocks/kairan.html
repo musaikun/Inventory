@@ -1,0 +1,196 @@
+<title>回覧（確認と回答）</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* 回覧のモック: 左＝店長（pantops の業務管理）、右＝答える人（リンクを開いただけのページ・ログインなし）。明るい1テーマ */
+  :root {
+    color-scheme: light;
+    --page:#d3dfe3; --bg:#eef5f7; --surface:#ffffff; --text:#12303a; --muted:#4c6a72; --faint:#94a3b8; --line:#e2ecef; --line2:#cfdde2;
+    --pri:#0e7490; --priw:#ecfeff; --ok:#15803d; --okw:#f0fdf4; --warn:#b45309; --warnw:#fffbeb; --late:#dc2626; --latew:#fef2f2;
+    --grad:linear-gradient(90deg,#22d3ee,#34d399); --ongrad:#08323c;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  body { font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; background:var(--page); color:var(--text);
+    padding-block:20px 32px; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px));
+    display:flex; gap:24px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
+  .side { flex-basis:100%; max-width:820px; display:grid; gap:6px; font-size:13px; line-height:1.7; color:var(--muted); }
+  .side h1 { font-size:19px; color:var(--text); } .side b { color:var(--text); }
+  .cap { font-size:12px; font-weight:900; color:var(--muted); text-align:center; margin-bottom:6px; }
+  .phone { width:375px; max-width:100%; height:760px; background:var(--bg); border-radius:30px; overflow:hidden; display:flex; flex-direction:column;
+    box-shadow:0 12px 34px rgba(0,0,0,.2); border:6px solid #0b1f26; position:relative; }
+  .hd { background:var(--surface); padding:12px 14px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:8px; }
+  .hd b { font-size:16px; flex:1; } .hd button { border:none; background:none; font:inherit; font-weight:800; color:var(--pri); cursor:pointer; font-size:13px; }
+  .body { flex:1; overflow-y:auto; padding:12px; display:grid; gap:10px; align-content:start; grid-template-columns:minmax(0,1fr); }
+  .card { background:var(--surface); border-radius:16px; padding:12px; display:grid; gap:8px; }
+  .t { font-size:15px; font-weight:900; }
+  .sub { font-size:12px; color:var(--muted); font-weight:700; }
+  .bar { height:8px; border-radius:4px; background:#eef3f5; overflow:hidden; display:flex; }
+  .bar i { height:100%; } .bar .ok { background:var(--ok); } .bar .sub2 { background:#22c55e; } .bar .seen { background:#93c5fd; }
+  .cnt { display:flex; gap:5px; flex-wrap:wrap; }
+  .cnt span { font-size:11px; font-weight:900; border-radius:999px; padding:2px 9px; }
+  .c-not { background:var(--latew); color:var(--late); } .c-sub { background:var(--okw); color:var(--ok); } .c-chk { background:var(--priw); color:var(--pri); }
+  .row { display:grid; grid-template-columns:28px 1fr auto; gap:8px; align-items:center; padding:7px 0; border-top:1px solid var(--line); font-size:13px; }
+  .row:first-child { border-top:none; }
+  .av { width:28px; height:28px; border-radius:50%; background:#e2e8f0; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:900; }
+  .row small { display:block; font-size:11px; color:var(--muted); font-weight:700; }
+  .st { font-size:11px; font-weight:900; border-radius:8px; padding:3px 8px; border:none; font-family:inherit; cursor:default; white-space:nowrap; }
+  .st.not { background:var(--latew); color:var(--late); } .st.sub { background:var(--okw); color:var(--ok); cursor:pointer; } .st.chk { background:var(--priw); color:var(--pri); }
+  .sec { font-size:11.5px; font-weight:900; color:var(--muted); padding-top:2px; }
+  .unk { border:1.5px dashed #fcd34d; background:var(--warnw); border-radius:12px; padding:8px 10px; display:grid; gap:6px; font-size:12.5px; }
+  .unk-r { display:flex; align-items:center; gap:6px; } .unk-r b { flex:1; }
+  .unk select { font:inherit; font-size:12px; padding:3px; border-radius:6px; border:1px solid var(--line2); }
+  .mini { border:1.5px solid var(--line2); background:var(--surface); border-radius:9px; padding:6px 10px; font:inherit; font-size:12px; font-weight:800; color:var(--text); cursor:pointer; }
+  .acts { display:flex; gap:6px; flex-wrap:wrap; }
+  .go { border:none; border-radius:12px; background:var(--grad); color:var(--ongrad); font:inherit; font-size:14px; font-weight:900; padding:11px 14px; cursor:pointer; }
+  .go.full { width:100%; }
+  .go:disabled { opacity:.45; cursor:default; }
+  .lnk { display:flex; gap:6px; align-items:center; background:#f3f8fa; border-radius:10px; padding:8px 10px; font-size:12px; color:var(--muted); font-weight:700; overflow:hidden; }
+  .lnk span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .toast { position:absolute; left:50%; top:12px; transform:translateX(-50%); background:#12303a; color:#fff; font-size:12.5px; font-weight:700; padding:8px 14px; border-radius:999px; z-index:5; white-space:nowrap; }
+  .toast[hidden] { display:none; }
+  .ans { font-size:12px; color:var(--text); background:#f7fbfc; border-radius:8px; padding:6px 8px; display:grid; gap:2px; }
+  .ans span { color:var(--muted); font-weight:700; }
+  /* 回答ページ */
+  .pub-hd { background:var(--surface); padding:14px 16px 12px; border-bottom:1px solid var(--line); display:grid; gap:4px; }
+  .pub-hd small { font-size:11px; color:var(--faint); font-weight:800; letter-spacing:.06em; }
+  .pub-hd b { font-size:17px; } .pub-hd span { font-size:12px; color:var(--muted); font-weight:700; }
+  .q { background:var(--surface); border-radius:14px; padding:12px; display:grid; gap:8px; }
+  .q > b { font-size:14px; } .q > b i { font-style:normal; color:var(--late); font-size:11px; margin-left:4px; }
+  .opts { display:flex; gap:6px; flex-wrap:wrap; }
+  .opt { border:1.5px solid var(--line2); background:var(--surface); border-radius:10px; padding:8px 12px; font:inherit; font-size:13.5px; font-weight:800; color:var(--text); cursor:pointer; }
+  .opt.on { border-color:var(--pri); background:var(--priw); color:var(--pri); }
+  .in { width:100%; min-height:44px; border:1.5px solid #b9d3da; border-radius:10px; padding:0 12px; font:inherit; font-size:15px; background:#f7fbfc; color:var(--text); }
+  .names { display:flex; gap:6px; flex-wrap:wrap; }
+  .read { display:flex; gap:8px; align-items:center; font-size:14px; font-weight:800; }
+  .read input { width:22px; height:22px; accent-color:var(--pri); }
+  .note { font-size:12px; color:var(--muted); line-height:1.6; background:#f7fbfc; border-radius:10px; padding:8px 10px; }
+  .done { text-align:center; display:grid; gap:10px; padding:30px 10px; }
+  .done b { font-size:20px; } .done p { font-size:13px; color:var(--muted); }
+  .brand { text-align:center; font-size:11px; color:var(--faint); font-weight:800; padding:4px 0 10px; }
+  button:focus-visible, input:focus-visible { outline:3px solid #a5f3fc; outline-offset:1px; }
+</style>
+
+<div class="side">
+  <h1>回覧（確認と回答）</h1>
+  <div>左が<b>店長の画面</b>（pantops の業務管理）、右が<b>答える人の画面</b>（共有したリンクを開いただけのページ・ログインもアプリも不要）。右で答えると、左の一覧がその場で変わります。</div>
+  <div>名前は「答えてほしい人」の一覧から選ぶ。一覧にない人は自分で入れる（左に「一覧にない回答」として出て、店長が結び付ける）。端末は名前を覚える。提出済みを押すと答えが見え、「確認」で確認済みに。</div>
+</div>
+
+<div>
+  <div class="cap">店長（pantops）</div>
+  <div class="phone">
+    <div class="hd"><button>‹</button><b>回覧</b><button id="newbtn">＋ 作る</button></div>
+    <div class="body" id="owner"></div>
+    <div class="toast" id="toast" hidden></div>
+  </div>
+</div>
+
+<div>
+  <div class="cap">答える人（リンクを開いたページ）</div>
+  <div class="phone">
+    <div class="pub-hd"><small>検証カフェ からの回覧</small><b>12月のシフト希望と忘年会</b><span>締め切り 11月20日（金）</span></div>
+    <div class="body" id="pub"></div>
+  </div>
+</div>
+
+<script>
+const ROSTER = ['山田', '佐藤', '鈴木', '高橋', '伊藤', '渡辺']
+const QS = [
+  { id: 'read', type: 'read', label: '12月の営業時間の変更を読みました', req: true },
+  { id: 'party', type: 'yesno', label: '忘年会（12/26）に参加しますか', req: true },
+  { id: 'shift', type: 'choice', label: '入りたい曜日の多い方', choices: ['平日', '土日', 'どちらでも'], req: true },
+  { id: 'days', type: 'number', label: '12月に入れる日数', req: false },
+  { id: 'memo', type: 'text', label: '連絡（任意）', req: false },
+]
+// 状態: answers[name] = { at, a: {...}, checked }
+const S = { answers: { '佐藤': { at: '11/12 10:02', a: { read: true, party: 'はい', shift: '土日', days: 10, memo: '' }, checked: true }, '鈴木': { at: '11/12 11:40', a: { read: true, party: 'いいえ', shift: '平日', days: 6, memo: '26日はテストです' }, checked: false } }, seen: { '伊藤': true }, unknown: [], open: null }
+let me = { name: '', other: false, typed: '', a: {}, sent: false }
+
+const LINK = 'https://pantops.app/k/7Hq2-xR9a'
+function toast(t) { const e = document.getElementById('toast'); e.textContent = t; e.hidden = false; clearTimeout(e._t); e._t = setTimeout(() => (e.hidden = true), 1800) }
+function stateOf(n) { const r = S.answers[n]; return r ? (r.checked ? 'chk' : 'sub') : S.seen[n] ? 'seen' : 'not' }
+const LABEL = { not: 'まだ', seen: 'まだ（開いた）', sub: '提出済み', chk: '確認済み' }
+
+function renderOwner() {
+  const st = ROSTER.map(stateOf)
+  const n = k => st.filter(x => x === k).length
+  const not = ROSTER.filter(x => ['not', 'seen'].includes(stateOf(x)))
+  const total = ROSTER.length
+  document.getElementById('owner').innerHTML = `
+    <div class="card">
+      <span class="t">12月のシフト希望と忘年会</span>
+      <span class="sub">締め切り 11/20（金）・質問5つ・${total}人に</span>
+      <div class="bar"><i class="ok" style="width:${n('chk') / total * 100}%"></i><i class="sub2" style="width:${n('sub') / total * 100}%"></i><i class="seen" style="width:${n('seen') / total * 100}%"></i></div>
+      <div class="cnt"><span class="c-not">まだ ${n('not') + n('seen')}</span><span class="c-sub">提出済み ${n('sub')}</span><span class="c-chk">確認済み ${n('chk')}</span></div>
+      <div class="lnk"><span>${LINK}</span><button class="mini" id="cp">リンクをコピー</button></div>
+      <div class="acts">${not.length ? `<button class="go" id="remind">まだの${not.length}人に送る文をコピー</button>` : '<span class="sub">全員そろいました</span>'}</div>
+    </div>
+    ${S.unknown.length ? `<div class="unk"><b>一覧にない回答 ${S.unknown.length}</b>${S.unknown.map((u, i) => `<div class="unk-r"><b>${u.name}</b><select data-link="${i}"><option value="">誰？</option>${ROSTER.filter(r => !S.answers[r]).map(r => `<option>${r}</option>`).join('')}</select><button class="mini" data-add="${i}">一覧に足す</button></div>`).join('')}</div>` : ''}
+    <div class="card">
+      <span class="sec">答えてほしい人（押すと答え）</span>
+      ${ROSTER.map(r => { const s = stateOf(r), a = S.answers[r]; return `<div class="row"><span class="av">${r[0]}</span><span>${r}${a ? `<small>${a.at}</small>` : ''}</span><button class="st ${s === 'seen' ? 'not' : s}" ${a ? `data-open="${r}"` : ''}>${LABEL[s]}</button></div>
+        ${S.open === r && a ? `<div class="ans">${QS.map(q => `<div><span>${q.label}：</span>${q.type === 'read' ? (a.a.read ? '読みました' : '—') : (a.a[q.id] ?? '') || '—'}</div>`).join('')}${a.checked ? '' : `<button class="go" data-check="${r}" style="margin-top:6px">確認した</button>`}</div>` : ''}` }).join('')}
+    </div>`
+}
+
+function renderPub() {
+  const el = document.getElementById('pub')
+  if (me.sent) {
+    el.innerHTML = `<div class="done"><b>送りました</b><p>${me.name}さんの回答を受け取りました。<br>直したいときは、もう一度このリンクから送れます（新しい方が使われます）。</p><button class="go" id="again">もう一度答える</button></div><div class="brand">pantops</div>`
+    return
+  }
+  const okName = me.other ? me.typed.trim() : me.name
+  const missing = QS.filter(q => q.req && (q.type === 'read' ? !me.a.read : !me.a[q.id]))
+  el.innerHTML = `
+    <div class="q"><b>あなたの名前<i>必須</i></b>
+      <div class="names">${ROSTER.map(r => `<button class="opt${!me.other && me.name === r ? ' on' : ''}" data-name="${r}">${r}</button>`).join('')}<button class="opt${me.other ? ' on' : ''}" data-name="__other">一覧にない</button></div>
+      ${me.other ? `<input class="in" id="typed" placeholder="名前を入れてください" value="${me.typed}">` : ''}
+      <span class="sub">この端末で名前を覚えます</span>
+    </div>
+    ${QS.map(q => `<div class="q"><b>${q.label}${q.req ? '<i>必須</i>' : ''}</b>${
+      q.type === 'read' ? `<label class="read"><input type="checkbox" data-q="read" ${me.a.read ? 'checked' : ''}> 読みました</label>`
+      : q.type === 'yesno' ? `<div class="opts">${['はい', 'いいえ'].map(c => `<button class="opt${me.a[q.id] === c ? ' on' : ''}" data-q="${q.id}" data-v="${c}">${c}</button>`).join('')}</div>`
+      : q.type === 'choice' ? `<div class="opts">${q.choices.map(c => `<button class="opt${me.a[q.id] === c ? ' on' : ''}" data-q="${q.id}" data-v="${c}">${c}</button>`).join('')}</div>`
+      : q.type === 'number' ? `<input class="in" type="number" inputmode="numeric" data-in="${q.id}" value="${me.a[q.id] ?? ''}" placeholder="例：8">`
+      : `<input class="in" data-in="${q.id}" value="${me.a[q.id] ?? ''}" placeholder="なんでも">`}</div>`).join('')}
+    <div class="note">答えは店長だけが見られます。ほかの人の答えは見えません。</div>
+    <button class="go full" id="send" ${!okName || missing.length ? 'disabled' : ''}>送る</button>
+    <div class="brand">pantops</div>`
+}
+
+document.addEventListener('click', e => {
+  const t = e.target
+  if (t.id === 'cp') { toast('リンクをコピーしました'); return }
+  if (t.id === 'remind') {
+    const not = ROSTER.filter(x => ['not', 'seen'].includes(stateOf(x)))
+    toast(`「${not.join('さん、')}さん、回覧の回答をお願いします」をコピー`); return
+  }
+  if (t.dataset.open) { S.open = S.open === t.dataset.open ? null : t.dataset.open; renderOwner(); return }
+  if (t.dataset.check) { S.answers[t.dataset.check].checked = true; renderOwner(); return }
+  if (t.dataset.add !== undefined) { const u = S.unknown.splice(+t.dataset.add, 1)[0]; ROSTER.push(u.name); S.answers[u.name] = u.r; renderOwner(); return }
+  if (t.dataset.name) {
+    if (t.dataset.name === '__other') { me.other = true; me.name = '' } else { me.other = false; me.name = t.dataset.name; S.seen[me.name] = true; renderOwner() }
+    renderPub(); return
+  }
+  if (t.dataset.q && t.dataset.v) { me.a[t.dataset.q] = t.dataset.v; renderPub(); return }
+  if (t.id === 'send') {
+    const name = me.other ? me.typed.trim() : me.name
+    const rec = { at: '11/12 今', a: { ...me.a }, checked: false }
+    if (ROSTER.includes(name)) S.answers[name] = rec
+    else S.unknown.push({ name, r: rec })
+    me.name = name; me.sent = true; renderOwner(); renderPub(); return
+  }
+  if (t.id === 'again') { me.sent = false; renderPub() }
+  if (t.id === 'newbtn') toast('（作る画面はこのモックでは省略）')
+})
+document.addEventListener('change', e => {
+  const t = e.target
+  if (t.dataset.q === 'read') { me.a.read = t.checked; renderPub() }
+  if (t.dataset.link !== undefined && t.value) { const u = S.unknown.splice(+t.dataset.link, 1)[0]; S.answers[t.value] = u.r; renderOwner() }
+})
+document.addEventListener('input', e => {
+  const t = e.target
+  if (t.id === 'typed') { me.typed = t.value; const b = document.getElementById('send'); const missing = QS.filter(q => q.req && (q.type === 'read' ? !me.a.read : !me.a[q.id])); b.disabled = !t.value.trim() || missing.length > 0 }
+  if (t.dataset.in) { me.a[t.dataset.in] = t.value }
+})
+renderOwner(); renderPub()
+</script>
