@@ -65,6 +65,7 @@ import { isAuthenticated, clearAuthLocal, setAccountResetHandler, getSessionLine
 import { startPresence } from './composables/usePresence.js'
 import { syncPushOwner } from './composables/usePush.js'
 import { buildSnapshotFromLines } from './services/snapshotFromLines.js'
+import { findPrevSnapshot } from './services/sessionReport.js'
 import { clearLocalAccountData } from './composables/accountData.js'
 import { setAuthInvalidatedHandler } from './utils/api.js'
 import { useSession } from './composables/useSession.js'
@@ -84,6 +85,7 @@ import ChatModal from './components/ChatModal.vue'
 import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
 import OrderExportSheet from './components/OrderExportSheet.vue'
+import StocktakeDoneSheet from './components/StocktakeDoneSheet.vue'
 import StaffJoinPage from './components/StaffJoinPage.vue'
 import { openJournalDay } from './components/JournalPage.vue'
 import SessionListPage, { _persistedTab as homeTab, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
@@ -2163,6 +2165,11 @@ async function _finishSession(completionCount, isHostInRoom) {
   _setNewSession(completedId)
   currentView.value  = 'sessions'
   if (finishedOrder) orderExport.value = finishedOrder
+  // 棚卸は、終えた直後に何を数えたかを1枚で出す（発注の書き出しと対。User 2026-11-13）
+  else if (req.type === COMPLETION_STOCK) {
+    const snap = getSnapshotBySessionId(completedId) ?? req.snapshot
+    if (snap) stockDone.value = { snapshot: snap, prev: findPrevSnapshot(snap, getSnapshots()) }
+  }
 }
 
 // スタッフの招待から参加する画面（段 2-1）
@@ -2176,6 +2183,17 @@ function onStaffJoined() {
 
 // 発注の書き出し（品目名と数量だけを業者ごとに）。発注を終えたときに開く
 const orderExport = ref(null)
+// 棚卸を終えた直後のまとめ { snapshot, prev }
+const stockDone = ref(null)
+function onStockDoneDetail() {
+  const snap = stockDone.value?.snapshot
+  stockDone.value = null
+  if (!snap) return
+  detailSnapshot.value = snap
+  detailSession.value  = null
+  detailReturnView.value = 'sessions'
+  currentView.value = 'session-detail'
+}
 
 
 // 完了をサーバーへ書けなかったときの通知（DATA-001）。
@@ -2900,6 +2918,8 @@ function _applyConfirm({ ingredient, qty, unit, category, isAdd, isNew }) {
   }
   if (syncActive.value) broadcastUpdate(ingredient, finalQty, unit, deviceName.value || '名前未設定', isAdd && !!existing)
   showToast(isAdd ? `${ingredient} に追加しました` : `${ingredient} を更新しました`)
+  // 入れた行が畳まれたグループの中に隠れたままにしない（行ができてから開く）
+  nextTick(() => inventoryTableRef.value?.revealItem?.(ingredient))
   return 'saved'
 }
 
@@ -4104,6 +4124,7 @@ function dismissReview() {
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal  v-if="settingsSection" :section="settingsSection" :is-guest="syncActive && !syncIsHost" :can-restore="currentView === 'session'" @close="settingsSection = null" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
     <OrderExportSheet v-if="orderExport" :order="orderExport" title="発注を業者へ送る" @close="orderExport = null" />
+    <StocktakeDoneSheet v-if="stockDone" :snapshot="stockDone.snapshot" :prev="stockDone.prev" @close="stockDone = null" @detail="onStockDoneDetail" />
     <DeleteAccountModal v-if="showDeleteAccount" @close="showDeleteAccount = false" @deleted="onAccountDeleted" />
     <AxisAssignFocus
       v-if="showAxisAssign"

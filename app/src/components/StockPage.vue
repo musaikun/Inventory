@@ -223,6 +223,7 @@ onUnmounted(registerInnerLayerCloser(() => {
         :hidden-items="config.hiddenItems ?? []"
         hide-amount
         hide-header
+        hide-progress
         fill-height
         @tap="item => (detailTarget = item)"
       >

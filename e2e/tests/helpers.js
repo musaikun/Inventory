@@ -59,4 +59,7 @@ export async function addItemWithQty(page, name, qty) {
 export async function completeStocktake(page) {
   await page.getByRole('button', { name: /棚卸完了/ }).click()
   await expect(page.getByText('棚卸を完了しました ✓')).toBeVisible()
+  // 終えた直後にまとめが出る（0.206.0）。閉じてホームへ
+  await expect(page.getByText('棚卸が終わりました')).toBeVisible()
+  await page.getByRole('button', { name: '閉じる', exact: true }).click()
 }

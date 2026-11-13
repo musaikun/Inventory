@@ -36,6 +36,10 @@ beforeEach(async () => {
   cfg.setEmptyList()
   cfg.addItem('トマト', 120, '野菜', '個')
   cfg.addItem('豚バラ', 800, '肉', 'kg')
+  // グループが3つまでなら最初から開く（下の describe）。ここは「畳んだ状態から」の
+  // 回帰なので、4グループにして従来どおり閉じた状態から始める
+  cfg.addItem('コーラ', 90, 'ドリンク', '本')
+  cfg.addItem('洗剤', 300, '消耗品', '本')
 })
 afterEach(() => {
   app?.unmount(); host?.remove()
@@ -90,6 +94,9 @@ describe('InventoryTable — 全開閉', () => {
     // 軸を用意して「ジャンル」以外の並べ替えを出す
     cfg.setAxisName(0, '保管場所')
     cfg.setItemTag('トマト', 0, '冷蔵')
+    cfg.setItemTag('豚バラ', 0, '冷凍')
+    cfg.setItemTag('コーラ', 0, '常温')
+    cfg.setItemTag('洗剤', 0, '倉庫')
     await mount()
     await clickHead()
     expect(arrow()).toBe('▼')
@@ -101,5 +108,56 @@ describe('InventoryTable — 全開閉', () => {
     // 並べ替えごとに開閉を持つので、切り替えた直後は閉じた状態＝記号も ▶
     expect(arrow()).toBe('▶')
     expect(groupArrows().every(a => a === '▶')).toBe(true)
+  })
+})
+
+// グループが少ない店・入れた直後の行が、畳まれたまま見えない状態を作らない（User 2026-11-13）
+describe('InventoryTable — 最初から開く・入れた行を見せる', () => {
+  async function mountWithRef(props = {}) {
+    const { default: Table } = await import('./InventoryTable.vue')
+    host = document.createElement('div')
+    document.body.appendChild(host)
+    let table = null
+    app = createApp({ render: () => h(Table, { inventory: {}, filledCount: 0, ...props, ref: r => { table = r } }) })
+    app.mount(host)
+    await nextTick()
+    return () => table
+  }
+  const visibleItems = () => [...host.querySelectorAll('tr.item-row')].filter(tr => tr.style.display !== 'none').map(tr => tr.dataset.item)
+
+  it('グループが3つまでなら最初から開いている', async () => {
+    cfg.setEmptyList()
+    cfg.addItem('トマト', 120, '野菜', '個')
+    cfg.addItem('豚バラ', 800, '肉', 'kg')
+    await mount()
+    expect(groupArrows().every(a => a === '▼')).toBe(true)
+    expect(visibleItems()).toEqual(expect.arrayContaining(['トマト', '豚バラ']))
+  })
+
+  it('人が畳んだあとは、勝手に開き直さない', async () => {
+    cfg.setEmptyList()
+    cfg.addItem('トマト', 120, '野菜', '個')
+    await mount()
+    await clickHead()                       // 全部閉じる
+    expect(groupArrows().every(a => a === '▶')).toBe(true)
+    cfg.addItem('豚バラ', 800, '肉', 'kg')  // グループが増えても（まだ3つ以下）開かない
+    await nextTick()
+    expect(groupArrows().every(a => a === '▶')).toBe(true)
+  })
+
+  it('4グループ以上は畳んで始まり、revealItem でその品目のグループだけ開く', async () => {
+    const table = await mountWithRef()
+    expect(visibleItems()).toEqual([])
+    table().revealItem('コーラ')
+    await nextTick()
+    expect(visibleItems()).toEqual(['コーラ'])
+  })
+
+  it('hideProgress では帯に件数だけを出す（0/1 と出さない）', async () => {
+    await mount({ hideProgress: true })
+    const badges = [...host.querySelectorAll('.cat-badge')].map(e => e.textContent.trim())
+    expect(badges.length).toBeGreaterThan(0)
+    expect(badges.every(b => /^\d+$/.test(b))).toBe(true)
+    expect(host.querySelector('.cat-progress-track')).toBeNull()
   })
 })

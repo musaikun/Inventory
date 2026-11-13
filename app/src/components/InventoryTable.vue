@@ -57,6 +57,9 @@ const props = defineProps({
   fillHeight:       { type: Boolean, default: false },
   // 「N / M 件入力済み」を押せるようにする（ひとりの棚卸で自分の変更履歴を開く。☰ から移した）
   progressTappable: { type: Boolean, default: false },
+  // グループの帯に「入力済み/件数」と進捗バーを出さず、件数だけにする（在庫タブ。
+  // 数える画面ではないので、0/3 と出ると「数えていない」と読める・User 2026-11-13）
+  hideProgress:     { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'hide-item', 'unhide-item', 'request-hide', 'progress-tap'])
@@ -184,7 +187,11 @@ const expandedGroups = reactive({})
 const SEP = '\u0000'
 function _gkey(label) { return _effectiveSort.value + SEP + label }
 
+// 開閉を人が触った／自動で開いた並び。グループが少ないときに一度だけ自動で開くための印
+const _touchedModes = new Set()
+const AUTO_OPEN_MAX = 3
 function toggleGroup(row) {
+  _touchedModes.add(_effectiveSort.value)
   const k = _gkey(row.label)
   if (expandedGroups[k]) delete expandedGroups[k]
   else expandedGroups[k] = true
@@ -231,6 +238,7 @@ async function closeStuck() {
 }
 
 function collapseAll() {
+  _touchedModes.add(_effectiveSort.value)
   const prefix = _effectiveSort.value + SEP
   Object.keys(expandedGroups).forEach(k => { if (k.startsWith(prefix)) delete expandedGroups[k] })
 }
@@ -244,6 +252,13 @@ function expandAll() {
 // 親の絞り込み（在庫タブの要補充・要確認など）に切り替えたら、当てはまる品目をすぐ見せる。
 // 閉じたグループの中に隠れていると、絞ったのに何も無いように見える
 watch(() => props.itemFilter, f => { if (f) nextTick(expandAll) })
+
+// 数を入れた・登録した品目のグループを開く（入れた直後に、その行が見えるように）
+function revealItem(item) {
+  if (!_isGroupedMode.value) return
+  const row = rows.value.find(r => r.type !== 'group-header' && r.item === item && r._grp != null)
+  if (row) expandedGroups[_gkey(row._grp)] = true
+}
 
 const hasExpanded = computed(() => {
   if (!_isGroupedMode.value) return false
@@ -682,7 +697,17 @@ function onRowKeydown(e, item) {
 watch([rows, maxed, () => props.fillHeight], () => nextTick(_computeStuck), { deep: false })
 onUnmounted(() => { if (_stickRaf) cancelAnimationFrame(_stickRaf) })
 
-defineExpose({ getNextVisibleItem, getPrevVisibleItem })
+defineExpose({ getNextVisibleItem, getPrevVisibleItem, revealItem })
+
+// グループが3つまでなら最初から開いておく。畳んだままだと、数えた数も品目も1つも見えない
+// 画面から始まる（User 2026-11-13）。人が一度でも開閉した並びには手を出さない。
+const _groupLabels = computed(() => (_isGroupedMode.value ? rows.value.filter(r => r.type === 'group-header').map(r => r.label) : []))
+watch(() => [_effectiveSort.value, _groupLabels.value.length], ([mode, n]) => {
+  if (!n || n > AUTO_OPEN_MAX || _touchedModes.has(mode)) return
+  _touchedModes.add(mode)
+  expandAll()
+}, { immediate: true })
+
 
 const pendingDelete = ref(null)  // 削除確認中の品目名
 
@@ -924,9 +949,9 @@ function fmtYen(n) {
         <div class="cat-info-row">
           <span class="cat-arrow">▼</span>
           <span class="cat-label">{{ stuck.row.label }}</span>
-          <span class="cat-badge">{{ stuck.row.filled }}<span class="cat-badge-sep">/</span>{{ stuck.row.count }}</span>
+          <span class="cat-badge"><template v-if="hideProgress">{{ stuck.row.count }}</template><template v-else>{{ stuck.row.filled }}<span class="cat-badge-sep">/</span>{{ stuck.row.count }}</template></span>
         </div>
-        <div class="cat-progress-track">
+        <div v-if="!hideProgress" class="cat-progress-track">
           <div class="cat-progress-fill" :class="{ complete: stuck.row.filled === stuck.row.count && stuck.row.count > 0 }"
             :style="{ width: (stuck.row.count > 0 ? stuck.row.filled / stuck.row.count * 100 : 0) + '%' }"></div>
         </div>
@@ -984,11 +1009,11 @@ function fmtYen(n) {
                 <span class="cat-arrow">{{ isGroupExpanded(row) ? '▼' : '▶' }}</span>
                 <span class="cat-label">{{ row.label }}</span>
                 <span class="cat-badge">
-                  <template v-if="preview">{{ row.count }}</template>
+                  <template v-if="preview || hideProgress">{{ row.count }}</template>
                   <template v-else>{{ row.filled }}<span class="cat-badge-sep">/</span>{{ row.count }}</template>
                 </span>
               </div>
-              <div v-if="!preview" class="cat-progress-track">
+              <div v-if="!preview && !hideProgress" class="cat-progress-track">
                 <div
                   class="cat-progress-fill"
                   :style="{ width: (row.count > 0 ? row.filled / row.count * 100 : 0) + '%' }"
