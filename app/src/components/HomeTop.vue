@@ -37,8 +37,10 @@ const props = defineProps({
   startingKind:       { type: String, default: null },
   live:               { type: Object, default: null },   // 棚卸のルームの状態（このセッションのときだけ）。人がいれば「進行中」
   liveOrder:          { type: Object, default: null },
+  // 品目がまだ1つも無い店（登録した直後）。最初の一歩をホームに出す（User 2026-11-13）
+  firstRun:           { type: Boolean, default: false },
 })
-const emit = defineEmits(['go', 'stock', 'order', 'resume', 'openTodo', 'openBoard', 'openItem'])
+const emit = defineEmits(['go', 'stock', 'order', 'resume', 'openTodo', 'openBoard', 'openItem', 'firstImport', 'firstCount'])
 
 onMounted(() => { pullTasks(); pullChecklists() })
 
@@ -214,6 +216,15 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
       <button v-if="status.more" type="button" class="ht-more" @click="emit('openTodo')">ほか {{ status.more }}件</button>
     </section>
 
+    <!-- 登録した直後: 品目が無いと何も始まらないので、最初の一歩だけを出す。品目が入れば消える -->
+    <section v-if="firstRun" class="ht-first" aria-label="はじめに">
+      <b>まず、品目を用意します</b>
+      <small>今ある表を取り込むか、数えながらその場で登録できます。</small>
+      <div class="ht-first-acts">
+        <button type="button" class="pri" @click="emit('firstImport')">ファイルから取り込む<small>CSV・Excel・PDF</small></button>
+        <button type="button" @click="emit('firstCount')">数えながら登録する<small>棚卸を始める</small></button>
+      </div>
+    </section>
 
     <div class="ht-sec">ショートカット</div>
     <div class="ht-grid">
@@ -351,6 +362,13 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-none { font-size: 13px; color: var(--text-muted); font-weight: 700; text-align: center; padding: 4px 0 2px; }
 
 
+.ht-first { margin: 14px 14px 0; padding: 14px; border-radius: 18px; background: var(--surface, #fff); border: 1px solid var(--border, #d6e6ea); display: grid; gap: 4px; }
+.ht-first > b { font-size: 15px; font-weight: 800; color: var(--text); }
+.ht-first > small { font-size: 12.5px; color: var(--text-muted); line-height: 1.6; }
+.ht-first-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.ht-first-acts button { min-height: 56px; border-radius: 14px; border: 1px solid var(--border, #d6e6ea); background: var(--surface, #fff); color: var(--text); font-size: 14px; font-weight: 800; cursor: pointer; display: grid; gap: 2px; align-content: center; padding: 6px 8px; }
+.ht-first-acts button.pri { border: none; background: var(--grad-btn); color: var(--on-grad); }
+.ht-first-acts button small { font-size: 11px; font-weight: 700; opacity: .8; }
 .ht-sec { margin: 16px 18px 8px; font-size: 11px; font-weight: 800; letter-spacing: .1em; color: var(--text-muted); }
 .ht-grid { margin: 0 14px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .ht-sc { position: relative; border: none; font: inherit; color: var(--text); background: var(--surface); border-radius: 18px; padding: 14px 4px 11px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.05); cursor: pointer; min-width: 0; }

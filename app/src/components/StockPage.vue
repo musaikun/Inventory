@@ -114,7 +114,7 @@ function checkLabel(item) {
 // サンプルの品目リスト（まだ自分のリストを持っていない）も「0件」として扱う。
 // サンプルを在庫として並べると、自分の店の品目と区別がつかない
 const isEmpty = computed(() => (config.order || []).length === 0 || !config.isCustom)
-defineExpose({ reorderCount, openAdd: () => openAdd() })
+defineExpose({ reorderCount, openAdd: () => openAdd(), showCheck: () => { filter.value = 'check' } })
 
 // ── シート ───────────────────────────────
 const detailTarget = ref(null)   // 品目シート

@@ -339,6 +339,11 @@ function openSnapshot(snap) {
   const sess = launcher.sessions.value.find(x => x.id === id)
   emit('viewSession', sess ?? { id, status: 'completed', type: 'stock', startedAt: snap.date, endedAt: snap.savedAt ?? null })
 }
+// レポート：単価が無くて金額が出ないとき、在庫タブの「要確認」（単価なしが並ぶ）へ
+function openPriceCheck() {
+  goTab('sessions')
+  stockRef.value?.showCheck?.()
+}
 function onDeleteOrphan(snap) {
   const key = snap?.sessionId
   if (!key) return
@@ -383,6 +388,9 @@ onUnmounted(registerInnerLayerCloser(() => {
         :starting-kind="startingKind"
         :live="liveFor(liveRoom, activeSession)"
         :live-order="liveFor(launcher.liveOrderRoom.value, activeOrderSession)"
+        :first-run="!loading && !hasOwnList && !activeSession"
+        @first-import="pickItemFile"
+        @first-count="startStockEmpty"
         @go="onHomeGo"
         @stock="openStockSheet"
         @order="openOrderSheet"
@@ -430,6 +438,7 @@ onUnmounted(registerInnerLayerCloser(() => {
         :sessions="loading || error ? null : launcher.sessions.value"
         @delete-orphan="onDeleteOrphan"
         @view-snapshot="openSnapshot"
+        @fix-prices="openPriceCheck"
       />
     </div>
 

@@ -113,4 +113,17 @@ describe('ホームのショートカット', () => {
     expect(card('棚卸').querySelector('.ht-spin')).toBeNull()
     expect(card('棚卸').getAttribute('aria-label')).toBe('棚卸（中断中）を続ける')
   })
+
+  it('品目が無い店には最初の一歩（取り込む／数えながら登録）を出す。品目がある店には出さない（User 2026-11-13）', async () => {
+    const got = []
+    await mountTop({ firstRun: true, onFirstImport: () => got.push('import'), onFirstCount: () => got.push('count') })
+    const first = host.querySelector('.ht-first')
+    expect(first.textContent).toContain('まず、品目を用意します')
+    const [imp, cnt] = first.querySelectorAll('button')
+    await click(imp); await click(cnt)
+    expect(got).toEqual(['import', 'count'])
+    app.unmount(); host.remove()
+    await mountTop()
+    expect(host.querySelector('.ht-first')).toBeNull()
+  })
 })

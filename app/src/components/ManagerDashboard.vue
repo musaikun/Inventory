@@ -14,7 +14,7 @@ const props = defineProps({
   // embedded: ホームの「レポート」タブに置くとき。重ねて開かず、一覧では戻るを出さない
   embedded:  { type: Boolean, default: false },
 })
-const emit = defineEmits(['close', 'delete-orphan', 'view-snapshot'])
+const emit = defineEmits(['close', 'delete-orphan', 'view-snapshot', 'fix-prices'])
 
 // カレンダーに無い棚卸（記録だけ残っている）。分析には入ってしまうので、ここで見せて消せるようにする
 const orphans = computed(() => orphanSnapshots(props.snapshots, props.sessions))
@@ -399,6 +399,8 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
           <template v-else>
             <div class="dash-total dash-total-muted">金額データなし</div>
             <div class="dash-total-label">単価が未設定です</div>
+            <!-- 何をすれば数字が出るのかを、その場で（User 2026-11-13） -->
+            <button type="button" class="dash-fix" @click="emit('fix-prices')">単価を入れる ›</button>
           </template>
           <div class="dash-meta">
             <div class="dash-meta-item" v-if="summary.duration">
@@ -591,6 +593,7 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
   flex-direction: column;
 }
 .dash-embedded { display: flex; flex-direction: column; background: #f5f6f8; }
+.dash-fix { justify-self: start; margin-top: 8px; min-height: 40px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--border, #d6e6ea); background: var(--surface, #fff); color: var(--primary, #0e7490); font-size: 14px; font-weight: 800; cursor: pointer; }
 .dash-open {
   display: block; width: 100%; margin-top: 12px; padding: 10px; border-radius: 10px;
   border: 1.5px solid #a5f3fc; background: #ecfeff; color: #155e75; font-weight: 800; font-size: 13.5px; cursor: pointer;

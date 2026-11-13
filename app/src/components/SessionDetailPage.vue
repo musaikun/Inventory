@@ -354,7 +354,7 @@ function onDownload() {
       </div>
       <div class="header-right">
         <span v-if="!isLocked" class="correction-badge" @click="!isLocked && enterEdit()">
-          <LineIcon name="pencil" /> あと{{ correctionDaysRemaining > 0 ? correctionDaysRemaining + '日' : '今日まで' }}
+          <LineIcon name="pencil" /> {{ correctionDaysRemaining > 0 ? `修正 あと${correctionDaysRemaining}日` : '修正は今日まで' }}
         </span>
         <span v-else class="lock-badge"><LineIcon name="lock" /> 確定</span>
         <button v-if="isHost && canShare" class="btn-icon" @click="showShare = !showShare" title="結果を共有"><LineIcon name="upload" /></button>

@@ -403,8 +403,8 @@ function onDownloadTemplate() {
       <div v-if="_show('import')" class="status-bar" :class="config.isCustom ? 'custom' : 'default'">
         <span class="status-icon"><LineIcon :name="config.isCustom ? 'note' : 'clipboard'" /></span>
         <span>
-          {{ config.isCustom ? 'カスタム設定' : 'デフォルト設定' }}
-          ／ {{ itemCount }}件
+          {{ config.isCustom ? '登録している品目' : 'サンプルの品目' }}
+          {{ itemCount }}件
         </span>
       </div>
 

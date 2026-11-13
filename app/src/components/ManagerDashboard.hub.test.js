@@ -10,11 +10,12 @@ const it_ = (item, qty, unitPrice, category, unit = '個') =>
   ({ item, qty, unit, unitPrice, subtotal: unitPrice == null || qty == null ? null : qty * unitPrice, category })
 const snap = (date, items) => ({ date, items, totalValue: items.reduce((s, i) => s + (i.subtotal ?? 0), 0) })
 
+let fixes = 0
 async function mount(snapshots) {
   const { default: Dash } = await import('./ManagerDashboard.vue')
   host = document.createElement('div')
   document.body.appendChild(host)
-  app = createApp({ render: () => h(Dash, { snapshots, onClose: () => { closed++ } }) })
+  app = createApp({ render: () => h(Dash, { snapshots, onClose: () => { closed++ }, onFixPrices: () => { fixes++ } }) })
   app.mount(host)
   await nextTick()
 }
@@ -70,6 +71,11 @@ describe('在庫分析 — トップは要約と項目カード', () => {
 
   it('単価が無ければジャンル別・ABCは押せない', async () => {
     await mount([snap('2026-09-30', [it_('牛肉', 2, null, '肉')])])
+    // 金額が出ない理由のすぐ下に、直しに行く入口を置く（User 2026-11-13）
+    const fix = host.querySelector('.dash-fix')
+    expect(fix.textContent).toContain('単価を入れる')
+    await click(fix)
+    expect(fixes).toBe(1)
     expect(card('ジャンル別').disabled).toBe(true)
     expect(card('ABC分析').textContent).toContain('単価が未設定です')
   })
