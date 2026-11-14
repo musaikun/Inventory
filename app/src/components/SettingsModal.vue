@@ -1,4 +1,5 @@
 <script setup>
+import { askConfirm } from '../composables/askConfirm.js'
 import LineIcon from './LineIcon.vue'
 import { useWeather, markWeatherAsked, disableWeather } from '../composables/useWeather.js'
 import { ref, computed, onMounted } from 'vue'
@@ -236,7 +237,7 @@ async function toggleAnalyticsConsent() {
 }
 
 async function clearAppCache() {
-  if (!confirm('アプリの表示キャッシュを削除して再読み込みします。\n設定・品目・発注点・履歴などのデータは消えません。よろしいですか？')) return
+  if (!await askConfirm({ title: '表示をリセットして読み込み直しますか？', body: 'アプリの表示キャッシュを削除します。\n設定・品目・発注点・履歴などのデータは消えません。', ok: 'リセットする' })) return
   clearingCache.value = true
   try {
     if ('serviceWorker' in navigator) {

@@ -1,6 +1,7 @@
 // 並び替え（保管場所などでの振り分け）の進み具合と、振り分けの画面を開く操作。
 // ホームの「並び替え」タイルと、はじめて使うときの大きなおすすめで共通（User決定 2026-10-04）。
 // 名前の付いた並び替えのうち、いちばん振り分けが進んでいるもので判断する。
+import { notify } from './askConfirm.js'
 import { computed } from 'vue'
 import { useConfig, ROUTE } from './useConfig.js'
 import { showAxisAssign, axisAssignInitial, axisAssignUnassigned } from './appMenuState.js'
@@ -46,7 +47,7 @@ export function useSortSetup() {
 
   /** 振り分けの画面を開く。並び替えがまだ無ければ名前（既定は「保管場所」）を決めてから */
   function openSort() {
-    if (!can('sort')) { window.alert(denyMessage('sort')); return false }
+    if (!can('sort')) { notify(denyMessage('sort')); return false }
     let idx = sortProgress.value.best?.idx
     if (idx == null) {
       const names = config.axisNames ?? ['', '']
@@ -54,7 +55,7 @@ export function useSortSetup() {
       if (!(names[idx] || '').trim()) {
         const name = (window.prompt('並び替えの名前を入力（例：保管場所・仕入先）', '保管場所') || '').trim()
         if (!name) return false
-        if (!setAxisName(idx, name)) { window.alert('その名前は既に使われています'); return false }
+        if (!setAxisName(idx, name)) { notify('その名前は既に使われています'); return false }
       }
     }
     axisAssignInitial.value = idx
@@ -64,7 +65,7 @@ export function useSortSetup() {
 
   /** 決まった並び替えの振り分けの画面を開く */
   function openSortAxis(idx) {
-    if (!can('sort')) { window.alert(denyMessage('sort')); return false }
+    if (!can('sort')) { notify(denyMessage('sort')); return false }
     axisAssignInitial.value = idx
     axisAssignUnassigned.value = false
     showAxisAssign.value = true
@@ -73,12 +74,12 @@ export function useSortSetup() {
 
   /** 並び替えを1つ足して、その振り分けの画面を開く。name を渡さなければ名前を訊く */
   function addSortAxis(name = null) {
-    if (!can('sort')) { window.alert(denyMessage('sort')); return false }
+    if (!can('sort')) { notify(denyMessage('sort')); return false }
     const idx = freeSlot.value
     if (idx < 0) return false
     const n = (name ?? (window.prompt('並び替えの名前を入力（例：保管場所・仕入先）', '') || '')).trim()
     if (!n) return false
-    if (!setAxisName(idx, n)) { window.alert('その名前は既に使われています'); return false }
+    if (!setAxisName(idx, n)) { notify('その名前は既に使われています'); return false }
     return openSortAxis(idx)
   }
 
@@ -98,7 +99,7 @@ export function useSortSetup() {
   })
   /** 導線の振り分けを開く。unassigned = 入っていない品目だけを出して開く */
   function openRoute({ unassigned = false } = {}) {
-    if (!can('sort')) { window.alert(denyMessage('sort')); return false }
+    if (!can('sort')) { notify(denyMessage('sort')); return false }
     axisAssignInitial.value = ROUTE
     axisAssignUnassigned.value = unassigned
     showAxisAssign.value = true

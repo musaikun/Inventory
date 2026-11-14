@@ -7,6 +7,7 @@
  * - 経過を書いたついでに「このまま／待ちにする／済みにする」をその場で
  * 変えられるのは担当の人・作った人・管理者（canProgress）。経過は見える人なら誰でも書ける
  */
+import { askConfirm } from '../composables/askConfirm.js'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { updateProgress, finishProgress, canProgress, canEditTask, canRemoveTask, removeTask, loadNotes, addNote, newStepId, idleDays } from '../composables/useTasks.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
@@ -64,8 +65,8 @@ async function send() {
   } catch (e) { err.value = e?.message || '書き込めませんでした。電波の届くところでもう一度' } finally { busy.value = false }
 }
 // 消す（作った人と管理者・User決定 2026-11-07）
-function del() {
-  if (!window.confirm(`「${t.value.text}」を消しますか？`)) return
+async function del() {
+  if (!await askConfirm({ title: `「${t.value.text}」を消しますか？`, ok: '消す', danger: true })) return
   if (removeTask(t.value.id)) emit('close')
 }
 onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))

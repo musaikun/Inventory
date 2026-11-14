@@ -5,6 +5,7 @@
  * - 「このチェック表で業務を追加」→ 追加の画面にこの項目を付けて開く
  * - ★ お気に入り（項目のない、業務ごとのひな形）も同じ場所に並べる。押すとその中身で追加の画面へ
  */
+import { askConfirm } from '../composables/askConfirm.js'
 import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { templates, checklistTemplates, saveChecklistTemplate, removeTemplate, canAddTemplate, canEditTemplate, templateSummary, pullTemplates, KIND_ICON } from '../composables/useTemplates.js'
@@ -29,9 +30,9 @@ function openNew() { _open({ id: '', name: '', items: [] }) }
 function openEdit(t) { _open({ id: t.id, name: t.name, items: (t.data?.items ?? []).map(x => ({ id: x.id || _iid(), text: x.text })) }) }
 const dirty = () => !!edit.value && (_key(edit.value) !== _snap || !!draft.value.trim())
 /** 閉じる。作りかけ・直しかけなら確かめる（外を触っただけで消えないように・User 2026-11-08） */
-function closeEdit() {
+async function closeEdit() {
   itemDrag.cleanup()
-  if (dirty() && !window.confirm(edit.value.id ? '直した内容を保存せずに閉じますか？' : '作りかけのチェック表を捨てて閉じますか？')) return false
+  if (dirty() && !await askConfirm({ title: edit.value.id ? '直した内容を保存せずに閉じますか？' : '作りかけのチェック表を捨てて閉じますか？', ok: '閉じる', cancel: '続ける', danger: true })) return false
   edit.value = null
   return true
 }
@@ -79,7 +80,7 @@ async function saveAndUse() {
 }
 async function remove() {
   const id = edit.value?.id
-  if (!id || !window.confirm('このチェック表を消しますか？')) return
+  if (!id || !await askConfirm({ title: 'このチェック表を消しますか？', ok: '消す', danger: true })) return
   try { await removeTemplate(id); edit.value = null } catch (e) { err.value = e?.message || '消せませんでした' }
 }
 

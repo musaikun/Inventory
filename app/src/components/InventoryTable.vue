@@ -1,4 +1,5 @@
 <script setup>
+import { notify } from '../composables/askConfirm.js'
 import LineIcon from './LineIcon.vue'
 import { ref, computed, reactive, watch, nextTick, onUnmounted } from 'vue'
 import { useConfig, ROUTE } from '../composables/useConfig.js'
@@ -138,7 +139,7 @@ function onAddAxis() {
   const name = (window.prompt('並び替えの名前を入力（例：場所・仕入先）') || '').trim()
   if (!name) return
   // もう一方の並び替えと同じ名前は付けられない（タブが見分けられなくなる）
-  if (!setAxisName(idx, name)) { window.alert('その名前は既に使われています'); return }
+  if (!setAxisName(idx, name)) { notify('その名前は既に使われています'); return }
   sortMode.value = idx === 0 ? 'axisA' : 'axisB'  // 追加した並び替えに切替
   axisAssignInitial.value = idx
   showAxisAssign.value = true                      // 振り分けページへ

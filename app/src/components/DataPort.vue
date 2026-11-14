@@ -4,6 +4,7 @@
  * 入口は1つずつにして、押してから種類を選ぶ（品目リスト／過去の納品／過去の棚卸）。書き出しは ExportSheet.vue。
  * ホームのカードから open('import' | 'export') で開く。取込の確認画面・列指定・PDF・読み方の保存もここに持つ
  */
+import { notify } from '../composables/askConfirm.js'
 import LineIcon from './LineIcon.vue'
 import { can, denyMessage } from '../composables/useAuth.js'
 import { ref, computed, onUnmounted } from 'vue'
@@ -18,7 +19,7 @@ import PdfGridSetup from './PdfGridSetup.vue'
 function _mayPick(kind) {
   const perm = 'item.admin'   // 取り込み・書き出しは「データの更新」（User決定 2026-10-15）
   if (can(perm)) return true
-  window.alert(denyMessage(perm))
+  notify(denyMessage(perm))
   return false
 }
 

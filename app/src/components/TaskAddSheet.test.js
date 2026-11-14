@@ -1,5 +1,7 @@
 // 業務を追加（種類は入れた中身で決まる・チェック表は別の入口で作って付ける・子タスク・いつか→始める。User決定 2026-11-07）
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+// 確認・お知らせはアプリの中のシート。答えは従来どおり confirm / alert の stub で決める（test-stubs/askConfirmBridge.js）
+vi.mock('../composables/askConfirm.js', async (orig) => (await import('../test-stubs/askConfirmBridge.js')).bridge(await orig()))
 import { createApp, h, nextTick } from 'vue'
 
 vi.mock('../utils/api.js', () => ({ HTTP_BASE: '', WS_BASE: '', apiFetch: vi.fn(async () => ({})), setAuthInvalidatedHandler: vi.fn() }))

@@ -7,6 +7,7 @@
  *   スタッフの管理と全品目・アカウントの削除は管理者だけ（切り替えられない）。管理者・自分の権限は変えられない
  * - オーナーの名前（User決定 2026-10-14）: オーナーの画面で、オーナー本人だけが変えられる。変えると過去の記録もそろう
  */
+import { askConfirm } from '../composables/askConfirm.js'
 import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import QRCode from 'qrcode'
@@ -231,7 +232,7 @@ function editOwner() { ownerInput.value = ownerName.value; ownerError.value = ''
 async function saveOwner() {
   const n = ownerInput.value.trim()
   if (!n) { ownerError.value = '名前を入れてください'; return }
-  if (!confirm(`オーナーの名前を「${n}」にします。過去の記録（作った人・完了した人など）の名前も変わります。よろしいですか？`)) return
+  if (!await askConfirm({ title: `オーナーの名前を「${n}」にしますか？`, body: '過去の記録（作った人・完了した人など）の名前も変わります。', ok: '変える' })) return
   try { await updateOwnerName(n); ownerEditing.value = false; loadPresence() } catch (e) { ownerError.value = e?.message || '変えられませんでした' }
 }
 

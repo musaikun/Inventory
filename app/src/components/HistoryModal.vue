@@ -1,4 +1,5 @@
 <script setup>
+import { askConfirm } from '../composables/askConfirm.js'
 import LineIcon from './LineIcon.vue'
 import { ref, computed } from 'vue'
 import { useHistory } from '../composables/useHistory.js'
@@ -95,9 +96,9 @@ function onDownload(snapshot) {
   URL.revokeObjectURL(url)
 }
 
-function onDelete(snap) {
+async function onDelete(snap) {
   const date = typeof snap === 'string' ? snap : snap?.date
-  if (!confirm(`${date} の履歴を削除しますか？`)) return
+  if (!await askConfirm({ title: `${date} の履歴を削除しますか？`, body: 'この操作は取り消せません。', ok: '削除する', danger: true })) return
   // sessionId をキーに消す。日付で消すと同じ日の別セッションまで巻き込む（F-001）。
   deleteSnapshot(typeof snap === 'string' ? snap : (snap?.sessionId ?? snap?.date))
 }

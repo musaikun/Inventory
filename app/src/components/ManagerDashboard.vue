@@ -1,4 +1,5 @@
 <script setup>
+import { askConfirm } from '../composables/askConfirm.js'
 import LineIcon from './LineIcon.vue'
 import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { ref, computed, watch, onUnmounted } from 'vue'
@@ -19,8 +20,8 @@ const emit = defineEmits(['close', 'delete-orphan', 'view-snapshot', 'fix-prices
 // カレンダーに無い棚卸（記録だけ残っている）。分析には入ってしまうので、ここで見せて消せるようにする
 const orphans = computed(() => orphanSnapshots(props.snapshots, props.sessions))
 function orphanItems(s) { return (s.items || []).filter(i => i.qty != null).length }
-function onDeleteOrphan(s) {
-  if (!confirm(`${s.date} の棚卸の記録を削除しますか？\nカレンダーには無い記録です。この操作は取り消せません。`)) return
+async function onDeleteOrphan(s) {
+  if (!await askConfirm({ title: `${s.date} の棚卸の記録を削除しますか？`, body: 'カレンダーには無い記録です。この操作は取り消せません。', ok: '削除する', danger: true })) return
   emit('delete-orphan', s)
 }
 

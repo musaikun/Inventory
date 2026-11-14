@@ -21,7 +21,7 @@ onUnmounted(registerInnerLayerCloser(() => { answerConfirm(false); return true }
         <div class="cf-title">{{ confirmState.title }}</div>
         <p v-if="confirmState.body" class="cf-body">{{ confirmState.body }}</p>
         <div class="cf-acts">
-          <button type="button" class="cf-btn sec" @click="answerConfirm(false)">{{ confirmState.cancel }}</button>
+          <button v-if="confirmState.cancel" type="button" class="cf-btn sec" @click="answerConfirm(false)">{{ confirmState.cancel }}</button>
           <button type="button" :class="['cf-btn', confirmState.danger ? 'danger' : 'pri']" @click="answerConfirm(true)">{{ confirmState.ok }}</button>
         </div>
       </div>

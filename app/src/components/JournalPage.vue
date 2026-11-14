@@ -20,6 +20,7 @@ export function openJournalItem(d, item) { openJournalDay(d); _itemOnMount = ite
  *   丸を押すと済む、行を押すと中身。＋でその日に追加。前後の日へも送れる
  * 以前の「週の帯・担当者で絞る・伝票・申し送りの欄」（2026-10-25）はやめた
  */
+import { askConfirm } from '../composables/askConfirm.js'
 import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import TaskRow from './TaskRow.vue'
@@ -149,9 +150,9 @@ const picked = ref(null)     // 直す: やること1件（TaskRow を出す）
 const pNote = ref('')
 watch(picked, t => { pNote.value = t?.note || '' })
 // 消す（作った人と管理者・未完了の間。User決定 2026-11-07）
-function deletePicked() {
+async function deletePicked() {
   const t = picked.value
-  if (!t || !window.confirm(`「${t.text}」を消しますか？`)) return
+  if (!t || !await askConfirm({ title: `「${t.text}」を消しますか？`, ok: '消す', danger: true })) return
   if (removeTask(t.id)) { picked.value = null; say(`「${t.text}」を消しました`) }
 }
 // いつかのものを始める（今日から進行中・User決定 2026-11-07）
@@ -170,8 +171,8 @@ const memoOpen = ref(false), memoText = ref('')
 function openMemo() { const n = getNote(date.value) || {}; memoText.value = n.text || ''; memoOpen.value = true }
 function saveMemo() { setNote(date.value, { text: memoText.value, tags: getNote(date.value)?.tags || [] }); memoOpen.value = false }
 // その日のメモを消す（User決定 2026-11-11）
-function deleteMemo() {
-  if (!window.confirm('この日のメモを消しますか？')) return
+async function deleteMemo() {
+  if (!await askConfirm({ title: 'この日のメモを消しますか？', ok: '消す', danger: true })) return
   setNote(date.value, {}); memoOpen.value = false; say('メモを消しました')
 }
 const err = ref('')

@@ -1,3 +1,4 @@
+import { notify } from './askConfirm.js'
 import { ref, computed } from 'vue'
 import { runBusy, HEAVY_ROWS } from './useBusy.js'
 import { useConfig } from './useConfig.js'
@@ -144,11 +145,11 @@ export function useDataImport() {
         return pg ?? []
       })
     } catch (err) {
-      alert(err?.message || 'PDFの読み込みに失敗しました')
+      notify(err?.message || 'PDFの読み込みに失敗しました')
       return false
     }
     if (!pages.length) {
-      alert('このPDFからは文字を取り出せませんでした。写真やスキャンの画像だけのPDFは読み取れません。')
+      notify('このPDFからは文字を取り出せませんでした。写真やスキャンの画像だけのPDFは読み取れません。')
       return false
     }
     // 表の作り方まで覚えているレシピが当たったら、問いを出さずにそのまま流す
@@ -234,7 +235,7 @@ export function useDataImport() {
     try {
       // Excelはここで表へ変換する。大きいファイルでは数秒かかる
       csv = await runBusy('ファイルを読み込み中…', () => _fileToCsv(file))
-    } catch (_) { alert('ファイルの読み込みに失敗しました'); return }
+    } catch (_) { notify('ファイルの読み込みに失敗しました'); return }
     pdfContext.value = null
     _ingest('delivery', csv, file.name)
   }
@@ -287,7 +288,7 @@ export function useDataImport() {
     if (isPdf(file)) return await _openPdfSetup('stocktake', file)
     let csv
     try { csv = await runBusy('ファイルを読み込み中…', () => _fileToCsv(file)) }
-    catch (_) { alert('ファイルの読み込みに失敗しました'); return false }
+    catch (_) { notify('ファイルの読み込みに失敗しました'); return false }
     // 解析と計画づくりは同期。行が多いと数百ms止まるので、そのときだけ先に描く
     const rows = csv.split('\n').length
     pdfContext.value = null

@@ -9,6 +9,8 @@
  * 自動で読めなければ列指定へ落ちるので、紙の帳票でも行き止まりにならない。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+// 確認・お知らせはアプリの中のシート。答えは従来どおり confirm / alert の stub で決める（test-stubs/askConfirmBridge.js）
+vi.mock('./askConfirm.js', async (orig) => (await import('../test-stubs/askConfirmBridge.js')).bridge(await orig()))
 
 vi.mock('./useStore.js', () => ({
   saveMovementToD1:      vi.fn(),

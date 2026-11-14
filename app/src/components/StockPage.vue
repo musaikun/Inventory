@@ -13,6 +13,7 @@
  * - 入庫の日付（期限・買った日）から、期限が近い・切れた品目を一覧に出す（User決定 2026-10-27）
  * - 右下の「＋」で1品目ずつ追加。行をタップすると品目シート（入庫・出庫・品目の情報・品目のカレンダー）
  */
+import { notify } from '../composables/askConfirm.js'
 import LineIcon from './LineIcon.vue'
 import { ref, computed, onUnmounted } from 'vue'
 import { can, denyMessage } from '../composables/useAuth.js'
@@ -125,7 +126,7 @@ const locked = computed(() => completionBusy.value)
 function openAdd()  { if (!locked.value) form.value = { mode: 'add' } }
 function openEdit() {
   if (locked.value) return
-  if (!can('item.edit')) { window.alert(denyMessage('item.edit')); return }
+  if (!can('item.edit')) { notify(denyMessage('item.edit')); return }
   form.value = { mode: 'edit', item: detailTarget.value }
 }
 function closeForm() { form.value = null }
@@ -141,7 +142,7 @@ function originOf(name) {
 // セッションの外でも隠せるように（以前は棚卸の一覧のスワイプだけ・User決定 2026-10-26）
 function onHide() {
   if (locked.value) return
-  if (!can('item.edit')) { window.alert(denyMessage('item.edit')); return }
+  if (!can('item.edit')) { notify(denyMessage('item.edit')); return }
   const name = detailTarget.value
   hideItem(name)
   detailTarget.value = null

@@ -11,6 +11,8 @@
  * 経緯は docs/quality-foundation/cc-session-plan.md の S2 / S5。
  */
 
+import { askConfirm, splitMessage } from '../composables/askConfirm.js'
+
 /** 全置換であることを説明する確認文を組み立てる */
 export function buildMasterImportWarning(currentCount) {
   const n = Number.isFinite(currentCount) && currentCount > 0 ? currentCount : 0
@@ -22,8 +24,6 @@ export function buildMasterImportWarning(currentCount) {
     // 「取り消しはできません」は誤り（undoLastImport がある）。実挙動どおりに書く。
     '・取込の直後にかぎり「取込前に戻す」で1回だけ戻せます',
     '・戻せるのはこの端末のメモリ上だけです。再読み込みや他の変更で戻せなくなります',
-    '',
-    '続けてよろしいですか？',
   ].join('\n')
 }
 
@@ -33,12 +33,11 @@ export function buildMasterImportWarning(currentCount) {
  *
  * @param {number} currentCount 現在登録されている品目数
  * @param {object} [opts]
- * @param {(msg: string) => boolean} [opts.confirmFn] 差し替え用（テスト）
+ * @param {(msg: string) => boolean | Promise<boolean>} [opts.confirmFn] 差し替え用（テスト）
  */
-export function confirmMasterImport(currentCount, { confirmFn } = {}) {
+export async function confirmMasterImport(currentCount, { confirmFn } = {}) {
   if (!(currentCount > 0)) return true
-  const ask = confirmFn ?? (typeof window !== 'undefined' ? window.confirm?.bind(window) : null)
-  // confirm が使えない環境では黙って破壊しない（明示的な同意が取れないため中止）
-  if (!ask) return false
-  return ask(buildMasterImportWarning(currentCount)) === true
+  // 既定はアプリの中の確認（composables/askConfirm.js）。標準の confirm() は使わない
+  const ask = confirmFn ?? (msg => askConfirm({ ...splitMessage(msg), ok: 'すべて入れ替える', danger: true }))
+  return (await ask(buildMasterImportWarning(currentCount))) === true
 }

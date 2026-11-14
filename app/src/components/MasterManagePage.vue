@@ -1,4 +1,5 @@
 <script setup>
+import { askConfirm, notify } from '../composables/askConfirm.js'
 import LineIcon from './LineIcon.vue'
 import { can, denyMessage } from '../composables/useAuth.js'
 import { ref, computed } from 'vue'
@@ -23,16 +24,16 @@ const delOpen = ref(false)   // 開くまでは小さな文字の行だけ
 const delCode = ref('')
 const resetAssign = ref(false)   // 振り分け（品目→分類先の割り当て）の記憶も消すか
 const canDelete = computed(() => !!shopCode.value && delCode.value.trim().toUpperCase() === shopCode.value)
-function onClear() {
-  if (!can('item.purge')) { window.alert(denyMessage('item.purge')); return }
+async function onClear() {
+  if (!can('item.purge')) { notify(denyMessage('item.purge')); return }
   if (!canDelete.value) return
   const note = resetAssign.value
-    ? '\n振り分け（分類先の割り当て）の記憶も消去します。'
-    : '\n（軸の名前・グループ定義・振り分けの記憶は残り、同じ品目を再登録すれば割り当ては復活します）'
+    ? '振り分け（分類先の割り当て）の記憶も消去します。'
+    : '軸の名前・グループ定義・振り分けの記憶は残り、同じ品目を再登録すれば割り当ては復活します。'
   const sessNote = props.unfinishedCount > 0
     ? `\n中断中・破棄した棚卸と発注（${props.unfinishedCount}件）も消え、元に戻せなくなります。`
     : ''
-  if (!confirm(`登録済みの品目 ${itemCount.value} 件をすべて削除します。${note}${sessNote}\nこの操作は取り消せません。本当に削除しますか？`)) return
+  if (!await askConfirm({ title: `登録済みの品目 ${itemCount.value} 件をすべて削除しますか？`, body: `${note}${sessNote}\nこの操作は取り消せません。`, ok: 'すべて削除する', danger: true })) return
   emit('clear-master', { resetAssignments: resetAssign.value })
   delCode.value = ''
   resetAssign.value = false

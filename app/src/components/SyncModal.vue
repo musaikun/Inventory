@@ -1,4 +1,5 @@
 <script setup>
+import { askConfirm } from '../composables/askConfirm.js'
 import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, nextTick } from 'vue'
 import QRCode from 'qrcode'
@@ -31,10 +32,7 @@ const {
 // 受付終了（保存せずルームを閉じる・ゲスト全員退室）
 async function onCloseRoom() {
   const guestCount = participantList.value.length - 1
-  const msg = guestCount > 0
-    ? 'ゲストは全員退室します。ルームを閉じますか？'
-    : 'ルームを閉じますか？'
-  if (!confirm(msg)) return
+  if (!await askConfirm({ title: 'ルームを閉じますか？', body: guestCount > 0 ? 'ゲストは全員退室します。' : '', ok: 'ルームを閉じる', danger: true })) return
   await dissolveRoom()
   view.value = 'home'
   emit('close')

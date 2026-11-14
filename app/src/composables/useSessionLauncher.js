@@ -6,6 +6,7 @@
 //
 // 画面ごとに呼ぶ（呼ぶたびに独立した状態を持つ）。画面遷移（emit）は呼ぶ側の仕事で、
 // ここは「何が起きたか」を返すだけにする。
+import { askConfirm, splitMessage } from './askConfirm.js'
 import { ref, computed } from 'vue'
 import { getSessions, createSession, deleteSession, logout, getDiscardedSessions, restoreSession, purgeUnfinishedSessions } from './useAuth.js'
 import { useConfig } from './useConfig.js'
@@ -235,7 +236,7 @@ export function useSessionLauncher() {
       error.value = '完了した記録は削除できません。'
       return false
     }
-    if (!confirmed && !confirm(deleteConfirmMessage(session, false))) return false
+    if (!confirmed && !await askConfirm({ ...splitMessage(deleteConfirmMessage(session, false)), ok: '削除する', danger: true })) return false
     deletingId.value = session.id
     try {
       // 消す直前に必ずサーバーを読み直す。画面の一覧は古いことがある

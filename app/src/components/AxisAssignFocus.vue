@@ -1,4 +1,5 @@
 <script setup>
+import { askConfirm } from '../composables/askConfirm.js'
 import LineIcon from './LineIcon.vue'
 import { ref, reactive, computed, watch, nextTick, onUnmounted } from 'vue'
 import DismissibleHint from './DismissibleHint.vue'
@@ -84,9 +85,9 @@ function saveAxis() {
   activeAxis.value = idx
   closeAxisPanel()
 }
-function dropAxis(idx) {
+async function dropAxis(idx) {
   const name = config.axisNames?.[idx]
-  if (!confirm(`グループ「${name}」を削除します。\n分類先も、品目の振り分けもすべて外れます。\n\nよろしいですか？`)) return
+  if (!await askConfirm({ title: `グループ「${name}」を削除しますか？`, body: '分類先も、品目の振り分けもすべて外れます。', ok: '削除する', danger: true })) return
   clearAxis(idx)
   closeAxisPanel()
 }

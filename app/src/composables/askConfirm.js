@@ -28,4 +28,29 @@ export function answerConfirm(ok) {
   if (!s) return
   confirmState.value = null
   s.resolve(!!ok)
+  // 待たせていたお知らせがあれば続けて出す
+  const next = _notices.shift()
+  if (next) _showNotice(next)
+}
+
+/**
+ * 知らせるだけ（標準の alert() の置き換え）。ボタンは「OK」1つ。答えを待たずに呼んでよい。
+ * 確認を出している最中なら、それが閉じてから出す（知らせを落とさない）。
+ * @param {string | { title: string, body?: string, ok?: string }} msg 文字列なら1行目を題、残りを本文にする
+ */
+export function notify(msg) {
+  const o = typeof msg === 'string' ? splitMessage(msg) : msg
+  return new Promise(resolve => {
+    const n = { ok: 'OK', body: '', ...o, cancel: '', danger: false, resolve }
+    if (confirmState.value) _notices.push(n)
+    else _showNotice(n)
+  })
+}
+const _notices = []
+function _showNotice(n) { confirmState.value = n }
+
+/** 「題\n本文…」の形の文を { title, body } に分ける */
+export function splitMessage(msg) {
+  const [title, ...rest] = String(msg ?? '').split('\n')
+  return { title, body: rest.join('\n').replace(/^\n+/, '') }
 }

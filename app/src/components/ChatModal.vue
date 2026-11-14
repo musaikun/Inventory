@@ -1,4 +1,5 @@
 <script setup>
+import { askConfirm } from '../composables/askConfirm.js'
 import LineIcon from './LineIcon.vue'
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { useSync, broadcastMessage, broadcastMessageDelete } from '../composables/useSync.js'
@@ -94,11 +95,11 @@ function actionReply() {
   if (actionMsg.value) setReply(actionMsg.value)
   closeActions()
 }
-function actionUnsend() {
+async function actionUnsend() {
   const m = actionMsg.value
   closeActions()
   if (!m || m.senderId !== deviceId) return   // 自分のメッセージのみ
-  if (!confirm('このメッセージの送信を取り消しますか？\n全員の画面から消え、記録にも残りません。')) return
+  if (!await askConfirm({ title: 'このメッセージの送信を取り消しますか？', body: '全員の画面から消え、記録にも残りません。', ok: '取り消す', cancel: 'やめる', danger: true })) return
   broadcastMessageDelete(m.id)
 }
 

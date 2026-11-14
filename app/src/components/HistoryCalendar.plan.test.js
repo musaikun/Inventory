@@ -5,6 +5,8 @@
 //   ・仕入れ管理の発注スケジュール（発注する曜日）を暦へ写す。**今日以降だけ**に出し、
 //     実績（★）とは形を変える。過去のマスに予定を出すと「その日に発注した」と読める。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+// 確認・お知らせはアプリの中のシート。答えは従来どおり confirm / alert の stub で決める（test-stubs/askConfirmBridge.js）
+vi.mock('../composables/askConfirm.js', async (orig) => (await import('../test-stubs/askConfirmBridge.js')).bridge(await orig()))
 import { createApp, nextTick } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 

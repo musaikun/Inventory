@@ -7,6 +7,7 @@
  * チェック表（項目のひな形）は別の入口で作り、ここでは選んで付けるだけ。付けると:
  *   本日・予定 → その日の1回きりのチェック表 ／ 繰り返し → 毎回その項目 ／ 締め切り・いつか → 子タスク
  */
+import { askConfirm } from '../composables/askConfirm.js'
 import LineIcon from './LineIcon.vue'
 import TimeGrid from './TimeGrid.vue'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
@@ -150,8 +151,8 @@ function toTemplates() {
     repeat: repeat.value, weekdays: [...weekdays.value], monthDays: [...monthDays.value], times: [...times.value], who: who.value, adminsOnly: adminsOnly.value,
     items: items.value.map(x => ({ ...x })), itemsName: itemsName.value })
 }
-function tryClose() {
-  if (_form() !== _snap && !window.confirm('入力中の業務を捨てて閉じますか？')) return
+async function tryClose() {
+  if (_form() !== _snap && !await askConfirm({ title: '入力中の業務を捨てて閉じますか？', ok: '捨てて閉じる', cancel: '続ける', danger: true })) return
   emit('close')
 }
 
@@ -369,8 +370,8 @@ function _saveTaskEdit(text) {
   if ((x.deadline || '') !== deadline.value) updateProgress(x.id, { deadline: deadline.value || null, ...(deadline.value && !x.progress ? { progress: 'doing' } : {}) })
 }
 // イベントを消す
-function removeEvent() {
-  if (!window.confirm(`「${props.editEvent.text}」を消しますか？`)) return
+async function removeEvent() {
+  if (!await askConfirm({ title: `「${props.editEvent.text}」を消しますか？`, ok: '消す', danger: true })) return
   if (removeTask(props.editEvent.id)) { emit('added', { kind: 'event', name: props.editEvent.text, removed: true }); emit('close') }
 }
 // 定期を直すときだけ: お休み・消す（直す画面にあったもの）
@@ -379,7 +380,7 @@ async function togglePause() {
   try { await setChecklistPaused(props.editOf.id, !props.editOf.paused); emit('close') } catch (e) { err.value = e?.message || '保存できませんでした' } finally { busy.value = false }
 }
 async function removeEdit() {
-  if (!window.confirm(`「${props.editOf.name}」を消しますか？\n今までの記録も見られなくなります。使わない時期だけなら「お休み」にしてください。`)) return
+  if (!await askConfirm({ title: `「${props.editOf.name}」を消しますか？`, body: '今までの記録も見られなくなります。使わない時期だけなら「お休み」にしてください。', ok: '消す', danger: true })) return
   busy.value = true; err.value = ''
   try { await removeChecklist(props.editOf.id); emit('close') } catch (e) { err.value = e?.message || '消せませんでした' } finally { busy.value = false }
 }

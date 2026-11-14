@@ -1,6 +1,8 @@
 // 棚卸・発注の開始・再開・破棄を画面から切り離した共通部品（proposals.md 2026-09-30 段階1）。
 // 画面遷移は呼ぶ側の仕事なので、ここでは「何が起きたか」を返すことだけを確かめる。
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+// 確認・お知らせはアプリの中のシート。答えは従来どおり confirm / alert の stub で決める（test-stubs/askConfirmBridge.js）
+vi.mock('./askConfirm.js', async (orig) => (await import('../test-stubs/askConfirmBridge.js')).bridge(await orig()))
 
 vi.mock('../utils/api.js', () => ({
   HTTP_BASE: 'https://worker.test',

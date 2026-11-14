@@ -25,6 +25,7 @@ export const _showOrders    = ref(false)
  * 最初の画面が「とっつきにくい」（User 2026-09-30）。確認はブラウザの confirm をやめて
  * 下から出るシートで訊く（OK/キャンセルの意味が読みにくかった）。
  */
+import { askConfirm, notify } from '../composables/askConfirm.js'
 import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
@@ -276,7 +277,7 @@ async function onClearMaster(p) {
   if (!_allowed('item.admin')) return
   const ids = await launcher.purgeUnfinished()
   if (!ids) {
-    window.alert(`中断中・破棄した棚卸と発注を消せなかったため、品目マスタの削除をやめました。\n通信を確認して、もう一度お試しください。（${launcher.error.value}）`)
+    notify({ title: '品目マスタの削除をやめました', body: `中断中・破棄した棚卸と発注を消せませんでした。\n通信を確認して、もう一度お試しください。（${launcher.error.value}）` })
     return
   }
   emit('clearMaster', { ...p, purgedIds: ids })
@@ -352,7 +353,7 @@ function onDeleteOrphan(snap) {
   historyTick.value++
 }
 async function onLogout() {
-  if (!confirm('ログアウトしますか？')) return
+  if (!await askConfirm({ title: 'ログアウトしますか？', ok: 'ログアウト' })) return
   await logout()
   emit('back')
 }

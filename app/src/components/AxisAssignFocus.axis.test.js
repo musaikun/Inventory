@@ -10,6 +10,8 @@
  * 弾いたことはその場で読めること。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+// 確認・お知らせはアプリの中のシート。答えは従来どおり confirm / alert の stub で決める（test-stubs/askConfirmBridge.js）
+vi.mock('../composables/askConfirm.js', async (orig) => (await import('../test-stubs/askConfirmBridge.js')).bridge(await orig()))
 import { createApp, h, nextTick } from 'vue'
 
 let app = null, host = null, cfg = null

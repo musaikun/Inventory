@@ -176,7 +176,7 @@ async function onConfirm() {
   if (!canImport.value) return
   // 全置換だけは最後にもう一段の同意を取る（S2 の確認をこの操作にだけ残した）。
   // 追加・更新は既存品目を消さないため確認を挟まない。
-  if (isReplace.value && !confirmMasterImport(itemCount.value)) return
+  if (isReplace.value && !await confirmMasterImport(itemCount.value)) return
   importing.value   = true
   importError.value = ''
   try {

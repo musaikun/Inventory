@@ -1,5 +1,7 @@
 // チェック表（ひな形）を作る・直す: 外を触っても消さずに確かめる・項目を書き直せる（User 2026-11-08）
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+// 確認・お知らせはアプリの中のシート。答えは従来どおり confirm / alert の stub で決める（test-stubs/askConfirmBridge.js）
+vi.mock('../composables/askConfirm.js', async (orig) => (await import('../test-stubs/askConfirmBridge.js')).bridge(await orig()))
 import { createApp, h, nextTick } from 'vue'
 
 vi.mock('../utils/api.js', () => ({ HTTP_BASE: '', WS_BASE: '', apiFetch: vi.fn(async () => ({})), setAuthInvalidatedHandler: vi.fn() }))
