@@ -39,11 +39,11 @@ describe('ホームのショートカット', () => {
     expect(document.body.querySelector('.ht-sh')).toBeNull()
   })
 
-  it('品目リスト整理: 導線がまだ無ければ「まだ」。押すと 導線作成／品目並び替え の2択で、導線作成から導線の振り分けへ（User決定 2026-10-30）', async () => {
+  it('品目リスト整理: 導線がまだ無ければ「順番 未設定」。押すと 導線作成／品目並び替え の2択で、導線作成から導線の振り分けへ（User決定 2026-10-30）', async () => {
     await seedItems(null)
     await mountTop()
     const c = card('品目リスト整理')
-    expect(c.querySelector('.ht-bd').textContent).toBe('まだ')
+    expect(c.querySelector('.ht-bd').textContent).toBe('順番 未設定')
     await click(c)
     expect(document.body.querySelector('.ht-sh').textContent).toContain('品目並び替え')
     const { showAxisAssign, axisAssignInitial, axisAssignUnassigned } = await import('../composables/appMenuState.js')

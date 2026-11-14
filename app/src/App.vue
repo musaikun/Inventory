@@ -86,6 +86,7 @@ import LandingPage from './components/LandingPage.vue'
 import AuthPage from './components/AuthPage.vue'
 import OrderExportSheet from './components/OrderExportSheet.vue'
 import StocktakeDoneSheet from './components/StocktakeDoneSheet.vue'
+import OrderUndecidedSheet from './components/OrderUndecidedSheet.vue'
 import StaffJoinPage from './components/StaffJoinPage.vue'
 import { openJournalDay } from './components/JournalPage.vue'
 import SessionListPage, { _persistedTab as homeTab, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
@@ -1115,7 +1116,7 @@ setDissolvedCallback(() => {
       currentView.value = 'landing'
     }, 3500)
   } else {
-    showToast('ルームが閉鎖されました', 2500)
+    showToast('ルームが閉じられました', 2500)
   }
 })
 setParticipantJoinCallback((name) => showToast(`${name} が参加しました`, 3000, 'join'))
@@ -1279,7 +1280,7 @@ setSessionEndedCallback(async (status, sessionId, itemCount) => {
   // 退出も通知も、通知を受けた時点のホスト/ゲストで判断する（await 中の変化に従わない）
   if (!wasHost && status === 'completed') {
     // ゲスト: ホストが完了 → 即座にホームへ遷移
-    showToast('ホストが棚卸を完了したため、ルームを閉鎖します', 4000, 'warning')
+    showToast('ホストが棚卸を完了したため、ルームを閉じます', 4000, 'warning')
     _hostCompletedLeave = true
     leaveRoom()
   } else {
@@ -2001,14 +2002,18 @@ async function onComplete() {
   // ホスト or ソロ: 棚卸を締める
   const isHostInRoom = syncActive.value && syncIsHost.value
   const confirmMsg = isHostInRoom
-    ? `${actNoun.value}を完了しますか？\nゲストへ完了通知を送り、ルームを閉鎖します。`
+    ? `${actNoun.value}を完了しますか？\nゲストへ完了通知を送り、ルームを閉じます。`
     : `${actNoun.value}を完了しますか？\n完了後は読み取り専用になります。`
   // 発注: 発注数を決めていない品目（在庫だけ入れた品目を含む）は、まとめて発注なし（0）で保存してよいか訊く（User決定 2026-10-19）
   const undecided = isOrderMode ? _orderUndecided() : []
   if (undecided.length) {
-    const stockOnly = undecided.filter(i => inventory[i] != null).length
-    const names = undecided.slice(0, 3).join('、') + (undecided.length > 3 ? ` ほか${undecided.length - 3}件` : '')
-    if (!confirm(`発注数が未入力の品目が ${undecided.length}件 あります（${names}）${stockOnly ? `\nうち在庫だけ入力 ${stockOnly}件` : ''}\nすべて発注なし（0）で登録して保存しますか？\n（キャンセルで戻って発注数を入れられます）${isHostInRoom ? '\nゲストへ完了通知を送り、ルームを閉鎖します。' : ''}`)) return
+    // どれが 0 になるのかを全部見せてから訊く（標準の確認は3品目までしか出せなかった・User 2026-11-14）
+    if (undecidedAsk.value) return   // 既に訊いている
+    const ok = await new Promise(resolve => {
+      undecidedAsk.value = { items: undecided, stockOnly: undecided.filter(i => inventory[i] != null), closesRoom: isHostInRoom, resolve }
+    })
+    undecidedAsk.value = null
+    if (!ok) return
     // 完了と同時に閉じるので、ルームの端末へ1件ずつは送らない（発注の記録には発注数>0 だけが載る）
     orderNone.value = [...new Set([...orderNone.value, ...undecided])]
     try { localStorage.setItem(_ORDER_NONE_PREFIX + _orderId(), JSON.stringify(orderNone.value)) } catch (_) {}
@@ -2183,6 +2188,8 @@ function onStaffJoined() {
 
 // 発注の書き出し（品目名と数量だけを業者ごとに）。発注を終えたときに開く
 const orderExport = ref(null)
+// 発注の完了前: 発注数が未入力の品目を発注なし（0）にしてよいか { items, stockOnly, closesRoom, resolve }
+const undecidedAsk = ref(null)
 // 棚卸を終えた直後のまとめ { snapshot, prev }
 const stockDone = ref(null)
 function onStockDoneDetail() {
@@ -3629,7 +3636,7 @@ function dismissReview() {
           <button
             v-if="!syncActive && !isCompleted && shopCode && !practiceMode"
             class="room-mini" type="button" @click="onCreateRoomFromMain" title="ルームを作成して、スタッフのスマホをつなぐ"
-          ><LineIcon name="users" /> みんなで</button>
+          ><LineIcon name="users" /> ルームを作る</button>
         </div>
       </header>
 
@@ -4124,6 +4131,7 @@ function dismissReview() {
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal  v-if="settingsSection" :section="settingsSection" :is-guest="syncActive && !syncIsHost" :can-restore="currentView === 'session'" @close="settingsSection = null" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
     <OrderExportSheet v-if="orderExport" :order="orderExport" title="発注を業者へ送る" @close="orderExport = null" />
+    <OrderUndecidedSheet v-if="undecidedAsk" :items="undecidedAsk.items" :stock-only="undecidedAsk.stockOnly" :closes-room="undecidedAsk.closesRoom" @ok="undecidedAsk.resolve(true)" @cancel="undecidedAsk.resolve(false)" />
     <StocktakeDoneSheet v-if="stockDone" :snapshot="stockDone.snapshot" :prev="stockDone.prev" @close="stockDone = null" @detail="onStockDoneDetail" />
     <DeleteAccountModal v-if="showDeleteAccount" @close="showDeleteAccount = false" @deleted="onAccountDeleted" />
     <AxisAssignFocus
@@ -4183,7 +4191,7 @@ function dismissReview() {
               <span class="onboard-icon"><LineIcon name="users" /></span>
               <div>
                 <strong>みんなで同時に数える</strong>
-                <p>「みんなで始める」のQRで仲間のスマホをつなぐ。入れた数はすぐ全員の画面にそろいます</p>
+                <p>「ルームを作って始める」のQRで仲間のスマホをつなぐ。入れた数はすぐ全員の画面にそろいます</p>
               </div>
             </li>
             <li class="onboard-step">

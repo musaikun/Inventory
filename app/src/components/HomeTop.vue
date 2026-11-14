@@ -131,10 +131,10 @@ const shortcuts = computed(() => [
     badge: props.activeOrderSession ? _runBadge(orderLive.value, 'or') : (props.orderDeadline ? { text: props.orderDeadline, kind: 'or' } : null),
     d: ['M6 3h12v18l-3-2-3 2-3-2-3 2z', 'M9 8h6M9 12h6'] },
   // 品目リスト整理（並び替え）。名前は「数える順」から変えた（ぱっと見て意味が分からない・User決定 2026-10-28）。在庫タブから移した。振り分けが終わるまで残りの数を出す（光らせると棚卸の中断中と紛れるので印だけ・User決定 2026-10-27）
-  // 印は導線のこと: まだ無ければ「まだ」、あって入っていない品目があればその数（品目を足したら気づける・User決定 2026-10-30）
+  // 印は導線のこと: まだ無ければ「順番 未設定」（「まだ」だけでは何がまだか読めない・User 2026-11-14）、あって入っていない品目があればその数（品目を足したら気づける・User決定 2026-10-30）
   ...(can('sort') ? [{ key: 'sort', label: '品目リスト整理',
     badge: !routeStats.value.total ? null
-      : !hasRoute.value ? { text: 'まだ', kind: 'cy' }
+      : !hasRoute.value ? { text: '順番 未設定', kind: 'cy' }
       : routeStats.value.missing ? { text: `導線 ${routeStats.value.missing}`, kind: 'red' } : null,
     d: ['M4 6h10M4 12h16M4 18h7', 'M17 15l3 3-3 3'] }] : []),
   ...(isAuthenticated.value && isAdmin.value ? [{

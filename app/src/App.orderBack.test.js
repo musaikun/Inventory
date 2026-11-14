@@ -183,12 +183,12 @@ describe('セッションの ☰ から中断・破棄', () => {
     expect((await goShortcut('棚卸'))?.textContent).toContain('中断中')
   }, 20000)
 
-  it('ひとりの棚卸では大きな「ルームを作成」カードを出さず、見出しの小さな「みんなで」から作る', async () => {
+  it('ひとりの棚卸では大きな「ルームを作成」カードを出さず、見出しの小さな「ルームを作る」から作る', async () => {
     await mountWithSessions()
     await click(await goShortcut('棚卸'))
     await click(host.querySelector('.sh .bb.stock'))
     expect(host.querySelector('.room-cta')).toBeNull()
-    expect(host.querySelector('.app-header .room-mini')?.textContent).toContain('みんなで')
+    expect(host.querySelector('.app-header .room-mini')?.textContent).toContain('ルームを作る')
   }, 20000)
 
   it('🏠 の「破棄…」はホームへ戻って破棄の確認を開く（その場では消さない）', async () => {

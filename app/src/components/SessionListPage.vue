@@ -542,7 +542,7 @@ onUnmounted(registerInnerLayerCloser(() => {
           <div class="sh-s">数えた数が、今の在庫として確定します。</div>
           <div class="info"><div>前回<b>{{ lastStock || 'まだありません' }}</b></div><div>数える品目<b>{{ itemCount }}</b></div></div>
           <button class="bb stock" type="button" :disabled="startingKind === 'stock'" @click="startStock()"><LineIcon name="user" /><span>ひとりで始める<small>この端末だけで数える</small></span></button>
-          <button class="bb stock-soft" type="button" :disabled="startingKind === 'stock'" @click="startStock({ room: true })"><LineIcon name="users" /><span>みんなで始める<small>QRを出して、スタッフのスマホをつなぐ</small></span></button>
+          <button class="bb stock-soft" type="button" :disabled="startingKind === 'stock'" @click="startStock({ room: true })"><LineIcon name="users" /><span>ルームを作って始める<small>QRを出して、スタッフのスマホをつなぐ</small></span></button>
           <!-- 破棄して24時間以内の棚卸は、ここから元に戻して続きから始める（ホームの上に帯を出さない・User決定 2026-10-04） -->
           <button
             v-for="d in discardedStock" :key="d.id" class="bb restore" type="button"
@@ -572,7 +572,7 @@ onUnmounted(registerInnerLayerCloser(() => {
             <div>今日の発注日<b>{{ todaySchedules.length ? todaySchedules.join('・') : 'なし' }}</b></div>
           </div>
           <button class="bb order" type="button" :disabled="startingKind === 'order'" @click="startOrder()"><LineIcon name="receipt" /><span>ひとりで始める</span></button>
-          <button class="bb order-soft" type="button" :disabled="startingKind === 'order'" @click="startOrder({ room: true })"><LineIcon name="users" /><span>みんなで発注する<small>QRを出して、スタッフのスマホをつなぐ</small></span></button>
+          <button class="bb order-soft" type="button" :disabled="startingKind === 'order'" @click="startOrder({ room: true })"><LineIcon name="users" /><span>ルームを作って発注する<small>QRを出して、スタッフのスマホをつなぐ</small></span></button>
           <button
             v-for="d in discardedOrder" :key="d.id" class="bb restore" type="button"
             :disabled="restoringId === d.id" @click="restoreAndResume(d)"

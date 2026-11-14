@@ -1,4 +1,5 @@
 <script setup>
+import { noteUnit, orderUnits } from '../utils/recentUnits.js'
 import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import NumPad from './NumPad.vue'
@@ -61,7 +62,8 @@ const tagA = ref(props.initialTagA ?? '')
 const tagB = ref(props.initialTagB ?? '')
 
 // 単位ドロップダウンの選択肢（p・ヶ を追加）
-const UNIT_OPTIONS = ['袋', '本', '個', 'パック', '缶', 'ケース', '枚', '玉', 'kg', 'L', 'p', 'ヶ']
+// 並びは「最近選んだ単位 → 残り」。開いている間は並びを動かさない（選んだ瞬間に順番が変わると押し間違える）
+const UNIT_OPTIONS = orderUnits(['袋', '本', '個', 'パック', '缶', 'ケース', '枚', '玉', 'kg', 'L', 'p', 'ヶ'])
 const CUSTOM = '__custom__'
 
 const qty      = ref(props.initialQty != null ? String(props.initialQty) : '')
@@ -78,6 +80,7 @@ function onUnitChange(v) {
     nextTick(() => unitCustomRef.value?.focus())   // その他選択で即キーボードを開く
   } else {
     unitCustom.value = false; unit.value = v
+    noteUnit(v)
   }
 }
 

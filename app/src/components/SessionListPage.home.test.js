@@ -143,7 +143,7 @@ describe('棚卸を始める', () => {
     await mountPage()
     await click(shortcut('棚卸'))
     expect(sheet().textContent).toContain('棚卸を始める')
-    await click(btn(sheet(), 'みんなで始める'))
+    await click(btn(sheet(), 'ルームを作って始める'))
     expect(events).toContainEqual(['startSession', expect.objectContaining({ id: 'stk-new' }), 'stock', { room: true }])
   })
 

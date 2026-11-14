@@ -843,7 +843,7 @@ describe('App — snapshot なしで完了APIを呼ぶ経路が無い', () => {
     expect(completeBodies[0].order.lines).toHaveLength(1)
   })
 
-  it('発注: 発注数が未入力の品目（在庫だけの品目も、開いていない品目も）は、完了時に「すべて発注なし（0）で保存しますか？」と訊く（User決定 2026-10-19）', async () => {
+  it('発注: 発注数が未入力の品目（在庫だけの品目も、開いていない品目も）は、完了時に発注なし（0）で保存してよいか訊く（User決定 2026-10-19）', async () => {
     localStorage.setItem('order_draft_ord_sess-2', JSON.stringify({
       トマト: { orderQty: 2, unit: '箱', stock: null, lot: '' },
     }))
@@ -857,19 +857,25 @@ describe('App — snapshot なしで完了APIを呼ぶ経路が無い', () => {
     for (const n of ['トマト', 'キャベツ', '玉ねぎ']) cfg.addItem(n, 0, '', '個')
     await settle()
     const expected = ['キャベツ', '玉ねぎ']   // キャベツ＝在庫だけ・玉ねぎ＝開いていない
-    // キャンセル → 完了しない
-    const ask = vi.fn(() => false)
-    vi.stubGlobal('confirm', ask)
+    // 標準の確認ではなく、0 になる品目を全部並べたシートで訊く（User 2026-11-14）
+    const native = vi.fn(() => true)
+    vi.stubGlobal('confirm', native)
+    const sheet = () => document.body.querySelector('.ou')
+    const sheetBtn = name => [...sheet().querySelectorAll('button')].find(b => b.textContent.trim() === name)
+    // 戻って入れる → 完了しない
     await clickComplete()
-    expect(ask.mock.calls[0][0]).toContain(`発注数が未入力の品目が ${expected.length}件`)
-    expect(ask.mock.calls[0][0]).toContain('うち在庫だけ入力 1件')
-    expect(ask.mock.calls[0][0]).toContain('すべて発注なし（0）で登録して保存しますか？')
+    expect(sheet().textContent).toContain(`発注数が未入力の品目が ${expected.length}件`)
+    expect(sheet().textContent).toContain('うち在庫だけ入力 1件')
+    expect([...sheet().querySelectorAll('.ou-list li')].map(li => li.firstChild.textContent)).toEqual(expected)
+    sheetBtn('戻って入れる').click()
+    await settle()
+    expect(sheet()).toBeNull()
     expect(completeCalls).toBe(0)
-    // OK → 発注なし（0）にして完了。確認は1回だけ。発注の記録は発注数>0 だけ
-    const ok = vi.fn(() => true)
-    vi.stubGlobal('confirm', ok)
+    // 発注なしで完了 → 発注なし（0）にして完了。訊くのは1回だけ。発注の記録は発注数>0 だけ
     await clickComplete()
-    expect(ok).toHaveBeenCalledTimes(1)
+    sheetBtn('発注なしで完了').click()
+    await settle()
+    expect(native).not.toHaveBeenCalled()
     expect(completeCalls).toBe(1)
     expect(JSON.parse(localStorage.getItem('order_none_ord_sess-2'))).toEqual(expected)
     expect(completeBodies[0].order.lines.map(l => l.item)).toEqual(['トマト'])
@@ -1734,7 +1740,7 @@ describe('App — 自分の解散マークが別ルームの解散通知に漏�
     dissolvedCallback()
     await settle(4)
 
-    expect(toastText()).toContain('ルームが閉鎖されました')
+    expect(toastText()).toContain('ルームが閉じられました')
     vi.advanceTimersByTime(4000)
     await settle(8)
     expect(host.querySelector('.lp')).toBeNull()
