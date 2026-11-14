@@ -160,4 +160,31 @@ describe('InventoryTable — 最初から開く・入れた行を見せる', () 
     expect(badges.every(b => /^\d+$/.test(b))).toBe(true)
     expect(host.querySelector('.cat-progress-track')).toBeNull()
   })
+
+  it('openStateKey があれば、開閉を再読み込みのあとも戻す。別のセッションには持ち越さない', async () => {
+    sessionStorage.clear()
+    const table = await mountWithRef({ openStateKey: 'sess-1' })
+    table().revealItem('コーラ')
+    await nextTick()
+    expect(visibleItems()).toEqual(['コーラ'])
+    app.unmount(); host.remove()
+
+    await mount({ openStateKey: 'sess-1' })      // 読み込み直し
+    expect(visibleItems()).toEqual(['コーラ'])
+    app.unmount(); host.remove()
+
+    await mount({ openStateKey: 'sess-2' })      // 別の棚卸
+    expect(visibleItems()).toEqual([])
+  })
+
+  it('少ないグループを人が畳んだことも覚える（読み込み直しで勝手に開かない）', async () => {
+    sessionStorage.clear()
+    cfg.setEmptyList()
+    cfg.addItem('トマト', 120, '野菜', '個')
+    await mount({ openStateKey: 'sess-1' })
+    await clickHead()                            // 全部閉じる
+    app.unmount(); host.remove()
+    await mount({ openStateKey: 'sess-1' })
+    expect(groupArrows().every(a => a === '▶')).toBe(true)
+  })
 })

@@ -35,6 +35,12 @@ let serverSessions = []
 // GET /store/:code/sessions を通信断にする（サーバーの状態を読めない = unreachable）
 let sessionsUnreachable = false
 
+// 確認はアプリの中のシートで訊く（composables/askConfirm.js）。ここでは答えだけを差し替えたいので、
+// 従来どおり confirm の stub（vi.stubGlobal('confirm', …)）で OK／取りやめを決められるようにする。
+vi.mock('./composables/askConfirm.js', async (orig) => ({
+  ...(await orig()),
+  askConfirm: async (o) => !!globalThis.confirm([o.title, o.body].filter(Boolean).join('\n')),
+}))
 vi.mock('./utils/api.js', () => ({
   // '' にすると useStore 側の D1 保存は no-op（本testの対象外）。
   // useAuth は HTTP_BASE を見ずに apiFetch を呼ぶので、完了経路はそのまま通る。

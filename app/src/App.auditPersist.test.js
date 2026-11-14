@@ -15,6 +15,12 @@ import { STORAGE_KEYS } from './utils/storageKeys.js'
 let completeBodies = []
 let serverSessions = []
 
+// 確認はアプリの中のシートで訊く（composables/askConfirm.js）。ここでは答えだけを差し替えたいので、
+// 従来どおり confirm の stub（vi.stubGlobal('confirm', …)）で OK／取りやめを決められるようにする。
+vi.mock('./composables/askConfirm.js', async (orig) => ({
+  ...(await orig()),
+  askConfirm: async (o) => !!globalThis.confirm([o.title, o.body].filter(Boolean).join('\n')),
+}))
 vi.mock('./utils/api.js', () => ({
   HTTP_BASE: '',
   WS_BASE: '',

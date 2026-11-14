@@ -71,6 +71,7 @@ export const STORAGE_KEYS = {
   taskTemplates:    'inventory_task_templates_v1', // やることのお気に入り（ひな形・店で共有・サーバーが正の写し）
   handoffs:         'inventory_handoffs_v1',   // 申し送り（店で共有・サーバーが正。表示を速くする写し）
   journalView:      '_journal_view_v1',    // 日誌の1日の見せ方 'board'（予定ボード）| 'list'（タイムライン）。端末ごと
+  tableOpen:        '_table_open_v1',      // sessionStorage: 棚卸・発注の一覧でどのグループを開いていたか（再読み込みで戻す）
   recentUnits:      '_recent_units_v1',    // 最近選んだ単位（選択肢の並びに使う・端末ごと）
   journalHours:     '_journal_hours_v1',   // 日誌の「1日」で見せる時間帯 { from, to }（端末ごと・営業時間に合わせる）
 }

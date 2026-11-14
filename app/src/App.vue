@@ -87,6 +87,8 @@ import AuthPage from './components/AuthPage.vue'
 import OrderExportSheet from './components/OrderExportSheet.vue'
 import StocktakeDoneSheet from './components/StocktakeDoneSheet.vue'
 import OrderUndecidedSheet from './components/OrderUndecidedSheet.vue'
+import ConfirmSheet from './components/ConfirmSheet.vue'
+import { askConfirm, answerConfirm, confirmState as askState } from './composables/askConfirm.js'
 import StaffJoinPage from './components/StaffJoinPage.vue'
 import { openJournalDay } from './components/JournalPage.vue'
 import SessionListPage, { _persistedTab as homeTab, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
@@ -166,7 +168,7 @@ function _latestStockSnapshot() {
   }
   return best ? { snap: best, ms: bestMs } : null
 }
-function _offerCarryStock() {
+async function _offerCarryStock() {
   const latest = _latestStockSnapshot()
   if (!latest || Date.now() - latest.ms > CARRY_MAX_MS) return
   const items = {}
@@ -177,7 +179,12 @@ function _offerCarryStock() {
   if (!Object.keys(items).length) return
   const d = new Date(latest.ms)
   const when = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-  if (!confirm(`${when} の棚卸の在庫（${Object.keys(items).length}品目）を、この発注の参考に入れますか？\n\n一覧に「前回」として出し、推奨の数の計算に使います。数え直した品目はその数を使います。`)) return
+  if (!await _ask({
+    title: `${when} の棚卸の在庫（${Object.keys(items).length}品目）を、この発注の参考に入れますか？`,
+    body: '一覧に「前回」として出し、推奨の数の計算に使います。数え直した品目はその数を使います。',
+    ok: '参考に入れる', cancel: '入れない',
+  })) return
+  if (carriedStock.value) return
   carriedStock.value = { date: localDateKey(d), savedAt: latest.ms, items }
   _persistCarry()
 }
@@ -1280,7 +1287,7 @@ setSessionEndedCallback(async (status, sessionId, itemCount) => {
   // 退出も通知も、通知を受けた時点のホスト/ゲストで判断する（await 中の変化に従わない）
   if (!wasHost && status === 'completed') {
     // ゲスト: ホストが完了 → 即座にホームへ遷移
-    showToast('ホストが棚卸を完了したため、ルームを閉じます', 4000, 'warning')
+    showToast(`ホストが${actNoun.value}を完了しました。ルームを閉じます`, 4000, 'success')
     _hostCompletedLeave = true
     leaveRoom()
   } else {
@@ -1972,7 +1979,7 @@ async function onComplete() {
   if (!practiceMode.value && !can(finishPerm)) { showToast(denyMessage(finishPerm), 3600, 'warning'); return }
   // 練習モード: 履歴に残さず終了
   if (practiceMode.value) {
-    if (!confirm('練習を終了しますか？\n（結果は履歴に保存されません）')) return
+    if (!await _ask({ title: '練習を終了しますか？', body: '結果は履歴に保存されません。', ok: '終了する' })) return
     if (continuousMode.value) onForceStop()
     _exitPractice()
     showToast('練習を終了しました', 3000, 'success')
@@ -1991,7 +1998,7 @@ async function onComplete() {
 
   // ゲスト（ルーム参加中）: 完了報告のみ。画面ロック・スナップショット保存は行わない
   if (syncActive.value && !syncIsHost.value) {
-    if (!confirm('担当分の入力完了をホストに報告しますか？\n報告後も再開できます。')) return
+    if (!await _ask({ title: '担当分の入力完了をホストに報告しますか？', body: '報告後も再開できます。', ok: '報告する' })) return
     broadcastDone()
     guestReported.value = true
     if (continuousMode.value) onForceStop()
@@ -2001,9 +2008,11 @@ async function onComplete() {
 
   // ホスト or ソロ: 棚卸を締める
   const isHostInRoom = syncActive.value && syncIsHost.value
-  const confirmMsg = isHostInRoom
-    ? `${actNoun.value}を完了しますか？\nゲストへ完了通知を送り、ルームを閉じます。`
-    : `${actNoun.value}を完了しますか？\n完了後は読み取り専用になります。`
+  const confirmAsk = {
+    title: `${actNoun.value}を完了しますか？`,
+    body: isHostInRoom ? 'ゲストへ完了通知を送り、ルームを閉じます。' : '完了後は読み取り専用になります。',
+    ok: '完了する',
+  }
   // 発注: 発注数を決めていない品目（在庫だけ入れた品目を含む）は、まとめて発注なし（0）で保存してよいか訊く（User決定 2026-10-19）
   const undecided = isOrderMode ? _orderUndecided() : []
   if (undecided.length) {
@@ -2017,7 +2026,7 @@ async function onComplete() {
     // 完了と同時に閉じるので、ルームの端末へ1件ずつは送らない（発注の記録には発注数>0 だけが載る）
     orderNone.value = [...new Set([...orderNone.value, ...undecided])]
     try { localStorage.setItem(_ORDER_NONE_PREFIX + _orderId(), JSON.stringify(orderNone.value)) } catch (_) {}
-  } else if (!confirm(confirmMsg)) return
+  } else if (!await _ask(confirmAsk)) return
 
   // 完了要求そのものは useSession が1本に束ねるが、後片付け（解散・draft削除・遷移）は
   // ここにしかない。合流した2本目が同じ後片付けを走らせないよう、入口でも締める。
@@ -2171,10 +2180,7 @@ async function _finishSession(completionCount, isHostInRoom) {
   currentView.value  = 'sessions'
   if (finishedOrder) orderExport.value = finishedOrder
   // 棚卸は、終えた直後に何を数えたかを1枚で出す（発注の書き出しと対。User 2026-11-13）
-  else if (req.type === COMPLETION_STOCK) {
-    const snap = getSnapshotBySessionId(completedId) ?? req.snapshot
-    if (snap) stockDone.value = { snapshot: snap, prev: findPrevSnapshot(snap, getSnapshots()) }
-  }
+  else if (req.type === COMPLETION_STOCK) _showStockDone(completedId, req.snapshot)
 }
 
 // スタッフの招待から参加する画面（段 2-1）
@@ -2188,6 +2194,25 @@ function onStaffJoined() {
 
 // 発注の書き出し（品目名と数量だけを業者ごとに）。発注を終えたときに開く
 const orderExport = ref(null)
+/**
+ * アプリの中で訊く（標準の confirm() の置き換え）。標準と違って訊いている間も裏は動くので、
+ * 答えが返るまでにアカウント・セッション・画面が変わっていたら「取りやめ」として扱う
+ * （旧セッションへの答えで、いまのセッションを完了・退出させない）。
+ */
+async function _ask(opts) {
+  const origin = captureLifecycle()
+  const view = currentView.value
+  const ok = await askConfirm(opts)
+  return ok && !isLifecycleStale(origin) && currentView.value === view
+}
+// 画面が切り替わったら、出ている確認は取りやめる
+watch(currentView, () => answerConfirm(false))
+
+// 棚卸のまとめを出す（完了が成立したあと）
+function _showStockDone(sessionId, fallback = null) {
+  const snap = getSnapshotBySessionId(sessionId) ?? fallback
+  if (snap) stockDone.value = { snapshot: snap, prev: findPrevSnapshot(snap, getSnapshots()) }
+}
 // 発注の完了前: 発注数が未入力の品目を発注なし（0）にしてよいか { items, stockOnly, closesRoom, resolve }
 const undecidedAsk = ref(null)
 // 棚卸を終えた直後のまとめ { snapshot, prev }
@@ -2292,7 +2317,7 @@ function _goHomeMain() {
 async function onGoHome() {
   // 練習モード: 保存せず破棄して戻る
   if (practiceMode.value) {
-    if (filledCount.value > 0 && !confirm('練習を終了して一覧に戻りますか？\n（結果は保存されません）')) return
+    if (filledCount.value > 0 && !await _ask({ title: '練習を終了して一覧に戻りますか？', body: '結果は保存されません。', ok: '終了する' })) return
     if (continuousMode.value) onForceStop()
     _exitPractice()
     clearSession()
@@ -2314,11 +2339,11 @@ async function onGoHome() {
     if (await _resolveUnknownCompletion()) return
     // ここへ来る = サーバーの状態を読めなかった。サーバーが戻るまで画面に閉じ込めない。
     // 入力も再送用の body も端末に残っており、一覧から再開して押し直せば確定できる。
-    if (!confirm(
-      `${actNoun.value}の完了結果をまだ確認できません。\n`
-      + '入力内容と送信済みの内容はこの端末に残ります。\n\n'
-      + '一覧に戻りますか？（あとで再開して「完了」を押すと確定できます）'
-    )) return
+    if (!await _ask({
+      title: `${actNoun.value}の完了結果をまだ確認できません。一覧に戻りますか？`,
+      body: '入力内容と送信済みの内容はこの端末に残ります。\nあとで再開して「完了」を押すと確定できます。',
+      ok: '一覧に戻る',
+    })) return
     _leaveUnresolvedSession()
     return
   }
@@ -2327,7 +2352,7 @@ async function onGoHome() {
 
   // ホスト中のみ確認（ホストは退出するがルームは残り、ゲストは継続できる）
   if (!isCompleted.value && syncIsHost.value && syncActive.value) {
-    if (!confirm('セッション一覧に戻ります。\nゲストはそのまま棚卸を続けられます。\nよろしいですか？')) return
+    if (!await _ask({ title: 'ホームに戻りますか？', body: `ルームは残り、ゲストはそのまま${actNoun.value}を続けられます。`, ok: 'ホームに戻る' })) return
   }
 
   // ホストでも解散せず退出するだけ（ルームは残りゲストは継続できる）
@@ -2359,7 +2384,11 @@ async function onGoHome() {
       if (!completed?.conflict) return
       // 409 のときは useSession が保持していた要求を捨てている（再送しても解消しない）
     } else {
-      if (req.type === COMPLETION_STOCK) commitSnapshot(req.snapshot, completed.result)
+      if (req.type === COMPLETION_STOCK) {
+        commitSnapshot(req.snapshot, completed.result)
+        // 送り直しで確定した棚卸にも、まとめを出す（ホームへ戻ったところで見える）
+        _showStockDone(completedId, req.snapshot)
+      }
       ackCompletionFinalized(completedId)
     }
   } else {
@@ -2470,7 +2499,7 @@ async function onStartNew() {
   if (_blockedByCompletion()) return
   // ホスト中はルームを解散してから開始（ゲストと在庫が乖離するのを防ぐ）
   if (syncIsHost.value && syncActive.value) {
-    if (!confirm('新規棚卸を開始するにはルームを解散します。よろしいですか？')) return
+    if (!await _ask({ title: '新しい棚卸を始めますか？', body: 'いまのルームは解散します。', ok: '解散して始める', danger: true })) return
     _markSelfDissolve()
     const origin     = captureLifecycle()
     const connection = captureSyncConnection()
@@ -3423,6 +3452,8 @@ watch(() => currentView.value, (v) => {
   // 説明は棚卸の数え方なので、発注では出さない（2026-11-09 触診）
   if (v === 'session' && sessionMode.value !== 'order' && !localStorage.getItem(_ONBOARD_KEY)) {
     showOnboarding.value = true
+  } else if (v !== 'session') {
+    showOnboarding.value = false   // 画面を離れたら畳む（読んだことにはしない。次に入ったときにまた出る）
   }
 })
 
@@ -3920,6 +3951,7 @@ function dismissReview() {
         :recount-flags="recountFlags"
         :typing-map="syncActive ? typingMap : null"
         :conflict-locked="syncActive ? lockedIngredients : null"
+        :open-state-key="pendingSession?.id ?? ''"
         :manual-items="config.manualItems"
         :hidden-items="config.hiddenItems"
         :order-map="sessionMode === 'order' ? orderDraft : null"
@@ -4131,6 +4163,7 @@ function dismissReview() {
     <!-- ── グローバルモーダル（どの画面からでも開ける） ── -->
     <SettingsModal  v-if="settingsSection" :section="settingsSection" :is-guest="syncActive && !syncIsHost" :can-restore="currentView === 'session'" @close="settingsSection = null" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
     <OrderExportSheet v-if="orderExport" :order="orderExport" title="発注を業者へ送る" @close="orderExport = null" />
+    <ConfirmSheet v-if="askState" />
     <OrderUndecidedSheet v-if="undecidedAsk" :items="undecidedAsk.items" :stock-only="undecidedAsk.stockOnly" :closes-room="undecidedAsk.closesRoom" @ok="undecidedAsk.resolve(true)" @cancel="undecidedAsk.resolve(false)" />
     <StocktakeDoneSheet v-if="stockDone" :snapshot="stockDone.snapshot" :prev="stockDone.prev" @close="stockDone = null" @detail="onStockDoneDetail" />
     <DeleteAccountModal v-if="showDeleteAccount" @close="showDeleteAccount = false" @deleted="onAccountDeleted" />
@@ -4182,7 +4215,9 @@ function dismissReview() {
 
     <!-- 初回オンボーディング -->
     <Transition name="onboard">
-      <div v-if="showOnboarding" class="onboard-overlay" @click.self="dismissOnboarding">
+      <!-- 棚卸・発注の画面の説明なので、その画面にいる間だけ出す。ホストの完了でランディングへ戻された
+           ゲストの画面に、閉じていない説明が重なったまま残っていた（2026-11-14 実機確認） -->
+      <div v-if="showOnboarding && currentView === 'session'" class="onboard-overlay" @click.self="dismissOnboarding">
         <div class="onboard-card">
           <div class="onboard-title">pantopsの使い方</div>
           <ol class="onboard-steps">

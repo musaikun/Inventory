@@ -58,6 +58,9 @@ export async function addItemWithQty(page, name, qty) {
 
 export async function completeStocktake(page) {
   await page.getByRole('button', { name: /棚卸完了/ }).click()
+  // 確認はアプリの中のシートで訊く（0.209.0。以前はブラウザ標準の confirm）
+  await expect(page.getByText('棚卸を完了しますか？')).toBeVisible()
+  await page.getByRole('button', { name: '完了する', exact: true }).click()
   await expect(page.getByText('棚卸を完了しました ✓')).toBeVisible()
   // 終えた直後にまとめが出る（0.206.0）。閉じてホームへ
   await expect(page.getByText('棚卸が終わりました')).toBeVisible()

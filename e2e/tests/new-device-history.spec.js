@@ -14,7 +14,8 @@ test('端末Aで完了した棚卸の明細を、端末Bで開ける', async ({ 
   await startFirstStocktake(a)
   await addItemWithQty(a, 'トマト', 7)
   await completeStocktake(a)
-  expect(dialogsA.some((m) => m.startsWith('棚卸を完了しますか'))).toBe(true)
+  // 完了の確認はアプリの中のシート（helpers の completeStocktake が確かめる）。標準のダイアログは出ない
+  expect(dialogsA.some((m) => m.startsWith('棚卸を完了しますか'))).toBe(false)
 
   const deviceB = await browser.newContext()
   const b = await deviceB.newPage()

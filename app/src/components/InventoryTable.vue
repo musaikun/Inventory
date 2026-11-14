@@ -2,6 +2,7 @@
 import LineIcon from './LineIcon.vue'
 import { ref, computed, reactive, watch, nextTick, onUnmounted } from 'vue'
 import { useConfig, ROUTE } from '../composables/useConfig.js'
+import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { useRowHideSwipe, REVEAL_AT } from '../composables/useRowHideSwipe.js'
 import { sortHiddenByRecent, hiddenAtLabel } from '../utils/hiddenItems.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
@@ -60,6 +61,9 @@ const props = defineProps({
   // グループの帯に「入力済み/件数」と進捗バーを出さず、件数だけにする（在庫タブ。
   // 数える画面ではないので、0/3 と出ると「数えていない」と読める・User 2026-11-13）
   hideProgress:     { type: Boolean, default: false },
+  // グループの開閉を、同じタブの再読み込みをまたいで覚える鍵（棚卸・発注のセッションID）。
+  // 数えている途中で読み込み直すと全部畳まれ、どこまで見ていたかを失っていた（User 2026-11-14）
+  openStateKey:     { type: String,  default: '' },
 })
 
 const emit = defineEmits(['update', 'remove', 'tap', 'edit-item', 'delete-item', 'hide-item', 'unhide-item', 'request-hide', 'progress-tap'])
@@ -190,6 +194,25 @@ function _gkey(label) { return _effectiveSort.value + SEP + label }
 // 開閉を人が触った／自動で開いた並び。グループが少ないときに一度だけ自動で開くための印
 const _touchedModes = new Set()
 const AUTO_OPEN_MAX = 3
+// 開閉の保存（sessionStorage・直近の1セッションぶんだけ）。下の自動オープンより先に読む
+function _loadOpenState() {
+  if (!props.openStateKey) return
+  try {
+    const v = JSON.parse(sessionStorage.getItem(STORAGE_KEYS.tableOpen) || 'null')
+    if (v?.key !== props.openStateKey) return
+    for (const k of v.open ?? []) expandedGroups[k] = true
+    for (const m of v.touched ?? []) _touchedModes.add(m)
+  } catch (_) { /* 読めなければ畳んだ状態から */ }
+}
+function _saveOpenState() {
+  if (!props.openStateKey) return
+  try {
+    sessionStorage.setItem(STORAGE_KEYS.tableOpen, JSON.stringify({ key: props.openStateKey, open: Object.keys(expandedGroups), touched: [..._touchedModes] }))
+  } catch (_) { /* 保存できなくても操作は続ける */ }
+}
+_loadOpenState()
+watch(() => props.openStateKey, _loadOpenState)
+watch(expandedGroups, _saveOpenState, { deep: true })
 function toggleGroup(row) {
   _touchedModes.add(_effectiveSort.value)
   const k = _gkey(row.label)
