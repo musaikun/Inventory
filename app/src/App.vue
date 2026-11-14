@@ -88,6 +88,7 @@ import OrderExportSheet from './components/OrderExportSheet.vue'
 import StocktakeDoneSheet from './components/StocktakeDoneSheet.vue'
 import OrderUndecidedSheet from './components/OrderUndecidedSheet.vue'
 import ConfirmSheet from './components/ConfirmSheet.vue'
+import GuestDoneView from './components/GuestDoneView.vue'
 import { askConfirm, answerConfirm, confirmState as askState } from './composables/askConfirm.js'
 import StaffJoinPage from './components/StaffJoinPage.vue'
 import { openJournalDay } from './components/JournalPage.vue'
@@ -1287,7 +1288,13 @@ setSessionEndedCallback(async (status, sessionId, itemCount) => {
   // 退出も通知も、通知を受けた時点のホスト/ゲストで判断する（await 中の変化に従わない）
   if (!wasHost && status === 'completed') {
     // ゲスト: ホストが完了 → 即座にホームへ遷移
-    showToast(`ホストが${actNoun.value}を完了しました。ルームを閉じます`, 4000, 'success')
+    // 通知だけでランディングへ戻すと、店に登録していない人には行き止まりになる。
+    // 終わったことを1画面で伝える（退出で在庫・名前が消える前に控える）。
+    guestDone.value = {
+      noun: actNoun.value,
+      name: deviceName.value || '',
+      count: sessionMode.value === 'order' ? null : Object.values(inventory).filter(e => e?.localEntry).length,
+    }
     _hostCompletedLeave = true
     leaveRoom()
   } else {
@@ -2215,6 +2222,8 @@ function _showStockDone(sessionId, fallback = null) {
 }
 // 発注の完了前: 発注数が未入力の品目を発注なし（0）にしてよいか { items, stockOnly, closesRoom, resolve }
 const undecidedAsk = ref(null)
+// ゲスト: ホストが完了してルームが閉じた { noun, name, count }
+const guestDone = ref(null)
 // 棚卸を終えた直後のまとめ { snapshot, prev }
 const stockDone = ref(null)
 function onStockDoneDetail() {
@@ -4164,6 +4173,7 @@ function dismissReview() {
     <SettingsModal  v-if="settingsSection" :section="settingsSection" :is-guest="syncActive && !syncIsHost" :can-restore="currentView === 'session'" @close="settingsSection = null" @open-upgrade="reason => openUpgrade(reason)" @restore-inventory="onRestoreInventory" />
     <OrderExportSheet v-if="orderExport" :order="orderExport" title="発注を業者へ送る" @close="orderExport = null" />
     <ConfirmSheet v-if="askState" />
+    <GuestDoneView v-if="guestDone" :noun="guestDone.noun" :name="guestDone.name" :count="guestDone.count" @close="guestDone = null" />
     <OrderUndecidedSheet v-if="undecidedAsk" :items="undecidedAsk.items" :stock-only="undecidedAsk.stockOnly" :closes-room="undecidedAsk.closesRoom" @ok="undecidedAsk.resolve(true)" @cancel="undecidedAsk.resolve(false)" />
     <StocktakeDoneSheet v-if="stockDone" :snapshot="stockDone.snapshot" :prev="stockDone.prev" @close="stockDone = null" @detail="onStockDoneDetail" />
     <DeleteAccountModal v-if="showDeleteAccount" @close="showDeleteAccount = false" @deleted="onAccountDeleted" />
