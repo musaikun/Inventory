@@ -1,7 +1,7 @@
 // 並び替え（保管場所などでの振り分け）の進み具合と、振り分けの画面を開く操作。
 // ホームの「並び替え」タイルと、はじめて使うときの大きなおすすめで共通（User決定 2026-10-04）。
 // 名前の付いた並び替えのうち、いちばん振り分けが進んでいるもので判断する。
-import { notify } from './askConfirm.js'
+import { notify, askText } from './askConfirm.js'
 import { computed } from 'vue'
 import { useConfig, ROUTE } from './useConfig.js'
 import { showAxisAssign, axisAssignInitial, axisAssignUnassigned } from './appMenuState.js'
@@ -46,14 +46,14 @@ export function useSortSetup() {
   })
 
   /** 振り分けの画面を開く。並び替えがまだ無ければ名前（既定は「保管場所」）を決めてから */
-  function openSort() {
+  async function openSort() {
     if (!can('sort')) { notify(denyMessage('sort')); return false }
     let idx = sortProgress.value.best?.idx
     if (idx == null) {
       const names = config.axisNames ?? ['', '']
       idx = (names[0] || '').trim() ? ((names[1] || '').trim() ? 0 : 1) : 0
       if (!(names[idx] || '').trim()) {
-        const name = (window.prompt('並び替えの名前を入力（例：保管場所・仕入先）', '保管場所') || '').trim()
+        const name = await _askAxisName(idx, '保管場所')
         if (!name) return false
         if (!setAxisName(idx, name)) { notify('その名前は既に使われています'); return false }
       }
@@ -72,12 +72,21 @@ export function useSortSetup() {
     return true
   }
 
+  // 並び替えの名前を訊く。もう一方と同じ名前は、閉じずにその場で伝える
+  function _askAxisName(idx, initial = '') {
+    const other = ((config.axisNames ?? [])[idx === 0 ? 1 : 0] || '').trim()
+    return askText({
+      title: '並び替えの名前', placeholder: '例：保管場所・仕入先', initial, ok: '追加する',
+      validate: v => (v === other ? 'その名前は既に使われています' : ''),
+    })
+  }
+
   /** 並び替えを1つ足して、その振り分けの画面を開く。name を渡さなければ名前を訊く */
-  function addSortAxis(name = null) {
+  async function addSortAxis(name = null) {
     if (!can('sort')) { notify(denyMessage('sort')); return false }
     const idx = freeSlot.value
     if (idx < 0) return false
-    const n = (name ?? (window.prompt('並び替えの名前を入力（例：保管場所・仕入先）', '') || '')).trim()
+    const n = (name ?? (await _askAxisName(idx)) ?? '').trim()
     if (!n) return false
     if (!setAxisName(idx, n)) { notify('その名前は既に使われています'); return false }
     return openSortAxis(idx)

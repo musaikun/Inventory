@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { askConfirm, answerConfirm, confirmState, notify } from './askConfirm.js'
+import { askConfirm, answerConfirm, confirmState, notify, askText } from './askConfirm.js'
 
 afterEach(() => answerConfirm(false))
 
@@ -47,5 +47,30 @@ describe('askConfirm', () => {
     answerConfirm(true)
     await a
     expect(confirmState.value.title).toBe('あとのお知らせ')
+  })
+
+  it('askText: 入れた文字を返す（前後の空白は除く）。取りやめは null', async () => {
+    const a = askText({ title: '並び替えの名前', initial: '保管場所' })
+    expect(confirmState.value.value).toBe('保管場所')
+    confirmState.value.value = '  仕入先 '
+    answerConfirm(true)
+    expect(await a).toBe('仕入先')
+
+    const b = askText({ title: '並び替えの名前' })
+    answerConfirm(false)
+    expect(await b).toBeNull()
+  })
+
+  it('askText: 空・だめな名前では閉じず、理由を出す。直せばそのまま通る', async () => {
+    const a = askText({ title: '並び替えの名前', validate: v => (v === '仕入先' ? 'その名前は既に使われています' : '') })
+    answerConfirm(true)
+    expect(confirmState.value.error).toBe('入力してください')
+    confirmState.value.value = '仕入先'
+    answerConfirm(true)
+    expect(confirmState.value.error).toBe('その名前は既に使われています')
+    confirmState.value.value = '温度帯'
+    answerConfirm(true)
+    expect(await a).toBe('温度帯')
+    expect(confirmState.value).toBeNull()
   })
 })

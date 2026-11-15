@@ -1,5 +1,5 @@
 <script setup>
-import { notify } from '../composables/askConfirm.js'
+import { notify, askText } from '../composables/askConfirm.js'
 import LineIcon from './LineIcon.vue'
 import { ref, computed, reactive, watch, nextTick, onUnmounted } from 'vue'
 import { useConfig, ROUTE } from '../composables/useConfig.js'
@@ -132,11 +132,15 @@ const canAddAxis = computed(() => {
   const names = config.value.axisNames ?? ['', '']
   return !names[0] || !names[1]
 })
-function onAddAxis() {
+async function onAddAxis() {
   const names = config.value.axisNames ?? ['', '']
   const idx = !names[0] ? 0 : (!names[1] ? 1 : -1)
   if (idx < 0) return
-  const name = (window.prompt('並び替えの名前を入力（例：場所・仕入先）') || '').trim()
+  const other = (names[idx === 0 ? 1 : 0] || '').trim()
+  const name = await askText({
+    title: '並び替えの名前', placeholder: '例：場所・仕入先', ok: '追加する',
+    validate: v => (v === other ? 'その名前は既に使われています' : ''),
+  })
   if (!name) return
   // もう一方の並び替えと同じ名前は付けられない（タブが見分けられなくなる）
   if (!setAxisName(idx, name)) { notify('その名前は既に使われています'); return }

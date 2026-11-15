@@ -22,12 +22,41 @@ export function askConfirm(opts) {
   })
 }
 
+/**
+ * 短い文字を1つ訊く（標準の prompt() の置き換え）。名前を付ける場面など。
+ * `validate` が文を返す間は閉じずに、その文を入力欄の下に出す（標準の prompt は、だめな名前を
+ * 入れると閉じてから別のお知らせが出て、入れ直しに最初から開き直す必要があった）。
+ * @param {{ title: string, body?: string, placeholder?: string, initial?: string, ok?: string, cancel?: string, maxLength?: number, validate?: (v: string) => string }} opts
+ * @returns {Promise<string|null>} 入れた文字（前後の空白は除く）。取りやめ・重ねて訊いた場合は null
+ */
+export function askText(opts) {
+  if (confirmState.value) return Promise.resolve(null)
+  return new Promise(resolve => {
+    confirmState.value = {
+      ok: 'OK', cancel: 'キャンセル', body: '', danger: false, placeholder: '', maxLength: 40, validate: null,
+      ...opts, input: true, value: opts.initial ?? '', error: '', resolve,
+    }
+  })
+}
+
 /** 答えを返して閉じる（シートのボタン・戻る操作・画面の切り替わり） */
 export function answerConfirm(ok) {
   const s = confirmState.value
   if (!s) return
-  confirmState.value = null
-  s.resolve(!!ok)
+  if (s.input) {
+    // 文字を訊いている: OK は中身を確かめてから。空・だめな名前では閉じない
+    let v = null
+    if (ok) {
+      v = String(s.value ?? '').trim()
+      const err = !v ? '入力してください' : (s.validate?.(v) || '')
+      if (err) { s.error = err; return }
+    }
+    confirmState.value = null
+    s.resolve(v)
+  } else {
+    confirmState.value = null
+    s.resolve(!!ok)
+  }
   // 待たせていたお知らせがあれば続けて出す
   const next = _notices.shift()
   if (next) _showNotice(next)
