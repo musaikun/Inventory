@@ -111,7 +111,7 @@ export function homeStatus({ today, now, tasks = [], overdue = [], carry = [], c
       key: t.id, ref: { type: 'progress', id: t.id }, title: t.text, kind: '進行中',
       pct: s.total ? s.done / s.total : 0, plan, tag: dueTag(t.deadline),
       left: [_who(t), s.total ? `手順 ${s.done}/${s.total}` : '', t.progress === 'waiting' ? '待ち' : ''].filter(Boolean).join(' ・ '),
-      right: start > today ? `${_md(start)}から` : t.deadline ? `${_md(start)}〜${end}` : `${_md(start)}〜 締め切りなし`,
+      right: start > today ? `${_md(start)}から` : t.deadline ? `${_md(start)}〜${end}` : `${_md(start)}〜 締め切り未定`,
     }, 3, t.deadline || '9999')
   }
 

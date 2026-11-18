@@ -3,6 +3,7 @@
  * 業務を追加する、ただ1つの入口（User決定 2026-11-07・キャンバス「業務の追加」①。2026-11-05 の「まず種類を選ぶ」を置き換えた）。
  * 種類は選ばない。入れた中身で決まり、上に出す:
  *   日付なし → いつか ／ 今日 → 本日 ／ 先の日 → 予定 ／ 締め切りあり → 「m/dまで」（進行中・始める日から毎日。日付なしで締め切りだけなら今日から・User決定 2026-11-07）／ 繰り返しあり → 繰り返し
+ *   締め切り「未定」→ 進行中（締め切りなし）。機械の修理など、いつ終わるか分からないものの経過を残す（User 2026-11-18）
  * 欄は行で並べ、押すとその場で開く（日付・締め切りは月のカレンダー、繰り返しはつながった切り替え、担当・チェック表は一覧）。説明の文は置かない。
  * チェック表（項目のひな形）は別の入口で作り、ここでは選んで付けるだけ。付けると:
  *   本日・予定 → その日の1回きりのチェック表 ／ 繰り返し → 毎回その項目 ／ 締め切り・いつか → 子タスク
@@ -50,6 +51,8 @@ const day = ref(props.date && (props.date >= today || isEventMode.value) ? props
 const time = ref(''), endTime = ref('')
 const times = ref([])                        // 定期の時刻（いくつでも＝1日に何回も）
 const deadline = ref('')
+const tbd = ref(false)                       // 締め切り未定（いつ終わるか分からない進行中）
+const isProg = computed(() => !!deadline.value || tbd.value)
 const repeat = ref('none'), weekdays = ref([]), monthDays = ref([])
 const who = ref('all')
 const items = ref([]), itemsName = ref('')   // 付けたチェック表の項目と名前
@@ -121,6 +124,7 @@ if (props.editTaskOf) {
   const x = props.editTaskOf
   name.value = x.text; note.value = x.note || ''; day.value = x.date ?? ''
   time.value = x.dueTime || ''; endTime.value = x.endTime || ''; deadline.value = x.deadline || ''
+  tbd.value = !!x.progress && !x.deadline
   who.value = x.assign === 'person' && people.value.some(p => p.id === x.assigneeId) ? `p:${x.assigneeId}` : 'all'
   adminsOnly.value = x.visibility === 'admins'
 }
@@ -131,14 +135,14 @@ if (repeat.value !== 'none' && !times.value.length) {
 
 // ── 閉じる前の確認（入力中なら。外を触っただけで消えないように・User 2026-11-08）──
 // 開いたときの中身を控えて、変わっていれば確かめる。担当は後から既定が入ることがあるので見ない
-const _form = () => JSON.stringify([isEventMode.value, name.value.trim(), note.value.trim(), day.value, time.value, endTime.value, times.value, deadline.value,
+const _form = () => JSON.stringify([isEventMode.value, name.value.trim(), note.value.trim(), day.value, time.value, endTime.value, times.value, deadline.value, tbd.value,
   repeat.value, weekdays.value, monthDays.value, items.value.map(x => x.text), adminsOnly.value])
 const _snap = _form()
 // チェック表を作りに行って戻ってきたとき: 打っていた中身を入れ直す（付けたチェック表は新しく選んだもの・User 2026-11-10）
 if (props.draft) {
   const d = props.draft
   name.value = d.name ?? ''; note.value = d.note ?? ''
-  day.value = d.day ?? day.value; time.value = d.time ?? ''; endTime.value = d.endTime ?? ''; deadline.value = d.deadline ?? ''
+  day.value = d.day ?? day.value; time.value = d.time ?? ''; endTime.value = d.endTime ?? ''; deadline.value = d.deadline ?? ''; tbd.value = !!d.tbd
   repeat.value = d.repeat ?? 'none'; weekdays.value = [...(d.weekdays ?? [])]; monthDays.value = [...(d.monthDays ?? [])]; times.value = [...(d.times ?? [])]
   if (d.who && (d.who === 'all' || people.value.some(p => `p:${p.id}` === d.who))) who.value = d.who
   adminsOnly.value = !!d.adminsOnly
@@ -147,7 +151,7 @@ if (props.draft) {
 }
 /** チェック表の編集へ（打った中身を親に預ける） */
 function toTemplates() {
-  emit('templates', { name: name.value, note: note.value, day: day.value, time: time.value, endTime: endTime.value, deadline: deadline.value,
+  emit('templates', { name: name.value, note: note.value, day: day.value, time: time.value, endTime: endTime.value, deadline: deadline.value, tbd: tbd.value,
     repeat: repeat.value, weekdays: [...weekdays.value], monthDays: [...monthDays.value], times: [...times.value], who: who.value, adminsOnly: adminsOnly.value,
     items: items.value.map(x => ({ ...x })), itemsName: itemsName.value })
 }
@@ -161,6 +165,7 @@ const kind = computed(() => {
   if (isEventMode.value) return { k: 'event', label: 'イベント' }
   if (repeat.value !== 'none') return { k: 'repeat', label: '定期' }
   if (deadline.value) return { k: 'progress', label: `${_md(deadline.value).replace(/（.）/, '')}まで` }
+  if (tbd.value) return { k: 'progress', label: '締め切り未定' }
   if (!day.value) return { k: 'someday', label: 'いつか' }
   if (day.value === today) return { k: 'today', label: '本日' }
   return { k: 'plan', label: '予定' }
@@ -169,6 +174,7 @@ const kind = computed(() => {
 /** やること／イベントの切り替え */
 function setMode(ev) {
   isEventMode.value = ev
+  tbd.value = false
   if (ev) { deadline.value = ''; repeat.value = 'none'; adminsOnly.value = false; if (!day.value) day.value = today }
   else { deadline.value = ''; if (day.value && day.value < today) day.value = today }   // やることは過去に入れない
   open.value = ''
@@ -202,7 +208,7 @@ const calCells = computed(() => {
 })
 function pickDay(c) {
   if (c.off) return
-  if (open.value === 'deadline') deadline.value = c.key
+  if (open.value === 'deadline') { deadline.value = c.key; tbd.value = false }
   else {
     day.value = c.key
     if (deadline.value && deadline.value <= c.key) deadline.value = ''
@@ -216,7 +222,10 @@ function toggleRow(id) {
   if (id === 'time') timeEnd.value = 'start'
 }
 function clearDay() { day.value = ''; repeat.value = 'none'; time.value = ''; endTime.value = ''; open.value = '' }   // 締め切りは残す（締め切りだけの進行中）
-function clearDeadline() { deadline.value = ''; open.value = '' }
+function clearDeadline() { deadline.value = ''; tbd.value = false; open.value = '' }
+function setTbd() { deadline.value = ''; tbd.value = true; open.value = '' }
+// 進行中のものを直すときは「外す」を出さない（進行中のやめ方は、経過の画面の「済み」）
+const canClearDeadline = computed(() => isProg.value && !(taskEdit && props.editTaskOf?.progress))
 
 // ── 繰り返し ──
 function setRepeat(r) {
@@ -224,7 +233,7 @@ function setRepeat(r) {
   if (was === 'none' && r !== 'none') { times.value = time.value ? [time.value] : []; endTime.value = '' }
   if (was !== 'none' && r === 'none') { time.value = times.value[0] || ''; endTime.value = '' }
   repeat.value = r
-  if (r !== 'none') deadline.value = ''
+  if (r !== 'none') { deadline.value = ''; tbd.value = false }
   const d = new Date((day.value || today) + 'T00:00:00')
   if (r === 'weekly' && !weekdays.value.length) weekdays.value = [d.getDay()]
   if (r === 'monthly' && !monthDays.value.length) monthDays.value = [String(d.getDate())]
@@ -257,7 +266,7 @@ function addItemText() {
 function fixItem(i) { if (!items.value[i]?.text.trim()) items.value.splice(i, 1) }
 function removeItem(i) { items.value.splice(i, 1); if (!items.value.length) itemsName.value = '' }
 // メモはやることだけ（定期・チェック表のついた日のものには残らないので出さない）
-const showNote = computed(() => isEventMode.value || taskEdit || !editing && repeat.value === 'none' && !(items.value.length && day.value && !deadline.value))
+const showNote = computed(() => isEventMode.value || taskEdit || !editing && repeat.value === 'none' && !(items.value.length && day.value && !isProg.value))
 
 // ── 行 ──
 const whoName = computed(() => (who.value.startsWith('p:') ? (people.value.find(p => p.id === who.value.slice(2))?.name || '') : '全員'))
@@ -271,11 +280,11 @@ const rows = computed(() => isEventMode.value ? [
   ...(day.value ? [{ id: 'time', icon: 'timer', color: '#0369a1', label: '時刻', ...(repeat.value !== 'none'
     ? { value: times.value.length ? times.value.join('・') : 'なし', set: times.value.length > 0 }
     : { value: time.value ? `${time.value}${endTime.value ? `〜${endTime.value}` : ''}` : 'なし', set: !!time.value }) }] : []),
-  ...(repeat.value === 'none' && !editing ? [{ id: 'deadline', icon: 'hourglass', color: '#ca8a04', label: '締め切り', value: deadline.value ? _dayLabel(deadline.value) : 'なし', set: !!deadline.value }] : []),
-  ...(day.value && !deadline.value && !taskEdit ? [{ id: 'repeat', icon: 'repeat', color: '#059669', label: '定期', value: repeatLabel.value, set: repeat.value !== 'none' }] : []),
+  ...(repeat.value === 'none' && !editing ? [{ id: 'deadline', icon: 'hourglass', color: '#ca8a04', label: '締め切り', value: deadline.value ? _dayLabel(deadline.value) : tbd.value ? '未定' : 'なし', set: isProg.value }] : []),
+  ...(day.value && !isProg.value && !taskEdit ? [{ id: 'repeat', icon: 'repeat', color: '#059669', label: '定期', value: repeatLabel.value, set: repeat.value !== 'none' }] : []),
   ...(hasStaff.value ? [{ id: 'who', icon: 'user', color: '#7c3aed', label: '担当', value: whoName.value, set: true }] : []),
   ...(taskEdit ? [] : [{ id: 'list', icon: 'clipboard', color: '#db2777', label: 'チェック表', value: itemsName.value || (items.value.length ? `${items.value.length}項目` : 'なし'), set: items.value.length > 0 }]),
-  ...(!editing && isAdmin.value && repeat.value === 'none' && !(items.value.length && day.value && !deadline.value) ? [{ id: 'vis', icon: 'eye', color: '#475569', label: '見せる人', value: adminsOnly.value ? '管理者だけ' : '全員', set: adminsOnly.value }] : []),
+  ...(!editing && isAdmin.value && repeat.value === 'none' && !(items.value.length && day.value && !isProg.value) ? [{ id: 'vis', icon: 'eye', color: '#475569', label: '見せる人', value: adminsOnly.value ? '管理者だけ' : '全員', set: adminsOnly.value }] : []),
 ])
 const modalTitle = computed(() => rows.value.find(r => r.id === open.value)?.label || '')
 function pickWho(v) { who.value = v; open.value = '' }
@@ -341,7 +350,7 @@ async function submit() {
       const ok = k === 'someday'
         ? addTask('', text, _assignTask(), null, { visibility, note: note.value, steps })
         : k === 'progress'
-          ? addTask(day.value || today, text, _assignTask(), null, { visibility, progress: 'doing', deadline: deadline.value, note: note.value, steps })
+          ? addTask(day.value || today, text, _assignTask(), null, { visibility, progress: 'doing', deadline: deadline.value || null, note: note.value, steps })
           : addTask(day.value, text, _assignTask(), time.value || null, { visibility, note: note.value, endTime: time.value && endTime.value > time.value ? endTime.value : null })
       if (!ok) throw new Error('足せませんでした')
     }
@@ -357,7 +366,7 @@ async function submit() {
 // 登録したやることを直す: 文・日付・時刻・担当・見せる人・メモ・期限（期限を付けると進行中・＋で足すときと同じ）
 function _saveTaskEdit(text) {
   const x = props.editTaskOf
-  const d = deadline.value && !day.value ? today : day.value   // 期限だけなら今日から（＋と同じ）
+  const d = isProg.value && !day.value ? today : day.value   // 期限（未定を含む）だけなら今日から（＋と同じ）
   const ok = editTask(x.id, {
     text, date: d, dueTime: d ? (time.value || null) : null, endTime: d && time.value && endTime.value > time.value ? endTime.value : null,
     ...(isAdmin.value ? { visibility: adminsOnly.value ? 'admins' : null } : {}),
@@ -367,7 +376,9 @@ function _saveTaskEdit(text) {
   const was = x.assign === 'person' ? `p:${x.assigneeId}` : 'all'
   if (who.value !== was) setTaskAssign(x.id, a)
   if ((x.note || '') !== note.value.trim()) setTaskNote(x.id, note.value)
-  if ((x.deadline || '') !== deadline.value) updateProgress(x.id, { deadline: deadline.value || null, ...(deadline.value && !x.progress ? { progress: 'doing' } : {}) })
+  if ((x.deadline || '') !== deadline.value || (isProg.value && !x.progress)) {
+    updateProgress(x.id, { deadline: deadline.value || null, ...(isProg.value && !x.progress ? { progress: 'doing' } : {}) })
+  }
 }
 // イベントを消す
 async function removeEvent() {
@@ -448,7 +459,8 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
                   </template>
                 </div>
                 <button v-if="open === 'day' && day && !editing && !isEventMode" type="button" class="ta-clear" @click="clearDay">日付なし（いつか）にする</button>
-                <button v-if="open === 'deadline' && deadline" type="button" class="ta-clear" @click="clearDeadline">{{ isEventMode ? '終わりの日を外す（1日だけ）' : '締め切りを外す' }}</button>
+                <button v-if="open === 'deadline' && !isEventMode && !tbd" type="button" class="ta-clear ta-tbd" @click="setTbd">未定にする<small>いつ終わるか分からない（修理など）</small></button>
+                <button v-if="open === 'deadline' && (isEventMode ? deadline : canClearDeadline)" type="button" class="ta-clear" @click="clearDeadline">{{ isEventMode ? '終わりの日を外す（1日だけ）' : '締め切りを外す' }}</button>
               </div>
 
               <div v-if="open === 'time' && repeat !== 'none'" class="ta-tm">
@@ -568,6 +580,8 @@ onUnmounted(registerInnerLayerCloser(() => { if (open.value) { open.value = ''; 
 .ta-cal-g .d.on { background: var(--primary, #0e7490); color: #fff; font-weight: 900; }
 .ta-cal-g .d:disabled { color: #c9d6db; cursor: default; }
 .ta-clear { justify-self: end; border: none; background: none; font: inherit; font-size: 13.5px; font-weight: 800; color: #b91c1c; cursor: pointer; min-height: 36px; }
+.ta-clear.ta-tbd { justify-self: stretch; display: grid; gap: 2px; text-align: left; padding: 10px 14px; border: 1px solid var(--border, #d6e6ea); border-radius: 12px; background: var(--surface, #fff); color: var(--text, #12303a); font-size: 14.5px; }
+.ta-clear.ta-tbd small { font-size: 12px; font-weight: 700; color: var(--text-muted, #4c6a72); }
 .ta-tm { display: grid; gap: 10px; padding: 8px 16px 12px; }
 .ta-tm .ta-seg button b { font-variant-numeric: tabular-nums; margin-left: 4px; }
 .ta-tm .ta-seg button:disabled { opacity: .45; }

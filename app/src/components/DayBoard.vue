@@ -202,7 +202,7 @@ const KIND_LABEL = { prep: '仕込み', clean: '清掃', order: '発注・納品
       </button>
     </div>
     <div v-if="lane.length" class="db-lane">
-      <button type="button" class="db-lane-h" :aria-expanded="laneOpen" @click="laneOpen = !laneOpen"><LineIcon name="hourglass" /> 進行中 {{ lane.length }}（済むまで毎日出る）{{ laneOpen ? '▲' : '▼' }}</button>
+      <button type="button" class="db-lane-h" :aria-expanded="laneOpen" @click="laneOpen = !laneOpen"><LineIcon name="hourglass" /> 進行中 {{ lane.length }}{{ laneOpen ? '▲' : '▼' }}</button>
       <template v-if="laneOpen">
         <button v-for="x in lane" :key="x.key" type="button" class="db-pbar" @click="emit('open', x)"><b>{{ x.title }}</b><small v-if="x.sub">{{ x.sub }}</small></button>
       </template>
