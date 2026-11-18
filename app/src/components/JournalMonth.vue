@@ -8,6 +8,8 @@
  * spans: 進行中（何日かかかるもの）を実施日〜締め切りの連日の帯で（User決定 2026-11-08・モック docs/mocks/calendar-progress.html）。
  *   [{ id, text, start, end, state: 'doing'|'wait'|'stale'|'over'|'event', future }]。1週に2本まで、あふれたら「ほかn」。押すと @span(id)
  *   event はイベント: 塗りの帯ではなく細い線「[名前]────」で、やることと見分ける（User決定 2026-11-11）
+ *   名前は週ごとの線の頭に毎回出す（続きの週は「…名前」）。終わりの週の線の終わりに「〜m/d」（4日以上のものだけ）。
+ *   週や月をまたいだとき、どの線がどのイベントか分からなかった（User 2026-11-18）
  */
 import { ref, computed, watch } from 'vue'
 import { localDateKey } from '../utils/localDate.js'
@@ -21,12 +23,13 @@ const props = defineProps({
   info: { type: Function, required: true },
   spans: { type: Array, default: () => [] },
 })
-const emit = defineEmits(['pick', 'span'])
+const emit = defineEmits(['pick', 'span', 'history'])
 const SPAN_MAX = 2
 // 札は2つまで。入りきらなければ1つ目と「ほかn」（User 2026-11-08）
 const shownTags = tags => (tags.length <= 2 ? tags : [tags[0], { label: `ほか${tags.length - 1}`, kind: 'more' }])
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 const _d = k => new Date(k + 'T00:00:00')
+const _days = (a, b) => Math.round((_d(b) - _d(a)) / 86400_000) + 1   // 始まり〜終わりの日数（両端を含む）
 
 const ym = ref({ y: 0, m: 0 })
 function _sync() { const d = _d(props.focus || props.today); ym.value = { y: d.getFullYear(), m: d.getMonth() } }
@@ -69,7 +72,10 @@ const weekSpans = computed(() => {
       .sort((a, b) => (SPAN_RANK[a.state] ?? 9) - (SPAN_RANK[b.state] ?? 9) || a.start.localeCompare(b.start))
     const shown = hit.slice(0, SPAN_MAX).map((s, lane) => {
       const a = Math.max(0, ks.findIndex(k => k >= s.start)), bi = ks.findLastIndex(k => k <= s.end)
-      return { ...s, row: r, lane, a, b: bi < 0 ? 6 : bi, contL: s.start < ks[0], contR: s.end > ks[6] }
+      const b = bi < 0 ? 6 : bi
+      // 終わりの日付: 終わりがこの週にあり、4日以上のイベントで、この週の線が2日ぶん以上あるときだけ（短いものは名前だけで足りる）
+      const endMark = s.state === 'event' && s.end <= ks[6] && _days(s.start, s.end) >= 4 && b - a >= 1
+      return { ...s, row: r, lane, a, b, contL: s.start < ks[0], contR: s.end > ks[6], endMark }
     })
     out.push({ row: r, shown, more: hit.length - shown.length })
   }
@@ -88,6 +94,7 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し', f: '予定
   <div class="jm" @touchstart.passive="swipe.onTouchStart" @touchmove.passive="swipe.onTouchMove" @touchend.passive="swipe.onTouchEnd" @touchcancel.passive="swipe.onTouchCancel">
     <header class="jm-h">
       <h2><b>{{ ym.m + 1 }}月</b><small>{{ ym.y }}</small></h2>
+      <button type="button" class="jm-hist" aria-label="済んだ業務の履歴" @click="emit('history')">✓ 履歴</button>
       <button v-if="!isThisMonth" type="button" class="jm-today" @click="goToday">今日</button>
       <button type="button" class="jm-nav" aria-label="前の月" @click="step(-1)">‹</button>
       <button type="button" class="jm-nav" aria-label="次の月" @click="step(1)">›</button>
@@ -114,7 +121,7 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し', f: '予定
           :style="{ gridRow: w.row + 1, gridColumn: `${s.a + 1} / ${s.b + 2}`, marginTop: 30 + s.lane * 16 + 'px' }"
           :aria-label="`${s.text}（${SPAN_LABEL[s.state]}）${md(s.start)}〜${md(s.end)}`"
           @click="emit('span', s.id)"
-        ><template v-if="s.state === 'event'"><span v-if="!s.contL" class="lb">{{ s.text }}</span><i aria-hidden="true"></i></template><template v-else>{{ s.contL ? '… ' : '' }}{{ s.text }}</template></button>
+        ><template v-if="s.state === 'event'"><span class="lb">{{ s.contL ? '…' : '' }}{{ s.text }}</span><i aria-hidden="true"></i><span v-if="s.endMark" class="end">〜{{ md(s.end) }}</span></template><template v-else>{{ s.contL ? '… ' : '' }}{{ s.text }}</template></button>
         <span v-if="w.more" class="jm-more" :style="{ gridRow: w.row + 1, gridColumn: 7, marginTop: 30 + w.shown.length * 16 + 'px' }">ほか{{ w.more }}</span>
       </template>
     </div>
@@ -129,6 +136,7 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し', f: '予定
 .jm-h h2 b { font-size: 26px; font-weight: 900; letter-spacing: .02em; }
 .jm-h h2 small { font-size: 13px; font-weight: 700; color: var(--text-muted); }
 .jm-today { height: 34px; padding: 0 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font: inherit; font-size: 13px; font-weight: 800; color: var(--primary, #0e7490); cursor: pointer; }
+.jm-hist { height: 34px; padding: 0 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font: inherit; font-size: 13px; font-weight: 800; color: var(--text); cursor: pointer; }
 .jm-nav { width: 42px; height: 34px; border: none; border-radius: 12px; background: #eef4f6; font: inherit; font-size: 18px; font-weight: 800; color: var(--text); cursor: pointer; }
 .jm-w { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); padding: 4px 4px; border-bottom: 1px solid #e3ecef; }
 .jm-w span { text-align: center; font-size: 11px; font-weight: 800; color: var(--text-muted); }
@@ -155,6 +163,9 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し', f: '予定
 .jm-span.event { background: none; color: #c2410c; padding: 0; display: flex; align-items: center; gap: 2px; border-radius: 0; }
 .jm-span.event .lb { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: 0 3px; border: 1.2px solid currentColor; border-radius: 4px; background: #fff7ed; line-height: 11px; }
 .jm-span.event i { flex: 1; min-width: 4px; border-top: 1.5px solid currentColor; opacity: .75; }
+.jm-span.event .end { flex: none; padding-left: 2px; font-size: 9px; font-weight: 900; }
+/* 続きの週: 名前の枠の左を開けて、前から続いていると分かるように */
+.jm-span.event.cl .lb { border-left-style: dashed; }
 .jm-span.event.fut { opacity: 1; }
 .jm-more { align-self: start; justify-self: end; z-index: 1; margin-right: 4px; font-size: 9px; font-weight: 900; color: var(--text-muted); pointer-events: none; }
 .jm-c .n { display: grid; place-items: center; min-width: 22px; height: 22px; font-size: 13px; font-weight: 800; }

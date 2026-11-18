@@ -29,6 +29,7 @@ import DayTimeline from './DayTimeline.vue'
 import ChecklistsPage from './ChecklistsPage.vue'
 import ProgressSheet from './ProgressSheet.vue'
 import RoutineRecords from './RoutineRecords.vue'
+import DoneHistory from './DoneHistory.vue'
 import ChecklistRunSheet from './ChecklistRunSheet.vue'
 import TaskAddSheet from './TaskAddSheet.vue'
 import ChecklistTemplatesPage from './ChecklistTemplatesPage.vue'
@@ -167,6 +168,7 @@ function editPicked() { const t = picked.value; if (!t) return; picked.value = n
 function savePickedNote() { if (picked.value) setTaskNote(picked.value.id, pNote.value); picked.value = null }
 const progOpen = ref(null)
 const recOpen = ref(null)    // { focus } ルーティンの記録
+const histOpen = ref(false)  // 済んだ業務の履歴（User 2026-11-18）
 const memoOpen = ref(false), memoText = ref('')
 function openMemo() { const n = getNote(date.value) || {}; memoText.value = n.text || ''; memoOpen.value = true }
 function saveMemo() { setNote(date.value, { text: memoText.value, tags: getNote(date.value)?.tags || [] }); memoOpen.value = false }
@@ -350,7 +352,7 @@ async function favChecklist(cl) {
 
 <template>
   <div class="jp">
-    <JournalMonth :today="today" :focus="date" :selected="open ? date : ''" :info="dayInfo" :spans="monthSpans" @pick="pick" @span="openSpan" />
+    <JournalMonth :today="today" :focus="date" :selected="open ? date : ''" :info="dayInfo" :spans="monthSpans" @pick="pick" @span="openSpan" @history="histOpen = true" />
     <!-- カレンダーからも＋で追加（日付は追加の画面で選ぶ。既定は今日・User 2026-11-08） -->
     <button v-if="canCreate && !open" type="button" class="app-fab jp-fab" aria-label="業務を追加" @click="addSheet = { date: today }"><LineIcon name="plus" size="28" stroke="2.4" /></button>
     <DayTimeline
@@ -389,6 +391,7 @@ async function favChecklist(cl) {
     </Teleport>
     <ChecklistsPage v-if="clPage" :key="clPage.historyOf?.id || 'list'" :history-of="clPage.historyOf" @close="clPage = null" @edit="cl => addSheet = { editOf: cl }" @open-run="x => clRun = x" @add="clPage = null; addSheet = { startKind: '' }" />
     <ProgressSheet v-if="progOpen" :task="progOpen" @close="progOpen = null" @edit="x => { progOpen = null; addSheet = { editTaskOf: x } }" />
+    <DoneHistory v-if="histOpen" @close="histOpen = false" @open-progress="t => (progOpen = t)" @routine="recOpen = { focus: null }" />
     <RoutineRecords v-if="recOpen" :focus="recOpen.focus" @close="recOpen = null" @open-run="x => clRun = x" />
     <ChecklistRunSheet
       v-if="clRun" :cl="clRun.cl" :date="clRun.date" :slot="clRun.slot || ''" :can-copy="canCreate"

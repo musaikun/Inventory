@@ -15,7 +15,9 @@ import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 const props = defineProps({ task: { type: Object, required: true } })
 const emit = defineEmits(['close', 'edit'])
 const t = computed(() => props.task)
-const can = computed(() => canProgress(t.value))
+// 済んだもの（済んだ業務の履歴から開く）は見るだけ。状態・手順・経過は変えない（User 2026-11-18）
+const done = computed(() => !!t.value.doneAt)
+const can = computed(() => !done.value && canProgress(t.value))
 const at = iso => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}` }
 
 const notes = ref([])
@@ -77,7 +79,8 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
     <div class="ps-bg" @click.self="emit('close')">
       <div class="ps" role="dialog" :aria-label="t.text">
         <div class="ps-h"><b>{{ t.text }}</b><button type="button" class="ps-x" aria-label="閉じる" @click="emit('close')">✕</button></div>
-        <div class="ps-seg" role="group" aria-label="状態">
+        <p v-if="done" class="ps-done">✓ 済み ・ {{ at(t.doneAt) }} {{ t.doneBy || '' }}</p>
+        <div v-else class="ps-seg" role="group" aria-label="状態">
           <button type="button" :class="['go', { on: t.progress === 'doing' }]" :disabled="!can" @click="setState('doing')">進行中</button>
           <button type="button" :class="['wait', { on: t.progress === 'waiting' }]" :disabled="!can" @click="setState('waiting')">待ち</button>
           <button type="button" class="done" :disabled="!can" @click="setState('done')">済みにする</button>
@@ -86,12 +89,13 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
           placeholder="待っているもの（例：業者の見積もり）" aria-label="待っているもの" @change="saveWait" />
         <dl class="ps-kv">
           <dt>期限</dt>
-          <dd><input type="date" class="ps-date" :value="t.deadline || ''" :disabled="!can" aria-label="期限" @change="e => setDeadline(e.target.value)" /><span v-if="!t.deadline" class="ps-muted">なし</span></dd>
+          <dd v-if="done">{{ t.deadline ? t.deadline.slice(5).replace('-', '/') : '未定' }}</dd>
+          <dd v-else><input type="date" class="ps-date" :value="t.deadline || ''" :disabled="!can" aria-label="期限" @change="e => setDeadline(e.target.value)" /><span v-if="!t.deadline" class="ps-muted">未定</span></dd>
           <dt>担当</dt><dd>{{ t.assign === 'person' ? t.assigneeName : '全員' }}</dd>
-          <dt>動き</dt><dd :class="{ stale: idleDays(t) >= 5 }">{{ idleDays(t) ? `${idleDays(t)}日前` : '今日' }}</dd>
+          <template v-if="!done"><dt>動き</dt><dd :class="{ stale: idleDays(t) >= 5 }">{{ idleDays(t) ? `${idleDays(t)}日前` : '今日' }}</dd></template>
         </dl>
 
-        <div class="ps-lab">手順（任意）</div>
+        <div v-if="!done || steps.length" class="ps-lab">手順（任意）</div>
         <ul class="ps-steps">
           <li v-for="s in steps" :key="s.id" :class="{ ok: s.done }">
             <button type="button" class="ps-ck" :disabled="!can" :aria-pressed="s.done" :aria-label="`${s.text}を済み`" @click="toggleStep(s)">{{ s.done ? '✓' : '' }}</button>
@@ -105,7 +109,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
         </div>
 
         <div class="ps-lab">経過</div>
-        <div class="ps-compose">
+        <div v-if="!done" class="ps-compose">
           <textarea v-model="noteDraft" rows="2" maxlength="300" class="ps-in" placeholder="経過を書く（例：業者に電話。見積もりは明後日）" aria-label="経過"></textarea>
           <template v-if="noteDraft.trim() && can">
             <div class="ps-chips">
@@ -123,8 +127,8 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
           <li v-for="n in notes" :key="n.id">{{ n.body }}<small>{{ at(n.at) }} {{ n.by }}</small></li>
           <li v-if="!loading && !notes.length" class="none">まだ経過はありません<small>{{ at(t.createdAt) }} {{ t.createdBy }}（作った人）</small></li>
         </ol>
-        <button v-if="canEditTask(t)" type="button" class="ps-edit" @click="emit('edit', t)">直す（名前・期限・担当など）</button>
-        <button v-if="canRemoveTask(t)" type="button" class="ps-del" @click="del">この進行中を消す</button>
+        <button v-if="!done && canEditTask(t)" type="button" class="ps-edit" @click="emit('edit', t)">直す（名前・期限・担当など）</button>
+        <button v-if="!done && canRemoveTask(t)" type="button" class="ps-del" @click="del">この進行中を消す</button>
       </div>
     </div>
   </Teleport>
@@ -174,4 +178,5 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 .ps-tl li::before { content: ''; position: absolute; left: -18px; top: 6px; width: 9px; height: 9px; border-radius: 50%; background: #f59e0b; }
 .ps-tl li.none { color: var(--text-muted); }
 .ps-tl small { display: block; font-size: 11px; color: var(--text-muted); font-weight: 700; }
+.ps-done { margin: 0; padding: 10px 12px; border-radius: 12px; background: #dcfce7; color: #047857; font-size: 14px; font-weight: 800; }
 </style>
