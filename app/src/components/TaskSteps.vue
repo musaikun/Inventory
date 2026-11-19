@@ -7,6 +7,7 @@
 import LineIcon from './LineIcon.vue'
 import { ref, computed } from 'vue'
 import { updateProgress, canProgress, newStepId } from '../composables/useTasks.js'
+import { useStepsToChecklist, saveStepsAsChecklist } from '../composables/stepsToChecklist.js'
 
 const props = defineProps({ task: { type: Object, required: true } })
 const steps = computed(() => props.task.steps ?? [])
@@ -23,6 +24,13 @@ function add() {
   draft.value = ''
 }
 function remove(s) { if (can.value) _save(steps.value.filter(x => x.id !== s.id)) }
+// 手で入れた子タスクをチェック表として残す（チェック表から付けたものには出さない・User 2026-11-19）
+const canKeep = useStepsToChecklist(steps)
+const kept = ref('')
+async function keepAsChecklist() {
+  const name = await saveStepsAsChecklist(steps.value, props.task.text)
+  if (name) kept.value = `チェック表「${name}」に入れました`
+}
 </script>
 
 <template>
@@ -38,6 +46,8 @@ function remove(s) { if (can.value) _save(steps.value.filter(x => x.id !== s.id)
       <input v-model="draft" type="text" maxlength="100" aria-label="子タスク" placeholder="子タスク" />
       <button type="submit" :disabled="!draft.trim()" aria-label="子タスクを足す"><LineIcon name="plus" /></button>
     </form>
+    <button v-if="canKeep" type="button" class="tst-keep" @click="keepAsChecklist">この子タスクをチェック表に入れる</button>
+    <p v-if="kept" class="tst-kept" role="status">{{ kept }}</p>
   </div>
 </template>
 
@@ -56,4 +66,6 @@ function remove(s) { if (can.value) _save(steps.value.filter(x => x.id !== s.id)
 .tst-add input { flex: 1; min-width: 120px; min-height: 40px; border: 1.5px solid #d6e6ea; border-radius: 12px; padding: 0 12px; font: inherit; font-size: 14px; background: var(--surface); color: var(--text); }
 .tst-add button { min-width: 40px; min-height: 40px; border: none; border-radius: 12px; background: #e6f5f8; color: #0b5f73; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; font: inherit; font-size: 13px; font-weight: 800; }
 .tst-add button:disabled { opacity: .4; }
+.tst-keep { justify-self: start; min-height: 36px; padding: 0 12px; border: 1px dashed #d6e6ea; border-radius: 10px; background: var(--surface); font: inherit; font-size: 13px; font-weight: 800; color: var(--primary, #0e7490); cursor: pointer; }
+.tst-kept { margin: 0; font-size: 12.5px; font-weight: 700; color: #047857; }
 </style>

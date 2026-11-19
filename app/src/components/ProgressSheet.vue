@@ -11,6 +11,7 @@ import { askConfirm } from '../composables/askConfirm.js'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { updateProgress, finishProgress, canProgress, canEditTask, canRemoveTask, removeTask, loadNotes, addNote, newStepId, idleDays } from '../composables/useTasks.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
+import { useStepsToChecklist, saveStepsAsChecklist } from '../composables/stepsToChecklist.js'
 
 const props = defineProps({ task: { type: Object, required: true } })
 const emit = defineEmits(['close', 'edit'])
@@ -42,6 +43,13 @@ function addStep() {
   const text = stepDraft.value.trim()
   if (!text) return
   updateProgress(t.value.id, { steps: [...steps.value, { id: newStepId(), text, done: false }] }); stepDraft.value = ''
+}
+// 手で入れた手順をチェック表として残す（チェック表から付けた手順には出さない・User 2026-11-19）
+const canKeep = useStepsToChecklist(steps)
+const kept = ref('')
+async function keepAsChecklist() {
+  const name = await saveStepsAsChecklist(steps.value, t.value.text)
+  if (name) kept.value = `チェック表「${name}」に入れました`
 }
 function removeStep(s) { updateProgress(t.value.id, { steps: steps.value.filter(x => x.id !== s.id) }) }
 
@@ -103,6 +111,8 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
             <button v-if="can" type="button" class="ps-rm" aria-label="手順を消す" @click="removeStep(s)">✕</button>
           </li>
         </ul>
+        <button v-if="canKeep" type="button" class="ps-keep" @click="keepAsChecklist">この手順をチェック表に入れる</button>
+        <p v-if="kept" class="ps-kept" role="status">{{ kept }}</p>
         <div v-if="can" class="ps-row">
           <input v-model="stepDraft" type="text" maxlength="100" class="ps-in" placeholder="手順を足す（例：業者に連絡）" aria-label="手順を足す" @keydown.enter.prevent="addStep" />
           <button type="button" class="ps-mini" :disabled="!stepDraft.trim()" @click="addStep">＋</button>
@@ -178,5 +188,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 .ps-tl li::before { content: ''; position: absolute; left: -18px; top: 6px; width: 9px; height: 9px; border-radius: 50%; background: #f59e0b; }
 .ps-tl li.none { color: var(--text-muted); }
 .ps-tl small { display: block; font-size: 11px; color: var(--text-muted); font-weight: 700; }
+.ps-keep { justify-self: start; min-height: 36px; padding: 0 12px; border: 1px dashed var(--border, #d6e6ea); border-radius: 10px; background: var(--surface, #fff); font: inherit; font-size: 13px; font-weight: 800; color: var(--primary, #0e7490); cursor: pointer; }
+.ps-kept { margin: 0; font-size: 12.5px; font-weight: 700; color: #047857; }
 .ps-done { margin: 0; padding: 10px 12px; border-radius: 12px; background: #dcfce7; color: #047857; font-size: 14px; font-weight: 800; }
 </style>
