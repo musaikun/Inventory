@@ -1,4 +1,5 @@
 // 起動時の読み込み画面：最低1.6秒は見せ、読み込みが終わってから閉じる。終わらなくても6秒で閉じる
+// 完成（名前を出す）からホームへ抜けるまで約1.2秒（輪をくぐる演出）
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { createApp, h, ref, nextTick } from 'vue'
 import StartupSplash from './StartupSplash.vue'
@@ -25,7 +26,9 @@ describe('StartupSplash', () => {
     vi.advanceTimersByTime(200)
     await nextTick()
     expect(host.querySelector('.ss.named')).not.toBeNull()
-    vi.advanceTimersByTime(800)
+    vi.advanceTimersByTime(1000)
+    expect(done).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(200)
     expect(done).toHaveBeenCalledTimes(1)
   })
 
@@ -34,7 +37,7 @@ describe('StartupSplash', () => {
     const done = await mount(ref(false))
     vi.advanceTimersByTime(3000)
     expect(done).not.toHaveBeenCalled()
-    vi.advanceTimersByTime(3000 + 800)
+    vi.advanceTimersByTime(3000 + 1200)
     expect(done).toHaveBeenCalledTimes(1)
   })
 
