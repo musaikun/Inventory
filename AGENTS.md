@@ -112,7 +112,8 @@ rename・削除したら同じcommitでこの一覧も直す。
 - 変更した側のtest: `cd app && npm test` ／ `cd worker && npm test`
 - docsを触ったら: `node scripts/check-docs-links.mjs`（相対リンク切れ・主要ファイル一覧の実在）
 - E2E: `cd e2e && npm ci && npx playwright test`（ローカルWorker=Miniflare＋ブラウザ。本番D1に触れない。詳細 `docs/quality-foundation/tasks/TEST-002.md`）
-- CI: develop以外のbranchとPRで `.github/workflows/ci.yml` が unit・build・E2E・docs検査を回す
+- CI: develop以外のbranchとPRで `.github/workflows/ci.yml` が unit・build・E2E・docs検査を回す。
+  `develop` へのpushでは `develop-preview.yml` がE2Eを先に回し、通らなければpreviewを出さない
 
 ## バージョン（D-026）
 
@@ -126,7 +127,7 @@ rename・削除したら同じcommitでこの一覧も直す。
 ## デプロイ・権限
 
 - deploy、DB migration 適用、commit、push は明示依頼なしに行わない（Claude Code の `develop` push だけ例外 → `CLAUDE.md`）
-- **develop preview（自動）**: `.github/workflows/develop-preview.yml`。`develop` へ push → Worker/App test →
+- **develop preview（自動）**: `.github/workflows/develop-preview.yml`。`develop` へ push → E2E → Worker/App test →
   App build → Pages preview（`https://develop.inventory-app-c40.pages.dev`）。D1・Worker・本番Pagesは変更しない
 - **本番 Worker（手動ボタン）**: `.github/workflows/production-backend.yml`。step=preflight → step=apply・
   confirm=`APPLY-PRODUCTION`。押すのは User（セッションからは起動不可）

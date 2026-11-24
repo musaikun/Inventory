@@ -127,6 +127,7 @@ command/step、環境、未検証範囲を残します。
 **develop以外のbranchとPR**は`ci.yml`が、Worker test・App test/build・E2E・docs検査を4 jobで並列に回します（2026-11-07に`test.yml`を統合）。
 deployはせず、secretsも使いません。並行セッションのbranchが壊れていても`develop`へ合流するまで分からなかったためです。
 `develop-preview.yml`も、testの前に同じdocs検査（`node scripts/check-docs-links.mjs`）を行います。
+2026-11-24から`develop-preview.yml`でも`e2e` jobを回し、**E2Eが通ったときだけ**test・build・previewのdeployへ進みます（`needs: e2e`）。
 
 `develop-preview.yml`と`pro-review.yml`は、Node 24で次を実行します。
 
@@ -243,7 +244,7 @@ migration履歴tableではなくschema sentinel方式を使うため、適用状
 
 ```
 .github/workflows/ci.yml               # develop以外のbranch・PRのtest / build / E2E / docs検査（deployなし）
-.github/workflows/develop-preview.yml  # developのdocs検査 / test / build / Pages preview
+.github/workflows/develop-preview.yml  # developのE2E → docs検査 / test / build / Pages preview
 scripts/check-docs-links.mjs  # docs検査（リンク切れ・主要ファイル一覧・セッション記録のファイル名）
 .github/workflows/pro-review.yml       # 手動のPro Review frontend更新
 scripts/migrate.sh            # D1 マイグレーション（センチネル方式・手動backend deploy用）
