@@ -4,7 +4,8 @@
  * - 棒は済んだ割合（子タスク・チェック表の項目。項目が無ければ 済み=1／まだ=0）
  * - 進行中は「予定ではここまで」の印（plan: 始まり〜締め切りの今日の位置 0..1）
  * - 札は3つだけ: 遅れ（時刻・締め切りを過ぎた）／本日まで／明日まで（締め切りの前日に限って）
- * - 並び: 遅れ → 本日まで → 明日まで → 今日の時刻の順 → 今日の時刻なし → 締め切りの順。済んだものは出さない
+ * - イベント（今日にかかる期間のもの）も「イベント」として出す。数には入れない（やることではない・User 2026-11-24）
+ * - 並び: 遅れ → 本日まで → 明日まで → イベント → 今日の時刻の順 → 今日の時刻なし → 締め切りの順。済んだものは出さない
  * 画面の状態に依らない純粋な関数（テストしやすいように）
  */
 
@@ -28,10 +29,11 @@ const RANK = { late: 0, today: 1, tmr: 2 }
  * @param {Array} p.carry      期限つきで前の日に作ったもの（carriedTasks）
  * @param {Array} p.checklists 今日の定期（checklistsForDay）
  * @param {Array} p.progress   進行中（progressTasks）
+ * @param {Array} [p.events]   今日にかかるイベント（eventsOn）
  * @param {(t) => boolean} p.isDone 済んだか（「全員」は自分が印を付けたか）
  * @param {number} [max] 出す行の上限（残りは more）
  */
-export function homeStatus({ today, now, tasks = [], overdue = [], carry = [], checklists = [], progress = [], isDone = t => !!t.doneAt }, max = 8) {
+export function homeStatus({ today, now, tasks = [], overdue = [], carry = [], checklists = [], progress = [], events = [], isDone = t => !!t.doneAt }, max = 8) {
   const nowMin = _min(now || '00:00')
   const tomorrow = _addDay(today, 1)
   // 締め切り（日付）から札
@@ -96,6 +98,16 @@ export function homeStatus({ today, now, tasks = [], overdue = [], carry = [], c
       }, s.slot ? 0 : 1, s.slot || '')
     })
   }
+  // イベント（今日にかかるもの）
+  for (const t of events) {
+    const end = t.deadline && t.deadline > t.date ? t.deadline : t.date
+    const when = t.dueTime ? ` ${_hm(t.dueTime)}${t.endTime ? `〜${_hm(t.endTime)}` : ''}` : ''
+    push({
+      key: t.id, ref: { type: 'event', id: t.id }, title: t.text, kind: 'イベント',
+      pct: null, plan: null, tag: null, left: '',
+      right: end === t.date ? `本日${when}` : `${_md(t.date)}〜${_md(end)}`,
+    }, -2, t.dueTime || '')
+  }
   // 進行中（予定ではここまでの印つき）
   for (const t of progress) {
     if (t.doneAt) continue
@@ -117,5 +129,5 @@ export function homeStatus({ today, now, tasks = [], overdue = [], carry = [], c
 
   rows.sort((a, b) => a.sort[0] - b.sort[0] || a.sort[1] - b.sort[1] || String(a.sort[2]).localeCompare(String(b.sort[2])))
   const out = rows.map(({ sort, ...r }) => r)
-  return { rows: out.slice(0, max), more: Math.max(0, out.length - max), progressCount: progress.filter(t => !t.doneAt).length }
+  return { rows: out.slice(0, max), more: Math.max(0, out.length - max), progressCount: progress.filter(t => !t.doneAt).length, eventCount: events.length }
 }

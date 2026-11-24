@@ -6,7 +6,7 @@
  * 月を送るときは横に滑らせる（User決定 2026-10-26。次の月は右から、前の月は左から）
  * info(date) → { st: 'y'|'p'|'x'|'f'|'', tags: [{ label, kind: 'stock'|'order'|'plan', future }] }
  * spans: 進行中（何日かかかるもの）を実施日〜締め切りの連日の帯で（User決定 2026-11-08・モック docs/mocks/calendar-progress.html）。
- *   [{ id, text, start, end, state: 'doing'|'wait'|'stale'|'over'|'event', future }]。1週に2本まで、あふれたら「ほかn」。押すと @span(id)
+ *   [{ id, text, start, end, state: 'doing'|'wait'|'stale'|'over'|'event', future }]。1週に2本まで。あふれた分はかかっている日ごとに3段目へ「+n」（押すとその日・User 2026-11-24）。押すと @span(id)
  *   event はイベント: 塗りの帯ではなく細い線「[名前]────」で、やることと見分ける（User決定 2026-11-11）
  *   名前は週ごとの線の頭に毎回出す（続きの週は「…名前」）。終わりの週の線の終わりに「〜m/d」（4日以上のものだけ）。
  *   週や月をまたいだとき、どの線がどのイベントか分からなかった（User 2026-11-18）
@@ -77,11 +77,14 @@ const weekSpans = computed(() => {
       const endMark = s.state === 'event' && s.end <= ks[6] && _days(s.start, s.end) >= 4 && b - a >= 1
       return { ...s, row: r, lane, a, b, contL: s.start < ks[0], contR: s.end > ks[6], endMark }
     })
-    out.push({ row: r, shown, more: hit.length - shown.length })
+    // 入りきらなかった線は、かかっている日ごとに「+n」（押すとその日の一覧）。3本目の段に出す（User 2026-11-24）
+    const hidden = hit.slice(SPAN_MAX)
+    const more = ks.map((k, col) => ({ key: k, col, n: hidden.filter(s => s.start <= k && k <= s.end).length })).filter(x => x.n)
+    out.push({ row: r, shown, more })
   }
   return out
 })
-const lanesOf = r => Math.min(SPAN_MAX, (weekSpans.value[r]?.shown.length ?? 0) + (weekSpans.value[r]?.more ? 1 : 0))
+const lanesOf = r => (weekSpans.value[r]?.shown.length ?? 0) + (weekSpans.value[r]?.more.length ? 1 : 0)
 const SPAN_LABEL = { doing: '進行中', wait: '待ち', stale: '止まっている', over: '締め切り過ぎ', event: 'イベント' }
 const hasEvent = computed(() => props.spans.some(s => s.state === 'event'))
 const hasProg = computed(() => props.spans.some(s => s.state !== 'event'))
@@ -122,7 +125,12 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し', f: '予定
           :aria-label="`${s.text}（${SPAN_LABEL[s.state]}）${md(s.start)}〜${md(s.end)}`"
           @click="emit('span', s.id)"
         ><template v-if="s.state === 'event'"><span class="lb">{{ s.contL ? '…' : '' }}{{ s.text }}</span><i aria-hidden="true"></i><span v-if="s.endMark" class="end">〜{{ md(s.end) }}</span></template><template v-else>{{ s.contL ? '… ' : '' }}{{ s.text }}</template></button>
-        <span v-if="w.more" class="jm-more" :style="{ gridRow: w.row + 1, gridColumn: 7, marginTop: 30 + w.shown.length * 16 + 'px' }">ほか{{ w.more }}</span>
+        <button
+          v-for="m in w.more" :key="`m${m.key}`" type="button" class="jm-more" :data-more="m.key"
+          :style="{ gridRow: w.row + 1, gridColumn: m.col + 1, marginTop: 30 + w.shown.length * 16 + 'px' }"
+          :aria-label="`${m.key} ほかに${m.n}件。その日の一覧を開く`"
+          @click="emit('pick', m.key, { col: m.col, row: w.row, rows: rowsN })"
+        >+{{ m.n }}</button>
       </template>
     </div>
     <div class="jm-leg"><span><i class="y"></i>全部済み</span><span><i class="p"></i>一部</span><span><i class="x"></i>やり残し</span><span><i class="f"></i>予定あり</span><span v-if="hasProg"><i class="pg"></i>進行中</span><span v-if="hasEvent"><i class="ev"></i>イベント</span></div>
@@ -167,7 +175,7 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し', f: '予定
 /* 続きの週: 名前の枠の左を開けて、前から続いていると分かるように */
 .jm-span.event.cl .lb { border-left-style: dashed; }
 .jm-span.event.fut { opacity: 1; }
-.jm-more { align-self: start; justify-self: end; z-index: 1; margin-right: 4px; font-size: 9px; font-weight: 900; color: var(--text-muted); pointer-events: none; }
+.jm-more { align-self: start; justify-self: stretch; z-index: 1; height: 14px; margin: 0 2px; padding: 0 3px; border: none; border-radius: 4px; background: var(--bg); font: inherit; font-size: 9px; font-weight: 900; line-height: 14px; text-align: left; color: var(--text-muted); cursor: pointer; }
 .jm-c .n { display: grid; place-items: center; min-width: 22px; height: 22px; font-size: 13px; font-weight: 800; }
 .jm-c.out .n { color: #a9b8bf; }
 .jm-c.sun .n { color: #c62828; } .jm-c.sat .n { color: #1d4ed8; }

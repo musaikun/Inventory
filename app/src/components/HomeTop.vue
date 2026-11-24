@@ -15,7 +15,7 @@
  */
 import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { tasksOn, overdueTasks, carriedTasks, isMarkedByMe, pullTasks, progressTasks } from '../composables/useTasks.js'
+import { tasksOn, eventsOn, overdueTasks, carriedTasks, isMarkedByMe, pullTasks, progressTasks } from '../composables/useTasks.js'
 import { checklistsForDay, pullChecklists } from '../composables/useChecklists.js'
 import { homeStatus } from '../services/homeStatus.js'
 import { buildDayTimeline } from '../services/dayTimeline.js'
@@ -82,7 +82,7 @@ onUnmounted(() => clearInterval(_nowTimer))
 const status = computed(() => homeStatus({
   today, now: nowHm.value,
   tasks: todays.value, overdue: late.value, carry: carriedTasks(today),
-  checklists: checklistsForDay(today), progress: progressTasks.value,
+  checklists: checklistsForDay(today), progress: progressTasks.value, events: eventsOn(today),
   isDone: t => (t.assign === 'all' ? isMarkedByMe(t) || !!t.doneAt : !!t.doneAt),
 }))
 const BAR_PCT = x => `${Math.round(x * 100)}%`
@@ -202,13 +202,13 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
         </span>
         <span class="ht-tx">
           <span class="ht-tt">本日の状況<i>一覧 ›</i></span>
-          <small class="ht-sum">本日の分 {{ doneCount }}/{{ total }} 済み<template v-if="status.progressCount"> ・ 進行中 {{ status.progressCount }}</template></small>
+          <small class="ht-sum">本日の分 {{ doneCount }}/{{ total }} 済み<template v-if="status.eventCount"> ・ イベント {{ status.eventCount }}</template><template v-if="status.progressCount"> ・ 進行中 {{ status.progressCount }}</template></small>
         </span>
       </button>
       <div v-if="status.rows.length" class="ht-rows">
         <button v-for="r in status.rows" :key="r.key" type="button" :class="['ht-it', r.tag?.k]" :data-key="r.key" :aria-label="`${r.title}を開く`" @click="emit('openItem', r.ref)">
-          <span class="ht-r1"><span class="t">{{ r.title }}</span><span v-if="r.kind" :class="['k', { p: r.kind === '進行中' }]">{{ r.kind }}</span><em v-if="r.tag" :class="r.tag.k">{{ r.tag.label }}</em></span>
-          <span class="ht-pb"><i :style="{ width: BAR_PCT(r.pct) }"></i><b v-if="r.plan !== null" class="plan" :style="{ left: BAR_PCT(r.plan) }" title="予定ではここまで"></b></span>
+          <span class="ht-r1"><span class="t">{{ r.title }}</span><span v-if="r.kind" :class="['k', { p: r.kind === '進行中', ev: r.kind === 'イベント' }]">{{ r.kind }}</span><em v-if="r.tag" :class="r.tag.k">{{ r.tag.label }}</em></span>
+          <span v-if="r.pct !== null" class="ht-pb"><i :style="{ width: BAR_PCT(r.pct) }"></i><b v-if="r.plan !== null" class="plan" :style="{ left: BAR_PCT(r.plan) }" title="予定ではここまで"></b></span>
           <span class="ht-r3"><span>{{ r.left }}</span><span :class="['due', r.tag?.k]">{{ r.right }}</span></span>
         </button>
       </div>
@@ -349,6 +349,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-r1 .t { flex: 1; min-width: 0; font-size: 14px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ht-r1 .k { flex: none; font-size: 10px; font-weight: 800; border-radius: 6px; padding: 1px 6px; background: #ece9fd; color: #4c35b5; }
 .ht-r1 .k.p { background: #e0f2fe; color: #075985; }
+.ht-r1 .k.ev { background: #fff7ed; color: #c2410c; }
 .ht-r1 em { flex: none; font-style: normal; font-size: 10.5px; font-weight: 900; border-radius: 6px; padding: 0 6px; line-height: 18px; }
 .ht-r1 em.late { background: #fef2f2; color: #dc2626; } .ht-r1 em.today { background: #fff1e6; color: #c2410c; } .ht-r1 em.tmr { background: #fef9c3; color: #a16207; }
 .ht-pb { position: relative; height: 8px; border-radius: 4px; background: #dcedf2; }

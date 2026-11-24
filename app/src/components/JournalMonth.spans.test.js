@@ -44,3 +44,29 @@ describe('JournalMonth — イベントの線', () => {
     expect(lines('e4').every(l => !l.querySelector('.end'))).toBe(true)
   })
 })
+
+describe('JournalMonth — 入りきらない線', () => {
+  it('3本目以降は、かかっている日ごとに「+n」。押すとその日を開く', async () => {
+    await mount([
+      ev('a', 'A', '2026-11-16', '2026-11-18'),
+      ev('b', 'B', '2026-11-16', '2026-11-20'),
+      ev('c', 'C', '2026-11-17', '2026-11-17'),
+      ev('d', 'D', '2026-11-17', '2026-11-19'),
+    ])
+    expect(lines('c')).toHaveLength(0)
+    const more = [...host.querySelectorAll('.jm-more')]
+    expect(more.map(m => [m.dataset.more, m.textContent])).toEqual([['2026-11-17', '+2'], ['2026-11-18', '+1'], ['2026-11-19', '+1']])
+  })
+
+  it('押すと pick でその日を知らせる', async () => {
+    const picks = []
+    host = document.createElement('div'); document.body.appendChild(host)
+    app = createApp({ render: () => h(JournalMonth, {
+      today: '2026-11-15', focus: '2026-11-15', info: () => ({ st: '', tags: [] }), onPick: d => picks.push(d),
+      spans: [ev('a', 'A', '2026-11-16', '2026-11-18'), ev('b', 'B', '2026-11-16', '2026-11-18'), ev('c', 'C', '2026-11-18', '2026-11-18')],
+    }) })
+    app.mount(host); await nextTick()
+    host.querySelector('.jm-more[data-more="2026-11-18"]').click()
+    expect(picks).toEqual(['2026-11-18'])
+  })
+})

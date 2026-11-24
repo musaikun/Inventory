@@ -216,6 +216,7 @@ function openSpan(id) {
 // 外から頼まれた中身を開く（無くなっていれば日だけ）
 function _openOutside(it) {
   if (!it) return
+  if (it.type === 'event') { const ev = aliveEvents.value.find(t => t.id === it.id); if (ev) addSheet.value = { editEvent: ev }; return }
   if (it.type === 'task') picked.value = aliveTasks.value.find(t => t.id === it.id) ?? null
   else if (it.type === 'progress') progOpen.value = progressTasks.value.find(t => t.id === it.id) ?? null
   else if (it.type === 'list') {
