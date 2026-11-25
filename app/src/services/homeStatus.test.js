@@ -47,18 +47,28 @@ describe('本日の状況', () => {
 })
 
 describe('本日の状況 — イベント', () => {
-  it('今日にかかるイベントを「イベント」で出し、数を返す。進み具合の棒は出さない', () => {
+  it('イベントはやることと混ぜず別の欄に。始まりの順。数を返す', () => {
     const r = homeStatus({ ...base,
       tasks: [{ id: 't1', text: '仕込み', date: today, dueTime: '15:00' }],
-      events: [{ id: 'e1', text: '年末フェア', date: '2026-11-10', deadline: '2026-11-20' }, { id: 'e2', text: '試食会', date: today, dueTime: '18:00', endTime: '20:00' }],
+      events: [
+        { id: 'e2', text: '試食会', date: today, dueTime: '18:00', endTime: '20:00' },
+        { id: 'e1', text: '年末フェア', date: '2026-11-10', deadline: '2026-11-20' },
+        { id: 'e3', text: '感謝デー', date: '2026-11-11', deadline: today },
+      ],
     })
-    expect(r.eventCount).toBe(2)
-    const ev = r.rows.filter(x => x.kind === 'イベント')
-    expect(ev.map(x => [x.title, x.right, x.pct, x.ref.type])).toEqual([
-      ['年末フェア', '11/10〜11/20', null, 'event'],
-      ['試食会', '本日 18:00〜20:00', null, 'event'],
+    expect(r.rows.map(x => x.key)).toEqual(['t1'])
+    expect(r.eventCount).toBe(3)
+    expect(r.events.map(x => [x.title, x.right, x.ref.type])).toEqual([
+      ['年末フェア', '11/10〜11/20', 'event'],
+      ['感謝デー', '11/11〜本日まで', 'event'],
+      ['試食会', '本日 18:00〜20:00', 'event'],
     ])
-    // タグの無いものの中ではイベントが先
-    expect(r.rows[0].kind).toBe('イベント')
+  })
+
+  it('上限を超えたイベントは eventsMore', () => {
+    const events = [1, 2, 3, 4, 5].map(i => ({ id: `e${i}`, text: `E${i}`, date: today }))
+    const r = homeStatus({ ...base, events }, 8, 3)
+    expect(r.events).toHaveLength(3)
+    expect(r.eventsMore).toBe(2)
   })
 })

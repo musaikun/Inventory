@@ -205,10 +205,19 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
           <small class="ht-sum">本日の分 {{ doneCount }}/{{ total }} 済み<template v-if="status.eventCount"> ・ イベント {{ status.eventCount }}</template><template v-if="status.progressCount"> ・ 進行中 {{ status.progressCount }}</template></small>
         </span>
       </button>
+      <!-- イベントとやることは分ける（User 2026-11-25） -->
+      <div v-if="status.events.length" class="ht-evs" aria-label="今日のイベント">
+        <span class="ht-cap">イベント</span>
+        <button v-for="e in status.events" :key="e.key" type="button" class="ht-ev" :data-key="e.key" :aria-label="`${e.title}を開く`" @click="emit('openItem', e.ref)">
+          <span class="t">{{ e.title }}</span><span :class="['due', { end: e.ends }]">{{ e.right }}</span>
+        </button>
+        <button v-if="status.eventsMore" type="button" class="ht-more" @click="emit('openTodo')">ほか {{ status.eventsMore }}件</button>
+      </div>
+      <span v-if="status.events.length" class="ht-cap">やること</span>
       <div v-if="status.rows.length" class="ht-rows">
         <button v-for="r in status.rows" :key="r.key" type="button" :class="['ht-it', r.tag?.k]" :data-key="r.key" :aria-label="`${r.title}を開く`" @click="emit('openItem', r.ref)">
-          <span class="ht-r1"><span class="t">{{ r.title }}</span><span v-if="r.kind" :class="['k', { p: r.kind === '進行中', ev: r.kind === 'イベント' }]">{{ r.kind }}</span><em v-if="r.tag" :class="r.tag.k">{{ r.tag.label }}</em></span>
-          <span v-if="r.pct !== null" class="ht-pb"><i :style="{ width: BAR_PCT(r.pct) }"></i><b v-if="r.plan !== null" class="plan" :style="{ left: BAR_PCT(r.plan) }" title="予定ではここまで"></b></span>
+          <span class="ht-r1"><span class="t">{{ r.title }}</span><span v-if="r.kind" :class="['k', { p: r.kind === '進行中' }]">{{ r.kind }}</span><em v-if="r.tag" :class="r.tag.k">{{ r.tag.label }}</em></span>
+          <span class="ht-pb"><i :style="{ width: BAR_PCT(r.pct) }"></i><b v-if="r.plan !== null" class="plan" :style="{ left: BAR_PCT(r.plan) }" title="予定ではここまで"></b></span>
           <span class="ht-r3"><span>{{ r.left }}</span><span :class="['due', r.tag?.k]">{{ r.right }}</span></span>
         </button>
       </div>
@@ -343,13 +352,19 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-sum { font-size: 11.5px; font-weight: 700; color: var(--text-muted); }
 /* 1行＝名前と札・進み具合の棒（進行中は予定の印）・担当と日時 */
 .ht-rows { display: grid; }
+.ht-cap { display: block; margin: 10px 0 2px; font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--text-muted); }
+.ht-evs { display: grid; }
+.ht-evs .ht-cap { color: #c2410c; }
+.ht-ev { display: flex; align-items: center; gap: 8px; padding: 8px 0; border: none; border-top: 1px solid #e2ecef; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.ht-ev .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; padding-left: 8px; border-left: 3px solid #c2410c; }
+.ht-ev .due { flex: none; font-size: 12px; color: var(--text-muted); }
+.ht-ev .due.end { color: #c2410c; font-weight: 700; }
 .ht-it { display: grid; gap: 5px; padding: 9px 0; border: none; border-top: 1px solid #e2ecef; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
 .ht-it:first-child { border-top: none; }
 .ht-r1 { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .ht-r1 .t { flex: 1; min-width: 0; font-size: 14px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ht-r1 .k { flex: none; font-size: 10px; font-weight: 800; border-radius: 6px; padding: 1px 6px; background: #ece9fd; color: #4c35b5; }
 .ht-r1 .k.p { background: #e0f2fe; color: #075985; }
-.ht-r1 .k.ev { background: #fff7ed; color: #c2410c; }
 .ht-r1 em { flex: none; font-style: normal; font-size: 10.5px; font-weight: 900; border-radius: 6px; padding: 0 6px; line-height: 18px; }
 .ht-r1 em.late { background: #fef2f2; color: #dc2626; } .ht-r1 em.today { background: #fff1e6; color: #c2410c; } .ht-r1 em.tmr { background: #fef9c3; color: #a16207; }
 .ht-pb { position: relative; height: 8px; border-radius: 4px; background: #dcedf2; }
