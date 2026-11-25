@@ -92,3 +92,39 @@ describe('再接続の増殖防止', () => {
     expect(MockWebSocket.instances.length).toBeLessThanOrEqual(2)
   })
 })
+
+describe('再接続の失敗が続いても、オフライン中の入力を消さない（2026-11-25）', () => {
+  it('切断 → 入力 → 再接続に1回失敗 → 再接続 で、入力を再送しサーバーの古い値で上書きしない', async () => {
+    const local = {}
+    sync.registerInventoryGetter(() => local)
+    const applied = []
+    sync.setRemoteUpdateCallback((name, qty) => { applied.push([name, qty]) })
+    const { joinRoom } = sync.useSync()
+    const p = joinRoom('ROOMDD')
+    const ws1 = MockWebSocket.instances[0]
+    ws1._open()
+    const before = Date.now() - 60_000
+    ws1._recv({ ...joinedPayload(), inventory: { なす: { qty: 2, unit: '', enteredBy: 'オーナー', updatedAt: before } } })
+    await p
+
+    // 切れる（電波なし）
+    ws1.close()
+    // オフラインの間に入れる（切れた後の時刻）
+    vi.advanceTimersByTime(500)
+    local['なす'] = { qty: 4, unit: '', enteredBy: '鈴木', updatedAt: Date.now(), localEntry: true }
+    // 1回目の再接続（1.5秒後）はつながらずに切れる
+    vi.advanceTimersByTime(1100)
+    const ws2 = MockWebSocket.instances[1]
+    ws2.close()
+    // 2回目の再接続（3秒後）でつながる。サーバーはオフライン前の 2 のまま
+    vi.advanceTimersByTime(3100)
+    const ws3 = MockWebSocket.instances[2]
+    ws3._open()
+    ws3._recv({ ...joinedPayload(), inventory: { なす: { qty: 2, unit: '', enteredBy: 'オーナー', updatedAt: before } } })
+
+    const updates = ws3.sent.map(s => JSON.parse(s)).filter(m => m.type === 'update')
+    expect(updates).toEqual([expect.objectContaining({ ingredient: 'なす', qty: 4 })])
+    // サーバーの古い値（2）を手元へ当てていない
+    expect(applied.filter(([n, q]) => n === 'なす' && q === 2)).toEqual([])
+  })
+})

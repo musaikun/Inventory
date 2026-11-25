@@ -66,3 +66,76 @@ export async function completeStocktake(page) {
   await expect(page.getByText('棚卸が終わりました')).toBeVisible()
   await page.getByRole('button', { name: '閉じる', exact: true }).click()
 }
+
+/** 棚卸中のホストがルームを作り、招待リンク（パス以降）を返す。終わると棚卸画面に戻る */
+export async function openRoom(host) {
+  await host.getByTitle('ルームを作成して、スタッフのスマホをつなぐ').click()
+  const link = (await host.getByText(/\?store=[A-Z0-9]+&s=/).innerText()).trim()
+  await host.getByText('棚卸に戻る').click()
+  return link.replace(/^https?:\/\/[^/?]+/, '')
+}
+
+/** 招待リンクから、ログインしていない端末がゲストとして参加する。使い方の案内は閉じる。
+ *  setup(ctx) はページを開く前に呼ぶ（WebSocket の中継を仕込むなど） */
+export async function joinAsGuest(browser, invitePath, name, { setup } = {}) {
+  const ctx = await browser.newContext()
+  if (setup) await setup(ctx)
+  const page = await ctx.newPage()
+  acceptDialogs(page)
+  await page.goto(invitePath)
+  await expect(page.getByText('参加者の名前を入力してください')).toBeVisible()
+  await page.getByPlaceholder(/./).last().fill(name)
+  await page.getByRole('button', { name: '参加する' }).click()
+  await expect(page.getByText(/ルーム [A-Z0-9]+ に参加しました/)).toBeVisible()
+  const intro = page.getByRole('button', { name: 'はじめる' })
+  if (await intro.isVisible().catch(() => false)) await intro.click()
+  return { ctx, page }
+}
+
+/** 一覧の品目の行（数量の列）。行の名前は「なす 編集 削除 5」の形なので先頭の品目名で探す
+ *  （ホストの画面は品目名が独立した要素でなく、getByText の完全一致では拾えない） */
+export function qtyCell(page, item) {
+  const esc = item.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return page.getByRole('row', { name: new RegExp(`^${esc}(\\s|$)`) }).getByRole('cell').last()
+}
+
+/** 一覧から品目を開き、テンキーで数を打って「上書き」で確定する（すでに数が入っている品目用） */
+export async function overwriteQty(page, item, qty) {
+  await qtyCell(page, item).click()
+  await expect(page.getByText('数を打つと「上書き」と「足す」の結果が出ます')).toBeVisible()
+  for (const ch of String(qty)) {
+    await page.getByRole('button', { name: ch, exact: true }).click()
+  }
+  await page.getByRole('button', { name: /上書き/ }).click()
+  await expect(qtyCell(page, item)).toHaveText(new RegExp(`^\\s*${qty}\\b`))
+}
+
+/**
+ * ルームの WebSocket を中継して、テストから本当に切れるようにする。
+ * Chromium の setOffline は張ってある WebSocket を切らない（送ったものはブラウザ内で止まり、戻ると届く）ため、
+ * それだけでは再接続の経路を通らない。cut() で今の接続を閉じ、restore() まで新しい接続も閉じる。
+ */
+export async function controllableRoomSocket(ctx) {
+  let blocked = false
+  let opened = 0
+  const live = new Set()
+  await ctx.routeWebSocket(/\/room\/[A-Z0-9]+\/ws/, (ws) => {
+    if (blocked) { ws.close(); return }
+    opened++
+    ws.connectToServer()
+    live.add(ws)
+    ws.onClose(() => live.delete(ws))
+  })
+  return {
+    get opened() { return opened },
+    async cut() {
+      blocked = true
+      await ctx.setOffline(true)
+      for (const ws of [...live]) await ws.close()
+    },
+    async restore() {
+      blocked = false
+      await ctx.setOffline(false)
+    },
+  }
+}

@@ -1110,8 +1110,11 @@ function _connect(code) {
 
       if (state.mode === 'idle') return
 
-      // 再接続予定: 切断時刻を記録してマージ判定に使う
-      _disconnectedAt = Date.now()
+      // 再接続予定: 切断時刻を記録してマージ判定に使う。
+      // **最初に切れた時刻を、つながり直すまで保つ**（joined で 0 に戻る）。再接続の失敗のたびに「今」へ
+      // 上書きすると、それより前にオフラインで入れた数が「手元で変えていない」と判定され、サーバーの古い値で
+      // 上書きされて黙って消えていた（2026-11-25 E2E reconnect.spec.js で発見）。
+      if (_disconnectedAt === 0) _disconnectedAt = Date.now()
 
       if (_reconnectCount < RECONNECT_DELAYS.length) {
         const delay = RECONNECT_DELAYS[_reconnectCount++]

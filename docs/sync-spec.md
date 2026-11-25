@@ -44,7 +44,8 @@
 - hostは`join`後に`session_start`を送り、新規sessionでは在庫、発注、flag、configを保存して
   `session_started` snapshotを配信する。同一session IDの再開ではDOの既存stateを読む。
 - guestの初回参加はlocal在庫/configをhost snapshotへ揃える。再接続は1.5 / 3 / 6 / 12 /
-  30秒backoffで、在庫の`updatedAt`と切断時刻を比較する。双方更新かつ値が違う場合は
+  30秒backoffで、在庫の`updatedAt`と切断時刻を比較する。切断時刻は**最初に切れた時刻**で、再接続の失敗が続いても
+  `joined`まで更新しない（2026-11-25修正。以前は失敗のたびに上書きし、その前のoffline入力が消えていた）。双方更新かつ値が違う場合は
   conflict、localだけ更新なら再送、server値があればserverを適用する。
 - 発注は在庫と異なり、参加・再接続時にDO snapshotを採用し、offline中のlocal発注編集を
   再送しない。
