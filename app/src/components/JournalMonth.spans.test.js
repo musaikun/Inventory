@@ -27,9 +27,21 @@ describe('JournalMonth — イベントの線', () => {
     expect(lines('e1').map(l => l.querySelector('.end')?.textContent ?? '')).toEqual(['', '', '〜11/24'])
   })
 
-  it('3日以下のイベントには終わりの日付を付けない', async () => {
-    await mount([ev('e2', '催事', '2026-11-02', '2026-11-04')])
-    expect(lines('e2')[0].querySelector('.end')).toBeNull()
+  it('2日以上のイベントは、終わりの週に「〜m/d」と止め線。1日だけのものは名札だけ', async () => {
+    await mount([ev('e2', '催事', '2026-11-02', '2026-11-04'), ev('e9', '試食会', '2026-11-05', '2026-11-05')])
+    expect(lines('e2')[0].querySelector('.end').textContent).toBe('〜11/4')
+    expect(lines('e2')[0].querySelector('.cap')).not.toBeNull()
+    expect(lines('e9')[0].querySelector('.end')).toBeNull()
+    expect(lines('e9')[0].querySelector('i')).toBeNull()
+  })
+
+  it('続きの週は「‹」と点線の札、次の週へ続くなら「›」', async () => {
+    await mount([ev('e1', 'YOASOBIコラボ', '2026-11-12', '2026-11-24')])
+    const [w1, w2] = lines('e1')
+    expect(w1.querySelector('.lb.cont')).toBeNull()
+    expect(w1.textContent).toContain('›')
+    expect(w2.querySelector('.lb.cont')).not.toBeNull()
+    expect(w2.textContent).toContain('‹')
   })
 
   it('終わりの週の線が1日ぶんしか無ければ付けない（入りきらない）', async () => {
@@ -46,27 +58,48 @@ describe('JournalMonth — イベントの線', () => {
 })
 
 describe('JournalMonth — 入りきらない線', () => {
-  it('3本目以降は、かかっている日ごとに「+n」。押すとその日を開く', async () => {
-    await mount([
-      ev('a', 'A', '2026-11-16', '2026-11-18'),
-      ev('b', 'B', '2026-11-16', '2026-11-20'),
-      ev('c', 'C', '2026-11-17', '2026-11-17'),
-      ev('d', 'D', '2026-11-17', '2026-11-19'),
-    ])
-    expect(lines('c')).toHaveLength(0)
-    const more = [...host.querySelectorAll('.jm-more')]
-    expect(more.map(m => [m.dataset.more, m.textContent])).toEqual([['2026-11-17', '+2'], ['2026-11-18', '+1'], ['2026-11-19', '+1']])
+  // 11/15〜21 の週に10件
+  const many = [
+    ev('A', '忘年会予約受付', '2026-11-02', '2026-11-27'),
+    ev('B', '年末フェア', '2026-11-10', '2026-11-20'),
+    ev('G', '新人研修', '2026-11-15', '2026-11-18'),
+    ev('E', '棚卸強化週間', '2026-11-16', '2026-11-21'),
+    ev('H', '歳末セール', '2026-11-16', '2026-11-19'),
+    ev('I', '仕入先フェア', '2026-11-17', '2026-11-17'),
+    ev('D', '新メニュー告知', '2026-11-18', '2026-11-30'),
+    ev('J', '産直市', '2026-11-18', '2026-11-21'),
+    ev('K', '予約強化', '2026-11-19', '2026-11-24'),
+    ev('L', '店内装飾', '2026-11-20', '2026-11-20'),
+  ]
+  const inWeek = id => lines(id).some(l => l.style.gridRow === '3')
+
+  it('段が足りなければ、続いているだけのものから「ほか〇件」へ。その週に始まるものは先に線で出す', async () => {
+    await mount(many)
+    expect(inWeek('A')).toBe(false)            // 前の週から続き、この週に終わらない
+    expect(inWeek('G')).toBe(true)
+    const ev3 = [...host.querySelectorAll('.jm-span.event')].filter(l => l.style.gridRow === '3')
+    expect(new Set(ev3.map(l => l.style.marginTop)).size).toBeLessThanOrEqual(3)   // 4段目は「ほか」
   })
 
-  it('押すと pick でその日を知らせる', async () => {
-    const picks = []
+  it('「ほか〇件」は件数が変わる日で区切る。押すとその期間の一覧、選ぶと @span', async () => {
+    const spans = []
     host = document.createElement('div'); document.body.appendChild(host)
-    app = createApp({ render: () => h(JournalMonth, {
-      today: '2026-11-15', focus: '2026-11-15', info: () => ({ st: '', tags: [] }), onPick: d => picks.push(d),
-      spans: [ev('a', 'A', '2026-11-16', '2026-11-18'), ev('b', 'B', '2026-11-16', '2026-11-18'), ev('c', 'C', '2026-11-18', '2026-11-18')],
-    }) })
+    app = createApp({ render: () => h(JournalMonth, { today: '2026-11-15', focus: '2026-11-15', info: () => ({ st: '', tags: [] }), spans: many, onSpan: id => spans.push(id) }) })
     app.mount(host); await nextTick()
-    host.querySelector('.jm-more[data-more="2026-11-18"]').click()
-    expect(picks).toEqual(['2026-11-18'])
+    const more = [...host.querySelectorAll('.jm-more.ev')].filter(m => m.style.gridRow === '3')
+    expect(more.length).toBeGreaterThan(1)
+    expect(more[0].dataset.more).toBe('2026-11-15')
+    expect(more[0].textContent).toMatch(/^ほか\d件/)
+    more[0].click(); await nextTick()
+    const items = [...host.querySelectorAll('.jm-mo-it')]
+    expect(items.map(x => x.dataset.span)).toContain('A')
+    items.find(x => x.dataset.span === 'A').click(); await nextTick()
+    expect(spans).toEqual(['A'])
+    expect(host.querySelector('.jm-mo')).toBeNull()
+  })
+
+  it('4件までなら「ほか」は出さない', async () => {
+    await mount(many.slice(0, 4))
+    expect(host.querySelector('.jm-more')).toBeNull()
   })
 })

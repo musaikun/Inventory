@@ -1,0 +1,266 @@
+<title>イベントの線の比較</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: 2台のカレンダー（現行／案）を横並び、狭い画面では縦積み。アプリの配色に寄せる */
+:root {
+  --bg: #eef3f4; --fg: #13262b; --muted: #5b7279; --line: #d5e1e4; --surface: #ffffff; --ev: #c2410c; --ev-bg: #fff7ed;
+  --pg: #0e7490; --pg-bg: #cfeef5; --accent: #0e7490;
+  --font: "Noto Sans JP", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #0b1417; --fg: #dcebee; --muted: #86a1a8; --line: #22363b; --surface: #111e22; --ev: #fb923c; --ev-bg: #2a1609; --pg: #67e8f9; --pg-bg: #12333b; --accent: #22d3ee; color-scheme: dark } }
+:root[data-theme="dark"] { --bg: #0b1417; --fg: #dcebee; --muted: #86a1a8; --line: #22363b; --surface: #111e22; --ev: #fb923c; --ev-bg: #2a1609; --pg: #67e8f9; --pg-bg: #12333b; --accent: #22d3ee; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--font); }
+.wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 24px 40px; max-width: 860px; margin: 0 auto; display: grid; gap: 18px; }
+h1 { font-size: 20px; margin: 0; text-wrap: balance; }
+p { margin: 0; color: var(--muted); line-height: 1.7; }
+.cals { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
+figure { margin: 0; display: grid; gap: 8px; min-width: 0; }
+figcaption b { font-size: 15px; }
+figcaption span { display: block; font-size: 13px; color: var(--muted); line-height: 1.6; }
+.cal { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; max-width: 380px; width: 100%; justify-self: center; }
+.cal-h { padding: 10px 12px 6px; font-weight: 800; font-size: 18px; }
+.cal-h small { font-size: 12px; color: var(--muted); margin-left: 6px; font-weight: 600; }
+.dow { display: grid; grid-template-columns: repeat(7, 1fr); font-size: 10px; text-align: center; color: var(--muted); padding-bottom: 4px; }
+.dow span:first-child { color: #dc2626; } .dow span:last-child { color: #2563eb; }
+.week { position: relative; display: grid; grid-template-columns: repeat(7, 1fr); border-top: 1px solid var(--line); }
+.day { min-width: 0; padding: 3px 3px 0; border-left: 1px solid var(--line); }
+.day:first-child { border-left: none; }
+.day .n { font-size: 12px; font-weight: 800; display: inline-grid; place-items: center; min-width: 20px; height: 20px; border-radius: 10px; }
+.day.out .n { opacity: .35; }
+.day.today .n { background: var(--accent); color: #fff; }
+.day.sun .n { color: #dc2626; } .day.sat .n { color: #2563eb; } .day.today.sun .n, .day.today.sat .n { color: #fff; }
+.lines { position: absolute; left: 0; right: 0; top: 26px; }
+.ln { position: absolute; height: 14px; display: flex; align-items: center; font-size: 9px; font-weight: 800; white-space: nowrap; }
+/* イベント: 細い線 */
+.ln.ev { color: var(--ev); }
+.ln.ev .lb { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: 0 3px; border: 1.2px solid currentColor; border-radius: 4px; background: var(--ev-bg); line-height: 11px; }
+.ln.ev .lb.cont { border-style: dashed; opacity: .7; background: none; }
+.ln.ev i { flex: 1; min-width: 3px; border-top: 1.5px solid currentColor; opacity: .75; }
+.ln.ev .end { flex: none; padding-left: 2px; }
+.ln.ev .cap { flex: none; width: 2px; height: 12px; background: currentColor; border-radius: 1px; }
+.ln.ev .arr { flex: none; font-size: 9px; line-height: 1; opacity: .8; }
+/* 進行中: 塗りの帯 */
+.ln.pg { background: var(--pg-bg); color: var(--pg); border-radius: 4px; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; display: block; line-height: 14px; }
+.ln.pg.cl { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.ln.pg.cr { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.sep { position: absolute; left: 4px; right: 4px; border-top: 1px dotted var(--line); }
+.foot { padding: 8px 12px 10px; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); }
+.foot i { display: inline-block; width: 14px; vertical-align: middle; margin-right: 4px; }
+.foot .e { border-top: 1.5px solid var(--ev); } .foot .p { height: 8px; background: var(--pg-bg); border-radius: 2px; }
+.data { font-size: 13px; color: var(--muted); line-height: 1.8; }
+.data b { color: var(--fg); }
+ul.pts { margin: 0; padding-left: 1.2em; line-height: 1.85; font-size: 14px; }
+.hidden-note { color: var(--ev); font-weight: 700; }
+.ln.more { color: var(--ev); cursor: pointer; border: 1.2px dashed currentColor; border-radius: 4px; background: var(--ev-bg); justify-content: center; padding: 0 3px; overflow: hidden; }
+.ln.more span { overflow: hidden; text-overflow: ellipsis; }
+.ln.more + .ln.more { }
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.tabs button { font: inherit; font-size: 14px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; }
+.tabs button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.pop { border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 10px 12px; font-size: 13px; line-height: 1.8; max-width: 380px; width: 100%; justify-self: center; }
+.pop b { display: block; margin-bottom: 2px; }
+.pop .r { display: flex; gap: 8px; border-top: 1px solid var(--line); padding: 3px 0; }
+.pop .r span:first-child { flex: 1; border-left: 3px solid var(--ev); padding-left: 6px; font-weight: 700; }
+.pop .r span:last-child { color: var(--muted); }
+</style>
+
+<div class="wrap">
+  <h1>イベントの線：現行と案</h1>
+  <p>同じ予定（2026年11月）を、今の出し方と案で並べました。今日は 11/25 です。</p>
+  <div class="tabs"><button type="button" id="t-norm" aria-pressed="true">ふつうの月（6件）</button><button type="button" id="t-many" aria-pressed="false">11/15の週に10件重なる</button></div>
+  <div class="data" id="data"></div>
+  <div class="cals">
+    <figure>
+      <figcaption><b>現行</b><span>1週に2本まで。前の週から続く線が先に場所を取り、週の途中から始まるものは押し出される</span></figcaption>
+      <div class="cal" id="cur"></div>
+      <span class="hidden-note" id="cur-hidden"></span>
+    </figure>
+    <figure>
+      <figcaption><b>案</b><span>イベントは4段まで伸ばす。超えたら4段目に「ほか〇件」を、件数が変わる日で区切って出す。押すとその期間の一覧</span></figcaption>
+      <div class="cal" id="new"></div>
+      <div class="pop" id="pop" hidden></div>
+    </figure>
+  </div>
+  <ul class="pts">
+    <li><b>いつから</b>：始まりの日にだけ、塗った名札を出します。続きの週は「‹ …名前」と点線の札にして、始まりと見分けます。</li>
+    <li><b>いつまで</b>：終わりの日に縦の止め線と「〜11/20」を出します。次の週へ続くときは、線の右端に「›」を付けます。</li>
+    <li><b>段</b>：週ごとに、空いている一番上の段に入れます。終わったイベントの段は、その週のうちに次のイベントが使います。同じ高さでも出せる数が増えます。</li>
+    <li><b>イベントとやること</b>：イベントの段を上にまとめます。進行中のやること（塗りの帯）はその下に点線で区切って並べ、混ぜません。</li>
+    <li><b>入りきらないとき</b>：イベントは4段まで。超えたら、その週に<b>始まる</b>イベントと<b>終わる</b>イベントを先に線で出します。始まりも終わりもその週に無い、続いているだけのものから「ほか〇件」に入れます。</li>
+    <li><b>「ほか〇件」の帯</b>：週の頭から引かず、隠れたイベントがかかっている日だけに出します。件数が変わる日で区切るので、区切り目が隠れたイベントの始まりと終わりの日になります。押すとその期間のイベントを一覧で出します。</li>
+  </ul>
+</div>
+
+<script>
+const Y = 2026, M = 10, TODAY = '2026-11-25'
+const NORMAL = [
+  { id: 'A', text: '忘年会予約受付', start: '2026-11-02', end: '2026-11-27', kind: 'ev' },
+  { id: 'B', text: '年末フェア', start: '2026-11-10', end: '2026-11-20', kind: 'ev' },
+  { id: 'C', text: '試食会', start: '2026-11-12', end: '2026-11-12', kind: 'ev' },
+  { id: 'E', text: '棚卸強化週間', start: '2026-11-16', end: '2026-11-21', kind: 'ev' },
+  { id: 'D', text: '新メニュー告知', start: '2026-11-18', end: '2026-11-30', kind: 'ev' },
+  { id: 'F', text: '感謝デー', start: '2026-11-26', end: '2026-11-26', kind: 'ev' },
+]
+const MANY = [...NORMAL,
+  { id: 'G', text: '新人研修', start: '2026-11-15', end: '2026-11-18', kind: 'ev' },
+  { id: 'H', text: '歳末セール', start: '2026-11-16', end: '2026-11-19', kind: 'ev' },
+  { id: 'I', text: '仕入先フェア', start: '2026-11-17', end: '2026-11-17', kind: 'ev' },
+  { id: 'J', text: '産直市', start: '2026-11-18', end: '2026-11-21', kind: 'ev' },
+  { id: 'K', text: '予約強化', start: '2026-11-19', end: '2026-11-24', kind: 'ev' },
+  { id: 'L', text: '店内装飾', start: '2026-11-20', end: '2026-11-20', kind: 'ev' },
+]
+let EVENTS = NORMAL
+const PROG = [
+  { id: 'P1', text: '冷蔵庫の買い替え', start: '2026-11-09', end: '2026-11-24', kind: 'pg' },
+  { id: 'P2', text: '求人', start: '2026-11-20', end: '2026-12-05', kind: 'pg' },
+]
+const key = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const md = k => `${Number(k.slice(5, 7))}/${Number(k.slice(8, 10))}`
+const days = (a, b) => Math.round((new Date(b) - new Date(a)) / 864e5) + 1
+function weeks() {
+  const first = new Date(Y, M, 1).getDay(), last = new Date(Y, M + 1, 0).getDate(), rows = Math.ceil((first + last) / 7)
+  return Array.from({ length: rows }, (_, r) => Array.from({ length: 7 }, (_, c) => { const d = new Date(Y, M, r * 7 + c - first + 1); return { k: key(d), n: d.getDate(), out: d.getMonth() !== M, dow: c } }))
+}
+function frame(el) {
+  el.innerHTML = `<div class="cal-h">11月<small>2026</small></div><div class="dow">${'日月火水木金土'.split('').map(x => `<span>${x}</span>`).join('')}</div>`
+}
+function weekEl(w) {
+  const div = document.createElement('div'); div.className = 'week'
+  div.innerHTML = w.map(d => `<div class="day ${d.out ? 'out' : ''} ${d.k === TODAY ? 'today' : ''} ${d.dow === 0 ? 'sun' : d.dow === 6 ? 'sat' : ''}"><span class="n">${d.n}</span></div>`).join('') + '<div class="lines"></div>'
+  return div
+}
+const pct = c => `calc(${c} * 100% / 7)`
+function place(el, a, b, lane) { el.style.left = `calc(${pct(a)} + 2px)`; el.style.width = `calc(${pct(b - a + 1)} - 4px)`; el.style.top = lane * 16 + 'px' }
+function weekRange(w, s) {
+  const ks = w.map(d => d.k)
+  if (!(s.start <= ks[6] && s.end >= ks[0])) return null
+  const a = Math.max(0, ks.findIndex(k => k >= s.start)), bi = ks.findLastIndex(k => k <= s.end)
+  return { a, b: bi < 0 ? 6 : bi, contL: s.start < ks[0], contR: s.end > ks[6], endHere: s.end <= ks[6] }
+}
+
+// ── 現行: 週ごとに、イベント→進行中、始まりの順で2本まで ──
+function renderCurrent() {
+  const el = document.getElementById('cur'); frame(el)
+  const all = [...EVENTS, ...PROG]
+  const hiddenNote = []
+  weeks().forEach(w => {
+    const div = weekEl(w), L = div.querySelector('.lines')
+    const hit = all.map(s => ({ s, r: weekRange(w, s) })).filter(x => x.r)
+      .sort((x, y) => (x.s.kind === 'ev' ? -1 : 0) - (y.s.kind === 'ev' ? -1 : 0) || x.s.start.localeCompare(y.s.start))
+    hit.slice(0, 2).forEach(({ s, r }, lane) => {
+      const ln = document.createElement('span'); place(ln, r.a, r.b, lane)
+      if (s.kind === 'ev') {
+        ln.className = 'ln ev'
+        const endMark = r.endHere && days(s.start, s.end) >= 4 && r.b - r.a >= 1
+        ln.innerHTML = `<span class="lb">${r.contL ? '…' : ''}${s.text}</span><i></i>${endMark ? `<span class="end">〜${md(s.end)}</span>` : ''}`
+      } else { ln.className = 'ln pg' + (r.contL ? ' cl' : '') + (r.contR ? ' cr' : ''); ln.textContent = (r.contL ? '… ' : '') + s.text }
+      L.appendChild(ln)
+    })
+    const hid = hit.slice(2).map(x => x.s.text)
+    if (hid.length) hiddenNote.push(`${md(w[0].k)}の週: ${hid.join('・')}`)
+    div.querySelector('.day').parentElement.style.height = (26 + 2 * 16 + 22) + 'px'
+    el.appendChild(div)
+  })
+  el.insertAdjacentHTML('beforeend', '<div class="foot"><span><i class="e"></i>イベント</span><span><i class="p"></i>進行中</span></div>')
+  document.getElementById('cur-hidden').textContent = '出ていないもの → ' + hiddenNote.join(' ／ ')
+}
+
+// ── 案: 月全体で段を決める（イベントが上、進行中は下）。全部出す ──
+function pack(list) {
+  const lanes = []   // 各段の最後の終わりの日
+  const out = new Map()
+  ;[...list].sort((a, b) => a.start.localeCompare(b.start) || (a._s || '').localeCompare(b._s || '') || b.end.localeCompare(a.end)).forEach(s => {
+    let i = lanes.findIndex(end => end < s.start)
+    if (i < 0) { i = lanes.length; lanes.push('') }
+    lanes[i] = s.end; out.set(s.id, i)
+  })
+  return { lane: out, n: lanes.length }
+}
+const LMAX = 4
+function renderNew() {
+  const el = document.getElementById('new'); frame(el)
+  document.getElementById('pop').hidden = true
+  const ws = weeks()
+  const lo = ws[0][0].k, hi = ws.at(-1)[6].k
+  const vis = l => l.filter(s => s.start <= hi && s.end >= lo)
+  ws.forEach(w => {
+    const ks = w.map(d => d.k)
+    // その週に始まる → その週に終わる → 続いているだけ の順に段を取る（同じなら始まりの順）
+    const rank = s => (s.start >= ks[0] ? 0 : s.end <= ks[6] ? 1 : 2)
+    const evs = vis(EVENTS).map(s => ({ s, r: weekRange(w, s) })).filter(x => x.r)
+      .sort((x, y) => rank(x.s) - rank(y.s) || x.s.start.localeCompare(y.s.start) || y.s.end.localeCompare(x.s.end))
+    const fit = (cap) => {
+      const occ = Array.from({ length: cap }, () => Array(7).fill(false)), shown = [], hidden = []
+      evs.forEach(x => {
+        const li = occ.findIndex(row => row.slice(x.r.a, x.r.b + 1).every(v => !v))
+        if (li < 0) { hidden.push(x); return }
+        for (let c = x.r.a; c <= x.r.b; c++) occ[li][c] = true
+        shown.push({ ...x, lane: li })
+      })
+      return { shown, hidden }
+    }
+    let { shown, hidden } = fit(LMAX)
+    if (hidden.length) ({ shown, hidden } = fit(LMAX - 1))
+    const nE = hidden.length ? LMAX : (shown.length ? Math.max(...shown.map(x => x.lane)) + 1 : 0)
+    const div = weekEl(w), L = div.querySelector('.lines')
+    shown.forEach(({ s, r, lane }) => {
+      const ln = document.createElement('span'); ln.className = 'ln ev'; place(ln, r.a, r.b, lane)
+      const oneDay = s.start === s.end
+      const showEnd = r.endHere && !oneDay && r.b - r.a >= 1
+      ln.innerHTML = (r.contL ? `<span class="arr">‹</span><span class="lb cont">…${s.text}</span>` : `<span class="lb">${s.text}</span>`)
+        + (oneDay ? '' : '<i></i>')
+        + (showEnd ? `<span class="end">〜${md(s.end)}</span>` : '')
+        + (r.endHere && !oneDay ? '<span class="cap"></span>' : '')
+        + (r.contR ? '<span class="arr">›</span>' : '')
+      L.appendChild(ln)
+    })
+    // ほか〇件: 件数が変わる日で区切る
+    if (hidden.length) {
+      const cnt = ks.map((k, c) => hidden.filter(x => x.r.a <= c && c <= x.r.b))
+      let c = 0
+      while (c < 7) {
+        if (!cnt[c].length) { c++; continue }
+        let e = c; const ids = cnt[c].map(x => x.s.id).join()
+        while (e + 1 < 7 && cnt[e + 1].map(x => x.s.id).join() === ids) e++
+        const list = cnt[c], n = list.length
+        const ln = document.createElement('span'); ln.className = 'ln more'; place(ln, c, e, LMAX - 1)
+        ln.innerHTML = `<span>${e > c ? `ほか${n}件のイベント` : `ほか${n}件`}</span>`
+        ln.title = list.map(x => x.s.text).join('、')
+        const from = ks[c], to = ks[e]
+        ln.onclick = () => showPop(from, to, list.map(x => x.s))
+        L.appendChild(ln)
+        c = e + 1
+      }
+    }
+    const usedP = vis(PROG).filter(s => weekRange(w, s))
+    const pp = pack(usedP.map(s => ({ ...s, start: s.start < ks[0] ? ks[0] : s.start, end: s.end > ks[6] ? ks[6] : s.end })))
+    const nP = usedP.length ? pp.n : 0
+    if (nE && nP) { const sp = document.createElement('span'); sp.className = 'sep'; sp.style.top = (nE * 16 - 1) + 'px'; L.appendChild(sp) }
+    usedP.forEach(s => {
+      const r = weekRange(w, s)
+      const ln = document.createElement('span'); ln.className = 'ln pg' + (r.contL ? ' cl' : '') + (r.contR ? ' cr' : '')
+      place(ln, r.a, r.b, nE + pp.lane.get(s.id) + (nE ? .25 : 0)); ln.textContent = (r.contL ? '… ' : '') + s.text
+      L.appendChild(ln)
+    })
+    div.style.height = (26 + (nE + nP) * 16 + (nE && nP ? 4 : 0) + 22) + 'px'
+    el.appendChild(div)
+  })
+  el.insertAdjacentHTML('beforeend', '<div class="foot"><span><i class="e"></i>イベント（塗りの札＝始まり・止め線＝終わり）</span><span><i class="p"></i>進行中</span></div>')
+}
+function showPop(from, to, list) {
+  const p = document.getElementById('pop'); p.hidden = false
+  p.innerHTML = `<b>${md(from)}${from !== to ? `〜${md(to)}` : ''} のほかのイベント</b>` + list.sort((a, b) => a.start.localeCompare(b.start))
+    .map(s => `<div class="r"><span>${s.text}</span><span>${s.start === s.end ? md(s.start) : `${md(s.start)}〜${md(s.end)}`}</span></div>`).join('')
+}
+function setData(many) {
+  EVENTS = many ? MANY : NORMAL
+  document.getElementById('t-norm').setAttribute('aria-pressed', !many)
+  document.getElementById('t-many').setAttribute('aria-pressed', many)
+  document.getElementById('data').innerHTML = '<b>イベント</b>：' + EVENTS.map(s => `${s.text} ${s.start === s.end ? md(s.start) : `${md(s.start)}〜${md(s.end)}`}`).join(' ／ ')
+    + '<br><b>進行中のやること</b>：' + PROG.map(s => `${s.text} ${md(s.start)}〜${md(s.end)}`).join(' ／ ')
+  renderCurrent(); renderNew()
+}
+document.getElementById('t-norm').onclick = () => setData(false)
+document.getElementById('t-many').onclick = () => setData(true)
+setData(false)
+</script>
