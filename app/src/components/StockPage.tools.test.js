@@ -53,7 +53,7 @@ describe('要補充', () => {
     expect(chip('要確認')).toBeTruthy()
   })
 
-  it('発注点を入れた品目だけを数え、件数を出す（直近の棚卸の数で判定・発注点の無い品目は数えない）', async () => {
+  it('発注点を入れた品目だけを数え、件数を出す（在庫＝理論在庫で判定・発注点の無い品目は数えない）', async () => {
     const { useHistory } = await import('../composables/useHistory.js')
     useHistory().commitSnapshot({ date: '2026-11-01', savedAt: '2026-11-01T10:00:00.000Z', sessionId: 's-low',
       items: [{ item: 'トマト', qty: 2, unit: '個' }, { item: '塩', qty: 0, unit: '袋' }] })
@@ -67,6 +67,22 @@ describe('要補充', () => {
     await click(chip('要補充'))
     expect(rowNames()).toEqual(['トマト', '塩'])
     expect(host.textContent).not.toContain('品目 2 ・')
+  })
+})
+
+describe('要補充は理論在庫で（PROD-001）', () => {
+  it('棚卸の後に入庫すると要補充から外れ、出庫すると入る', async () => {
+    const { useHistory } = await import('../composables/useHistory.js')
+    const { useMovements } = await import('../composables/useMovements.js')
+    useHistory().commitSnapshot({ date: '2026-11-01', savedAt: '2026-11-01T10:00:00.000Z', sessionId: 's-th',
+      items: [{ item: 'トマト', qty: 2, unit: '個' }, { item: '塩', qty: 5, unit: '袋' }] })
+    cfg.setReorderPoint('トマト', 3)
+    cfg.setReorderPoint('塩', 3)
+    useMovements().saveMovement({ type: 'in', date: '2026-11-02', lines: [{ item: 'トマト', qty: 4, unit: '個' }] })
+    useMovements().saveMovement({ type: 'out', date: '2026-11-02', lines: [{ item: '塩', qty: 3, unit: '袋' }] })
+    await mountPage()
+    await click(chip('要補充'))
+    expect(rowNames()).toEqual(['塩'])
   })
 })
 
@@ -147,11 +163,11 @@ describe('操作の説明', () => {
   it('✕ で消すと、その端末では出さない。各種設定から戻せる', async () => {
     const hints = await import('../composables/useHints.js')
     await mountPage()
-    expect(host.textContent).toContain('直近の棚卸で数えた数')
+    expect(host.textContent).toContain('棚卸の数に入庫・出庫を足し引きした数')
     await click(host.querySelector('.sp-hint .dh-x'))
-    expect(host.textContent).not.toContain('直近の棚卸で数えた数')
+    expect(host.textContent).not.toContain('棚卸の数に入庫・出庫を足し引きした数')
     hints.restoreHints()
     await tick()
-    expect(host.textContent).toContain('直近の棚卸で数えた数')
+    expect(host.textContent).toContain('棚卸の数に入庫・出庫を足し引きした数')
   })
 })

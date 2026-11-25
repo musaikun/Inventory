@@ -1,4 +1,4 @@
-// 直近の棚卸の数・発注基準・要補充の判定。
+// 在庫（理論在庫＝直近の棚卸＋その後の入庫−出庫）・発注基準・要補充の判定（User 2026-11-09・D-035・PROD-001）。
 // 仕入れの「在庫」タブと「品目・在庫」ページで同じ数字を出すために共通化した。
 // 呼ぶたびに computed を作るので、ページ（コンポーネント）の setup で1回だけ呼ぶ。
 import { ref, computed } from 'vue'
@@ -27,12 +27,12 @@ export function useStockView() {
     const v = Number(config.reorderPoints?.[item])
     return Number.isFinite(v) && v >= 0 ? v : null
   }
-  // 要補充判定: 発注点を手で入れた品目だけ「直近の棚卸の数 ≤ 発注点」（User決定 2026-10-03・2026-11-02）。
+  // 要補充判定: 発注点を手で入れた品目だけ「在庫（理論在庫） ≤ 発注点」（User決定 2026-10-03・PROD-001 2026-11-25）。
   // 発注点の無い品目は、見込みが0でも要補充にしない（自動の仮・実績は発注点の画面の目安で、ここでは数えない）
   function needsReorder(item) {
     const rp = reorderOf(item)
     if (rp == null) return false
-    const t = countedOf(item)
+    const t = stockOf(item)
     return t != null && t <= rp
   }
 
@@ -94,50 +94,50 @@ export function useStockView() {
   function suggestedReorder(item) { return reorderSuggestionOf(item)?.value ?? null }
   function suggestBasisLabel(item) { return reorderSuggestionOf(item)?.basis ?? '' }
 
-  // ── 直近の棚卸の数（全品目を一括）─────────────────────────────
-  // 以前は「直近の棚卸＋入庫−出庫」の理論在庫を出していたが、使った分（消費）が入らず
-  // 日をまたぐと当てにならないので、棚卸で数えた数そのものにした（User決定 2026-11-02）。
-  // 入出庫を渡さなければ theoreticalStock は基準点（直近の棚卸）だけを返す。
+  // ── 在庫＝理論在庫（全品目を一括）─────────────────────────────
+  // 直近の棚卸を基準に、その後の入庫を足し出庫を引く。在庫タブはこの数を正にする（User 2026-11-09・D-035・PROD-001）。
+  // 使った分は出庫で記録したときだけ減る。棚卸で数えた数との差は棚卸の結果に出す（services/stockGap.js）
   const _snaps = computed(() => getSnapshots())
   const _moves = computed(() => getMovements())
   const stockMap = computed(() => {
-    const snaps = _snaps.value
-    const m = {}
-    for (const item of allItems.value) m[item] = theoreticalStock(item, snaps, [])
-    return m
-  })
-  function countedOf(item) { return stockMap.value[item]?.qty ?? null }
-  // 期限の束（どの入庫が残っているか）を割り当てるためだけの残り（棚卸＋入庫−出庫）。
-  // 当てにならない数なので、画面に数字としては出さない（User決定 2026-11-02）
-  const _remainMap = computed(() => {
     const snaps = _snaps.value, moves = _moves.value
     const m = {}
-    for (const item of allItems.value) m[item] = theoreticalStock(item, snaps, moves)?.qty ?? null
+    for (const item of allItems.value) m[item] = theoreticalStock(item, snaps, moves)
     return m
   })
-  function remainForDatesOf(item) { return _remainMap.value[item] ?? null }
+  function stockOf(item) { return stockMap.value[item]?.qty ?? null }
+  // 期限の束（どの入庫が残っているか）の割り当てにも同じ数を使う
+  function remainForDatesOf(item) { return stockOf(item) }
   function unitOf(item) { return config.units?.[item] ?? '' }
   function _md(d) {
     const [, mo, dd] = String(d || '').split('-').map(Number)
     return mo && dd ? `${mo}/${dd}` : ''
   }
+  const _n = v => String(Math.round(v * 1000) / 1000)
+  // 数の内訳。例: 「11/20 棚卸 10 ＋入庫 5 −出庫 3」
   function basisLabel(item) {
     const t = stockMap.value[item]
-    return t?.baseDate ? `${_md(t.baseDate)} の棚卸で数えた数` : '棚卸の記録なし'
+    if (!t) return '棚卸・入出庫の記録なし'
+    const parts = [t.baseDate ? `${_md(t.baseDate)} 棚卸 ${_n(t.baseQty)}` : '棚卸なし']
+    if (t.inQty) parts.push(`＋入庫 ${_n(t.inQty)}`)
+    if (t.outQty) parts.push(`−出庫 ${_n(t.outQty)}`)
+    return parts.join(' ')
   }
 
   // ── 入数（ケース）─────────────────────────────
   function lotOf(item) { return parseLot(config.lotSizes?.[item]) }
 
-  // 一覧の数字に添える根拠（短く）。例: 「9/20 棚卸」。棚卸が無ければ null
+  // 一覧の数字に添える根拠（短く）。例: 「9/20 棚卸」「9/20 棚卸から」（その後に入出庫あり）「入出庫のみ」。記録が無ければ null
   function baseShort(item) {
     const t = stockMap.value[item]
-    return t?.baseDate ? `${_md(t.baseDate)} 棚卸` : null
+    if (!t) return null
+    if (!t.baseDate) return '入出庫のみ'
+    return `${_md(t.baseDate)} 棚卸${t.moveCount ? 'から' : ''}`
   }
 
   return {
     allItems, reorderOf, needsReorder, reorderCount, reorderSetCount, itemMovements, consumptionHintOf, storeReadiness,
     schedOrderDays, reorderHorizon, baseOf, replenishOf, suggestedReorder, suggestBasisLabel,
-    _snaps, _moves, stockMap, countedOf, remainForDatesOf, unitOf, basisLabel, baseShort, lotOf,
+    _snaps, _moves, stockMap, stockOf, remainForDatesOf, unitOf, basisLabel, baseShort, lotOf,
   }
 }

@@ -3,6 +3,8 @@ import LineIcon from './LineIcon.vue'
 import { ref, computed, reactive } from 'vue'
 import DismissibleHint from './DismissibleHint.vue'
 import { useHistory } from '../composables/useHistory.js'
+import { useMovements } from '../composables/useMovements.js'
+import { stockGap } from '../services/stockGap.js'
 import { useHorizontalSwipe } from '../composables/useSwipe.js'
 import InventoryTable from './InventoryTable.vue'
 import { participantStats as buildParticipantStats, sharedItemCounts, toEpochMs } from '../services/participantStats.js'
@@ -324,6 +326,9 @@ const reportInput = computed(() => ({
 const report = computed(() =>
   buildSessionReport(reportInput.value, findPrevSnapshot(props.snapshot, getSnapshots()))
 )
+// 帳簿（前の棚卸＋入庫−出庫）との差（PROD-001）
+const { getMovements } = useMovements()
+const gap = computed(() => stockGap(props.snapshot, getSnapshots(), getMovements()))
 function onDownload() {
   const csv  = exportSnapshotCSV(props.snapshot, { categoryOrder: categoryOrderOf(liveConfig) })
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
@@ -431,7 +436,7 @@ function onDownload() {
       @touchend.passive="reportSwipe.onTouchEnd"
       @touchcancel.passive="reportSwipe.onTouchCancel"
     >
-      <SessionReportPanel :report="report" />
+      <SessionReportPanel :report="report" :gap="gap" />
     </div>
 
     <!-- スライドパネル（3枚固定） -->

@@ -16,7 +16,10 @@ import { computed, reactive } from 'vue'
 const props = defineProps({
   report:    { type: Object,  required: true },
   foldLists: { type: Boolean, default: false },
+  // 帳簿（前の棚卸＋入庫−出庫）との差。services/stockGap の戻り値。渡されなければ出さない（PROD-001）
+  gap:       { type: Object,  default: null },
 })
+const fmtGap = n => `${n > 0 ? '+' : '−'}${Math.abs(n)}`
 const openLists = reactive({})
 const isOpen = key => !props.foldLists || !!openLists[key]
 function toggleList(key) { if (props.foldLists) openLists[key] = !openLists[key] }
@@ -147,6 +150,23 @@ function fmtYen(n) {
     </div>
     <div v-else class="rp-card rp-empty">前回の棚卸が無いため、比較はありません</div>
 
+    <!-- 帳簿との差（数えた数 − 前の棚卸＋入庫−出庫）。マイナスは使った分・ロス（User 2026-11-25・PROD-001） -->
+    <div v-if="gap && gap.compared" class="rp-card rp-gap">
+      <component :is="foldLists ? 'button' : 'div'" :type="foldLists ? 'button' : undefined"
+        :class="['rp-card-title', { 'rp-fold': foldLists }]" :aria-expanded="foldLists ? String(isOpen('gap')) : undefined"
+        @click="toggleList('gap')">
+        帳簿との差 {{ gap.diffCount }}品目<small> / {{ gap.compared }}品目</small><span v-if="foldLists" class="rp-fold-arrow">{{ isOpen('gap') ? '▲' : '▼' }}</span>
+      </component>
+      <div class="rp-sub">帳簿＝前の棚卸＋入庫−出庫。マイナスは使った分・ロスです</div>
+      <div v-if="isOpen('gap') && gap.list.length" class="rp-qty-list">
+        <div v-for="r in gap.list" :key="r.item" class="rp-mover">
+          <span class="rp-mover-name">{{ r.item }}</span>
+          <span :class="['rp-mover-diff', r.gap < 0 ? 'diff-down' : 'diff-up']">帳簿 {{ r.book }} → {{ r.counted }}{{ r.unit }}（{{ fmtGap(r.gap) }}）</span>
+        </div>
+      </div>
+      <div v-else-if="!gap.list.length" class="rp-sub">すべて帳簿どおりです</div>
+    </div>
+
     <!-- 担当者 -->
     <div v-if="report.people.count" class="rp-card">
       <div class="rp-card-title">担当者（{{ report.people.count }}名）</div>
@@ -173,6 +193,7 @@ function fmtYen(n) {
   border-radius: 10px; background: var(--surface, #fff);
 }
 .rp-card-title { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+.rp-card-title small { font-weight: 600; opacity: .7; }
 .rp-sub  { font-size: 12px; opacity: .75; margin-top: 4px; }
 .rp-warn { font-size: 12px; margin-top: 6px; color: var(--danger, #c0392b); font-weight: 600; line-height: 1.5; }
 .rp-empty { font-size: 13px; opacity: .7; text-align: center; }

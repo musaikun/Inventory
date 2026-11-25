@@ -9,6 +9,9 @@ import { useEscapeKey } from '../composables/useEscapeKey.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { canSeeMoney } from '../composables/useAuth.js'
 import { buildSessionReport } from '../services/sessionReport.js'
+import { stockGap } from '../services/stockGap.js'
+import { useHistory } from '../composables/useHistory.js'
+import { useMovements } from '../composables/useMovements.js'
 
 const props = defineProps({
   snapshot: { type: Object, required: true },   // 完了した棚卸
@@ -19,6 +22,10 @@ useEscapeKey(() => emit('close'))
 onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 
 const report = computed(() => buildSessionReport(props.snapshot, props.prev))
+// 帳簿（前の棚卸＋入庫−出庫）と差があった品目の数（PROD-001）。中身は「結果を見る」で
+const { getSnapshots } = useHistory()
+const { getMovements } = useMovements()
+const gap = computed(() => stockGap(props.snapshot, getSnapshots(), getMovements()))
 const showMoney = computed(() => canSeeMoney.value)
 const fmtYen = n => '¥' + Math.round(n).toLocaleString('ja-JP')
 const diffText = computed(() => {
@@ -51,6 +58,7 @@ const minutes = computed(() => {
           <li v-if="showMoney && report.value.unpricedCount > 0" class="warn">
             単価のない品目 <b>{{ report.value.unpricedCount }}</b><small>金額に入っていません</small>
           </li>
+          <li v-if="gap.diffCount > 0" class="warn">帳簿と差がある品目 <b>{{ gap.diffCount }}</b><small>使った分・ロス</small></li>
           <li v-if="report.people.count > 1">数えた人 <b>{{ report.people.count }}人</b></li>
           <li v-if="minutes != null">かかった時間 <b>{{ minutes }}分</b></li>
         </ul>

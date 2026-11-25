@@ -3,7 +3,7 @@
  * ホームの品目シート（User決定 2026-10-03・モックで確認）。
  *
  * 一覧の行をタップして開く。ここで入庫・出庫をその場で登録できる。
- * - 直近の棚卸で数えた数（入出庫は足し引きしない・2026-11-02）
+ * - 在庫＝理論在庫（直近の棚卸＋入庫−出庫・PROD-001）。下に内訳
  * - 入庫欄と出庫欄は別々。両方に入れたら差し引かず、入庫1件・出庫1件として記録する
  * - 登録ボタンは数を入れたときだけ出す
  * - 品目の情報（写真・単位・入数・ジャンル・単価・商品コード）と「直す」
@@ -25,7 +25,7 @@ import { expiryOf, expiryLabel } from '../services/stockDates.js'
 const props = defineProps({
   item:      { type: String, required: true },
   unit:      { type: String, default: '' },
-  counted:   { type: Number, default: null },   // 直近の棚卸で数えた数
+  counted:   { type: Number, default: null },   // 在庫（理論在庫）
   basis:     { type: String, default: '' },
   lot:       { type: [Number, String], default: null },
   price:     { type: [Number, String], default: null },
@@ -152,7 +152,7 @@ const imgSrc = computed(() => itemImageUrl(props.imageRef, 't'))
 
       <div class="is-stock">
         <div>
-          <div class="is-lbl">直近の棚卸</div>
+          <div class="is-lbl">在庫</div>
           <div class="is-val">
             <template v-if="counted != null">{{ fmt(counted) }}<small>{{ unit }}</small></template>
             <template v-else>—</template>
