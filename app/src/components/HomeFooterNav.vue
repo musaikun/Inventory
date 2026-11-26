@@ -32,7 +32,7 @@ const ALL_ITEMS = [
 const ITEMS = computed(() => ALL_ITEMS.filter(it => it.tab !== 'report' || canSeeReport.value))   // レポートは「レポート・分析・証跡」の人だけ
 // 1つの光をタブの位置へ動かす。動いている間だけ横に伸ばして「流れた」感じを出す
 const activeIdx = computed(() => ITEMS.value.findIndex(it => it.tab === props.active))
-const orbStyle = computed(() => ({ left: `${((activeIdx.value + 0.5) / ITEMS.value.length) * 100}%` }))
+const orbStyle = computed(() => ({ transform: `translateX(${((activeIdx.value + 0.5) / ITEMS.value.length) * 100}%)` }))
 const moving = ref(false)
 let _mt = null
 watch(activeIdx, (v, o) => {
@@ -47,7 +47,7 @@ const badge = computed(() => (newTasks.value.length ? { text: '新着', fresh: t
 
 <template>
   <nav v-show="modalLayerCount === 0" class="bnav" aria-label="メニュー">
-    <i v-if="activeIdx >= 0" :class="['bnav-orb', { moving }]" :style="orbStyle" aria-hidden="true"></i>
+    <span v-if="activeIdx >= 0" class="bnav-track" :style="orbStyle" aria-hidden="true"><i :class="['bnav-orb', { moving }]"></i></span>
     <button
       v-for="it in ITEMS" :key="it.tab"
       :class="{ on: active === it.tab }" type="button"
@@ -70,17 +70,23 @@ const badge = computed(() => (newTasks.value.length ? { text: '新着', fresh: t
 .bnav button.on { color: var(--primary, #0e7490); font-weight: 800; }
 /* 選んでいるタブは、アイコンそのものを光らせる（アプリのアイコンの光る輪の色） */
 .bnav-ic { position: relative; display: grid; place-items: center; width: 40px; height: 26px; }
-.bnav-ic svg { position: relative; transition: filter .3s, transform .3s, color .3s; }
+/* アイコンの光彩・拡大・色は補間しない（すぐ切り替える）。光彩は drop-shadow 3重で、補間すると
+   毎フレーム描き直しになりタブ切替が重かった（2026-11-26）。動きは下の光（.bnav-orb）が受け持つ */
+.bnav-ic svg { position: relative; }
 .bnav button.on .bnav-ic svg { color: #0891b2; transform: scale(1.12);
   filter: drop-shadow(0 0 1.5px #a5f3fc) drop-shadow(0 0 5px rgba(34, 211, 238, 1)) drop-shadow(0 0 12px rgba(34, 211, 238, .7)); }
 /* ナビに1つだけの光。選んだタブの下へ流れて移る */
-.bnav-orb { position: absolute; top: 2px; width: 66px; height: 40px; margin-left: -33px; border-radius: 50%; pointer-events: none;
+/* 光の位置は left ではなく、ナビ幅いっぱいの枠（.bnav-track）の translateX で動かす。
+   left の補間は毎フレームのレイアウトになり、GPU に載らない（2026-11-26） */
+.bnav-track { position: absolute; left: 0; top: 0; width: 100%; height: 0; pointer-events: none;
+  transition: transform .42s cubic-bezier(.5, 0, .2, 1); }
+.bnav-orb { position: absolute; left: 0; top: 2px; width: 66px; height: 40px; margin-left: -33px; border-radius: 50%; pointer-events: none;
   background: radial-gradient(closest-side, rgba(34, 211, 238, .6), rgba(52, 211, 153, .28) 55%, transparent);
   filter: blur(2px); animation: bnav-breathe 2.6s ease-in-out infinite;
-  transition: left .42s cubic-bezier(.5, 0, .2, 1), transform .42s cubic-bezier(.5, 0, .2, 1); }
+  transition: transform .42s cubic-bezier(.5, 0, .2, 1); }
 .bnav-orb.moving { animation: none; transform: scaleX(1.8) scaleY(.75); }
 @keyframes bnav-breathe { 0%, 100% { opacity: .8; transform: scale(1); } 50% { opacity: 1; transform: scale(1.1); } }
-@media (prefers-reduced-motion: reduce) { .bnav-ic svg, .bnav-orb { transition: none; animation: none; } .bnav-orb.moving { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .bnav-orb, .bnav-track { transition: none; animation: none; } .bnav-orb.moving { transform: none; } }
 .bnav-badge { position: absolute; top: 0; left: calc(50% + 6px); min-width: 18px; font-size: 10px; font-weight: 800; line-height: 16px; padding: 0 5px; border-radius: 999px; background: #c2410c; color: #fff; }
 .bnav-badge.fresh { background: var(--grad-btn); color: var(--on-grad); }
 </style>

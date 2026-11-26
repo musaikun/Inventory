@@ -169,9 +169,6 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
         </defs>
         <ellipse cx="150" cy="120" rx="120" ry="58" transform="rotate(-18 150 120)" fill="none" :stroke="`url(#${gid})`" stroke-width="9" opacity=".55" :filter="`url(#${gid}-b)`" />
         <ellipse cx="150" cy="120" rx="120" ry="58" transform="rotate(-18 150 120)" fill="none" :stroke="`url(#${gid})`" stroke-width="3.5" />
-        <!-- 輪の上を光が流れる（短い明るい線を輪に沿って回す） -->
-        <ellipse class="ht-spark" cx="150" cy="120" rx="120" ry="58" transform="rotate(-18 150 120)" fill="none" stroke="#e0fdff" stroke-width="3.5" stroke-linecap="round" pathLength="100" :filter="`url(#${gid}-b)`" />
-        <ellipse class="ht-spark core" cx="150" cy="120" rx="120" ry="58" transform="rotate(-18 150 120)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" pathLength="100" />
         <!-- 重なったカードがゆっくり浮き沈みする（少しずつずらして） -->
         <g opacity=".85">
           <g class="ht-card c1"><rect x="150" y="56" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(165,243,252,.22)" stroke="rgba(165,243,252,.7)" stroke-width="1.2" /></g>
@@ -179,6 +176,10 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
           <g class="ht-card c3"><rect x="194" y="32" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(52,211,153,.3)" stroke="rgba(167,243,208,.9)" stroke-width="1.2" /></g>
         </g>
       </svg>
+      <!-- 輪の上を光が流れる。SVG の線（stroke-dashoffset）で回すと毎フレーム描き直しになり、
+           ホームにいる間ずっと重かった（タブ切替のカクつき・2026-11-26）。
+           横と縦の動きを1/4周ずらして重ねると楕円になる。transform だけなので GPU で動く -->
+      <div class="ht-orbit" aria-hidden="true"><div class="ht-ox"><div class="ht-oy"><i class="ht-spark"></i></div></div></div>
       <div class="ht-top">
         <svg width="24" height="24" viewBox="0 0 40 40" aria-hidden="true"><ellipse cx="20" cy="20" rx="16" ry="10" transform="rotate(-18 20 20)" fill="none" :stroke="`url(#${gid})`" stroke-width="3.4" /></svg>
         <span class="ht-brand">{{ APP_NAME }}</span>
@@ -320,18 +321,23 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-ring { position: absolute; right: -80px; top: -6px; opacity: .9; pointer-events: none; }
 .ht-glow { position: absolute; right: 10px; top: -16px; width: 140px; height: 140px; border-radius: 50%; background: radial-gradient(circle, rgba(34,211,238,.35), transparent 70%); filter: blur(6px); pointer-events: none;
   animation: ht-breathe 5s ease-in-out infinite; }
-/* 上部のイメージの動き（アイコンの光る輪）。動きを減らす設定の端末では止める */
-.ht-spark { stroke-dasharray: 7 93; animation: ht-orbit 6s linear infinite; opacity: .9; }
-.ht-spark.core { opacity: 1; }
+/* 上部のイメージの動き（アイコンの光る輪）。動きを減らす設定の端末では止める。
+   .ht-orbit は SVG の楕円（中心 150,120・半径 120×58・-18°）と同じ位置・形の箱 */
+.ht-orbit { position: absolute; right: -50px; top: 56px; width: 240px; height: 116px; transform: rotate(-18deg); pointer-events: none; }
+.ht-ox { position: absolute; left: 0; top: 0; animation: ht-ox 3s cubic-bezier(.37, 0, .63, 1) infinite alternate; }
+.ht-oy { animation: ht-oy 3s cubic-bezier(.37, 0, .63, 1) -1.5s infinite alternate; }
+.ht-spark { display: block; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%;
+  background: radial-gradient(circle, #fff 0 22%, rgba(224, 253, 255, .75) 34%, rgba(165, 243, 252, .25) 58%, transparent 72%); }
+@keyframes ht-ox { from { transform: translateX(0); } to { transform: translateX(240px); } }
+@keyframes ht-oy { from { transform: translateY(0); } to { transform: translateY(116px); } }
 .ht-card { transform-box: fill-box; transform-origin: center; animation: ht-float 4.8s ease-in-out infinite; }
 .ht-card.c2 { animation-delay: -1.6s; }
 .ht-card.c3 { animation-delay: -3.2s; }
-@keyframes ht-orbit { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
 @keyframes ht-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
 @keyframes ht-breathe { 0%, 100% { opacity: .75; transform: scale(1); } 50% { opacity: 1; transform: scale(1.12); } }
 @media (prefers-reduced-motion: reduce) {
-  .ht-spark, .ht-card, .ht-glow { animation: none; }
-  .ht-spark { display: none; }
+  .ht-ox, .ht-oy, .ht-card, .ht-glow { animation: none; }
+  .ht-orbit { display: none; }
 }
 .ht-top { position: relative; display: flex; align-items: center; gap: 8px; }
 .ht-brand { font-weight: 900; letter-spacing: .08em; font-size: 15px; }
