@@ -1,5 +1,5 @@
 // 起動時の読み込み画面：最低1.6秒は見せ、読み込みが終わってから閉じる。終わらなくても6秒で閉じる
-// 完成（名前を出す）からホームへ抜けるまで約1.2秒（輪をくぐる演出）
+// 完成（名前を出す）からホームへ抜けるまで約1.2秒（溶けるように消える）
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { createApp, h, ref, nextTick } from 'vue'
 import StartupSplash from './StartupSplash.vue'
@@ -44,6 +44,9 @@ describe('StartupSplash', () => {
   it('輪の長さは読み込みの進み具合に合わせる', async () => {
     const progress = ref(0.4)
     await mount(ref(false), progress)
+    const ring0 = host.querySelector('.ss-ring')
+    expect(Number(ring0.style.strokeDashoffset)).toBeCloseTo(520)   // 最初は空の輪から描く
+    await new Promise(r => setTimeout(r, 80))
     const ring = host.querySelector('.ss-ring')
     expect(Number(ring.style.strokeDashoffset)).toBeCloseTo(312)   // 520 × (1 − 0.4)
     progress.value = 0.8
