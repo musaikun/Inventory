@@ -24,7 +24,7 @@ Stripe、trial、TWA、Google Play提出は引き続き保留し、D-021以前�
 | OPS-001 | P1 | レビュー待ち | Claude Code | セキュリティイベントの構造化log・masking・observability設定は実装済み（2026-10-09、User指示で Codex から引き取り）。警報の通知先・privacy文面はUser判断、互換日更新は未着手 | [OPS-001.md](tasks/OPS-001.md) |
 | PRIV-001 | P1 | 保留 | Codex | release candidateで分析無効・通信なしを検証 | [PRIV-001.md](tasks/PRIV-001.md) |
 | SEC-005 | P1 | レビュー待ち | Claude Code | 登録のIPレート制限・legacy店舗作成の廃止は実装済み（2026-10-08、User指示で Codex から引き取り）。bot対策の要否はUser判断 | [SEC-005.md](tasks/SEC-005.md) |
-| TEST-002 | P1 | 進行中 | Claude Code | package分離済み。E2E 3本（端末間の履歴・host/guest同期・再接続）とCI。再接続のE2Eでoffline入力が消える不具合を発見・修正。残りはF-001・account削除 | [TEST-002.md](tasks/TEST-002.md) |
+| TEST-002 | P1 | 進行中 | Claude Code | package分離済み。E2E 7本（端末間の履歴・host/guest同期・再接続・ホスト再接続・競合・同日2回の棚卸・account削除）とCI。E2Eで見つけた同期の不具合3件を修正 | [TEST-002.md](tasks/TEST-002.md) |
 
 `DO-001`は重要な既知P1ですが、現時点の監査ではdata破壊を伴わないため、
 ownerと回避策を付けてWeb公開後へ送れる候補です。正式なrelease受容はWEB-001で判断します。

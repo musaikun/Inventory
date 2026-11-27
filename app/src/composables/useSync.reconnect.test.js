@@ -128,3 +128,56 @@ describe('再接続の失敗が続いても、オフライン中の入力を消�
     expect(applied.filter(([n, q]) => n === 'なす' && q === 2)).toEqual([])
   })
 })
+
+describe('再接続時の競合をホストへ知らせるとき、名乗るのはゲスト自身（2026-11-27）', () => {
+  it('conflict_notify の fromName はゲストの名前で、相手（サーバー側の値を入れた人）の名前ではない', async () => {
+    const local = {}
+    sync.registerInventoryGetter(() => local)
+    const { joinRoom } = sync.useSync()
+    const p = joinRoom('ROOMEE')
+    const ws1 = MockWebSocket.instances[0]
+    ws1._open()
+    const before = Date.now() - 60_000
+    ws1._recv({ ...joinedPayload(), inventory: { なす: { qty: 2, unit: '', enteredBy: 'オーナー', updatedAt: before } } })
+    await p
+
+    ws1.close()
+    vi.advanceTimersByTime(500)
+    local['なす'] = { qty: 4, unit: '', enteredBy: '鈴木', updatedAt: Date.now(), localEntry: true }
+    vi.advanceTimersByTime(1100)
+    const ws2 = MockWebSocket.instances[1]
+    ws2._open()
+    // その間にホスト（オーナー）が 6 にしていた
+    ws2._recv({ ...joinedPayload(), inventory: { なす: { qty: 6, unit: '', enteredBy: 'オーナー', updatedAt: Date.now() } } })
+
+    const notes = ws2.sent.map(s => JSON.parse(s)).filter(m => m.type === 'conflict_notify')
+    expect(notes).toEqual([expect.objectContaining({ ingredient: 'なす', fromName: '鈴木', guestQty: 4, hostQty: 6 })])
+  })
+})
+
+describe('ゲスト: ホストが解決した値は、自分の入力の直後でも新しい競合にしない（2026-11-27）', () => {
+  it('競合中の品目に届いた update はそのまま当て、conflict_notify を送り直さない', async () => {
+    const local = {}
+    sync.registerInventoryGetter(() => local)
+    const applied = []
+    sync.setInventoryCallbacks((name, qty) => { applied.push([name, qty]) }, () => {})
+    const { joinRoom } = sync.useSync()
+    const p = joinRoom('ROOMFF')
+    const ws = MockWebSocket.instances[0]
+    ws._open()
+    ws._recv({ ...joinedPayload(), inventory: { なす: { qty: 2, unit: '', enteredBy: 'オーナー', updatedAt: Date.now() - 60_000 } } })
+    await p
+
+    // ゲストが入れた直後に、ホストの 6 が届いて競合 → ホストへ通知・ロック
+    local['なす'] = { qty: 4, unit: '', enteredBy: '鈴木', updatedAt: Date.now(), localEntry: true }
+    ws._recv({ type: 'update', ingredient: 'なす', qty: 6, unit: '', enteredBy: 'オーナー', fromDeviceId: 'host-dev' })
+    expect(ws.sent.map(s => JSON.parse(s)).filter(m => m.type === 'conflict_notify')).toHaveLength(1)
+    expect(sync.lockedIngredients.has('なす')).toBe(true)
+
+    // 1秒後（3秒の窓の中）にホストが合計 10 で解決 → そのまま当てる。もう一度通知しない
+    vi.advanceTimersByTime(1000)
+    ws._recv({ type: 'update', ingredient: 'なす', qty: 10, unit: '', enteredBy: 'オーナー', fromDeviceId: 'host-dev' })
+    expect(applied).toContainEqual(['なす', 10])
+    expect(ws.sent.map(s => JSON.parse(s)).filter(m => m.type === 'conflict_notify')).toHaveLength(1)
+  })
+})

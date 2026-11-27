@@ -512,7 +512,9 @@ function _mergeOnReconnect(serverInv, disc) {
           _onConflictNotify?.(name, server.enteredBy ?? '')
         } else {
           lockedIngredients.add(name)
-          broadcastConflictNotify(name, server.enteredBy ?? '', local.qty, local.unit ?? '', server.qty, server.unit ?? '')
+          // fromName は**この端末（ゲスト自身）**の名前。ホストは「相手: fromName が入れた guestQty」と出す。
+          // 以前は server.enteredBy（相手側の値を入れた人）を送り、ホストのカードが「オーナー: 4」と取り違えていた（2026-11-27）
+          broadcastConflictNotify(name, local.enteredBy || deviceName.value || '', local.qty, local.unit ?? '', server.qty, server.unit ?? '')
         }
         break
       case 'local':
@@ -718,7 +720,14 @@ function _handleMessage(msg) {
       if (msg.fromDeviceId !== deviceId) {
         const currentInv = _getInventory?.()
         const local = currentInv?.[msg.ingredient]
-        if (local) {
+        if (local && state.mode !== 'hosting' && lockedIngredients.has(msg.ingredient)) {
+          // ゲスト: 競合中（ホストの解決待ち）の品目に届いた値は、ホストが選んだ解決。新しい競合にせず当てる。
+          // 競合中の品目は他の端末からは変えられない（App で止めている）ので、届くのはホストの解決だけ。
+          // 以前は自分の入力から3秒以内（CONFLICT_WINDOW_MS）に解決が届くと、もう一度競合として通知し、
+          // ゲストは古い値のまま・ホストには同じカードが出直していた（2026-11-27 E2E で発見）。
+          _onRemoteUpdate?.(msg.ingredient, msg.qty, msg.unit ?? '', msg.enteredBy ?? '')
+          _onItemUpdate?.(msg.ingredient, msg.qty, msg.unit ?? '', msg.enteredBy ?? '')
+        } else if (local) {
           // localEntry フラグが無い値（リモート同期で入った値）は競合対象にしない
           if (classifyIncomingUpdate(local) === 'conflict') {
             if (state.mode === 'hosting') {
@@ -734,7 +743,7 @@ function _handleMessage(msg) {
               // ゲスト: ローカルキューには積まずホストへ通知（qty付き）
               // ホストからの conflict_lock を待たず即座にロックして変更を阻止
               lockedIngredients.add(msg.ingredient)
-              broadcastConflictNotify(msg.ingredient, msg.enteredBy ?? '', local.qty, local.unit ?? '', msg.qty, msg.unit ?? '')
+              broadcastConflictNotify(msg.ingredient, local.enteredBy || deviceName.value || '', local.qty, local.unit ?? '', msg.qty, msg.unit ?? '')
             }
           } else {
             // 時間差あり: 相手が後から上書き → トーストのみ、リモート値を適用
