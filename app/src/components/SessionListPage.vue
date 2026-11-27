@@ -1,15 +1,19 @@
 <script>
 import { ref, watch } from 'vue'
 // App から参照する（戻る操作・ホームへ戻るときのリセット）。
-// _persistedTab: 'home' = トップ / 'sessions' = 在庫 / 'calendar' = カレンダー / 'report' = レポート / 'dashboard' = 管理
+// _persistedTab: 'home' = トップ / 'calendar' = 業務 / 'sessions' = 在庫
+// （レポート・設定のタブはやめ、ホームのショートカットから開く画面にした・User決定 2026-11-27）
 // 再読み込みしても同じタブに留まる（履歴を見ていて再読み込みしたら履歴のまま）。タブ内だけ（sessionStorage）
 const _TAB_KEY = 'tanaoro_home_tab'
 function _readTab() {
-  try { const t = sessionStorage.getItem(_TAB_KEY); return ['home', 'sessions', 'calendar', 'report', 'dashboard'].includes(t) ? t : 'home' } catch (_) { return 'home' }
+  try { const t = sessionStorage.getItem(_TAB_KEY); return ['home', 'sessions', 'calendar'].includes(t) ? t : 'home' } catch (_) { return 'home' }
 }
 export const _persistedTab  = ref(_readTab())
 watch(_persistedTab, t => { try { sessionStorage.setItem(_TAB_KEY, t) } catch (_) { /* 保存できなくても動く */ } })
+// レポート（在庫分析）と設定は、ホームの上に重ねて開く画面（User決定 2026-11-27・以前は下部ナビのタブ）。
+// モジュール側に持つ: 棚卸の詳細を見て戻ったときもレポートのまま。棚卸から戻るときは App が閉じる
 export const _showDashboard = ref(false)
+export const _showSettings  = ref(false)
 export const _showOrders    = ref(false)
 </script>
 
@@ -56,6 +60,7 @@ import HomeTop from './HomeTop.vue'
 import JournalPage, { openJournalDay, openJournalItem } from './JournalPage.vue'
 import { localDateKey } from '../utils/localDate.js'
 import MasterManagePage from './MasterManagePage.vue'
+import SettingsPage from './SettingsPage.vue'
 import AppMark from './AppMark.vue'
 import { APP_NAME } from '../appInfo.js'
 
@@ -79,7 +84,9 @@ const tab = _persistedTab
 // カレンダー（履歴カレンダーをタブにした・User決定 2026-10-04）。日ごとに予定・やること・記録を並べる
 // アルバイトには金額を見せないので、レポートのタブは飛ばす（段 2-3）
 // トップ（ホーム）を先頭に（User決定 2026-10-07）
-const tabsNow = () => ['home', 'sessions', 'calendar', 'report', 'dashboard'].filter(x => x !== 'report' || canSeeReport.value)
+// ホーム → 業務 → 在庫 の3つ（User決定 2026-11-27）。レポート・設定はホームのショートカットから開く画面へ。
+// HACCP を入れるときは 4つめのタブにする予定（HACCP を使う店だけ）
+const tabsNow = () => ['home', 'calendar', 'sessions']
 const slideDir = ref('')                       // 'l' | 'r'（切り替えの動きの向き）
 // トップの「今日のやること」→ 日誌のリスト
 // ホームの2枚は行き先を分ける（User 2026-11-08）: 今日のやること → 今日の一覧 ／ 店の今 → 今日の予定ボード・押した業務の中身
@@ -318,9 +325,13 @@ function onItemFile(e) {
   pendingImportFile.value = f
   settingsSection.value = 'import'
 }
+const showReport = _showDashboard
+const showSettings = _showSettings
 function onHomeGo(k) {
   if (k === 'staff') showStaff.value = true
   else if (k === 'import' || k === 'export') portRef.value?.open(k)
+  else if (k === 'report') { if (canSeeReport.value) showReport.value = true }
+  else if (k === 'settings') showSettings.value = true
   else goTab(k)
 }
 const orderBaseRows = computed(() => allItems.value.map(item => ({
@@ -342,6 +353,7 @@ function openSnapshot(snap) {
 }
 // レポート：単価が無くて金額が出ないとき、在庫タブの「要確認」（単価なしが並ぶ）へ
 function openPriceCheck() {
+  showReport.value = false
   goTab('sessions')
   stockRef.value?.showCheck?.()
 }
@@ -432,21 +444,20 @@ onUnmounted(registerInnerLayerCloser(() => {
       @resume="resume"
     />
 
-    <!-- ── レポート（在庫分析）── -->
-    <div v-if="!loading && tab === 'report'" :class="['report-tab', 'home-panel', slideDir && `slide-${slideDir}`]">
-      <ManagerDashboard
-        embedded :snapshots="dashboardSnapshots"
-        :sessions="loading || error ? null : launcher.sessions.value"
-        @delete-orphan="onDeleteOrphan"
-        @view-snapshot="openSnapshot"
-        @fix-prices="openPriceCheck"
-      />
-    </div>
+    <!-- ── レポート（在庫分析）。ホームのショートカットから重ねて開く（User決定 2026-11-27・以前はタブ）── -->
+    <ManagerDashboard
+      v-if="!loading && showReport && canSeeReport"
+      :snapshots="dashboardSnapshots"
+      :sessions="loading || error ? null : launcher.sessions.value"
+      @close="showReport = false"
+      @delete-orphan="onDeleteOrphan"
+      @view-snapshot="openSnapshot"
+      @fix-prices="openPriceCheck"
+    />
 
-    <!-- ── 管理（データ管理を統合）── -->
+    <!-- ── 設定（データ管理を統合）。ホームのショートカットから重ねて開く（User決定 2026-11-27・以前はタブ）── -->
+    <SettingsPage v-if="!loading && showSettings" @close="showSettings = false">
     <MasterManagePage
-      v-if="!loading && tab === 'dashboard'"
-      :class="['home-panel', slideDir && `slide-${slideDir}`]"
       embedded
       :unfinished-count="launcher.inProgressSessions.value.length + discarded.length"
       @clear-master="onClearMaster"
@@ -473,6 +484,7 @@ onUnmounted(registerInnerLayerCloser(() => {
         </div>
       </template>
     </MasterManagePage>
+    </SettingsPage>
     <StaffPage v-if="showStaff" @close="showStaff = false" />
     <!-- 取り込む・書き出す（ホームのカードから。管理から移した・2026-10-14） -->
     <DataPort ref="portRef" />
@@ -653,8 +665,6 @@ onUnmounted(registerInnerLayerCloser(() => {
 .m-who { margin: 20px 0 0; text-align: center; font-size: 12.5px; color: #4c6a72; }
 .m-logout { display: block; margin: 24px auto 0; border: none; background: none; color: #dc2626; font-weight: 700; font-size: 14px; cursor: pointer; }
 
-/* レポートタブ */
-.report-tab { padding: 4px 6px 8px; }
 
 .sh-bg { position: fixed; inset: 0; z-index: 50; background: rgba(15, 23, 42, .45); display: flex; align-items: flex-end; justify-content: center; }
 .sh { width: 100%; max-width: 600px; background: #fff; border-radius: 18px 18px 0 0; padding: 12px 16px calc(18px + env(safe-area-inset-bottom)); max-height: 90vh; overflow-y: auto; }

@@ -1,6 +1,6 @@
 <script setup>
 /**
- * 下部ナビ（全画面共通・User決定 2026-10-01）。在庫／カレンダー／レポート／管理。
+ * 下部ナビ（全画面共通・User決定 2026-10-01）。ホーム／業務／在庫（User決定 2026-11-27・レポートと設定はホームのショートカットへ）。
  * カレンダーは履歴カレンダーをタブにしたもの（User決定 2026-10-04）。日ごとに予定・やること・記録を並べる。
  * バッジ: 他の端末が追加したやることがあれば「新着」、無ければ今日の未完了のやることの数。
  *
@@ -10,26 +10,23 @@
  * 棚卸中・発注中の画面には出さない（下の「完了」と並び、押し間違えて途中で離れやすい）。
  * モーダル（取込の途中を含む）が出ているあいだも隠す。
  */
-import { canSeeReport } from '../composables/useAuth.js'
 import { computed, ref, watch, onUnmounted } from 'vue'
 import { modalLayerCount } from '../composables/appMenuState.js'
 import { newTasks, todayOpenCount } from '../composables/useTasks.js'
 
-const props = defineProps({ active: { type: String, default: null } })   // 'sessions' | 'report' | 'dashboard' | null
+const props = defineProps({ active: { type: String, default: null } })   // 'home' | 'calendar' | 'sessions' | null
 const emit = defineEmits(['go'])
 
 // アイコンは線画（アプリのアイコンの雰囲気に揃える・User決定 2026-10-03）
 const ALL_ITEMS = [
   { tab: 'home',      label: 'ホーム',   d: ['M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z'] },
+  // 業務（やること・予定・記録。以前の「業務管理」「日誌」「カレンダー」）。毎日だれもが触るので在庫より前に（User決定 2026-11-27）
+  { tab: 'calendar',  label: '業務',     d: ['M9 6h11M9 12h11M9 18h11', 'M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2'] },
   { tab: 'sessions',  label: '在庫',     d: ['M3 8l9-5 9 5v8l-9 5-9-5z', 'M3 8l9 5 9-5M12 13v8'] },
-  // 日誌（やること・予定・記録。以前のカレンダー・User決定 2026-10-09）
-  { tab: 'calendar',  label: '業務管理', d: ['M9 6h11M9 12h11M9 18h11', 'M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2'] },
-  { tab: 'report',    label: 'レポート', d: ['M5 20V10M12 20V4M19 20v-7'] },
-  // 以前の「管理」。取り込み・スタッフをホームへ移し、設定の置き場にした（User決定 2026-10-14）
-  { tab: 'dashboard', label: '設定',     d: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'] },
+  // レポート・設定のタブはやめ、ホームのショートカットから開く（User決定 2026-11-27）。
+  // HACCP を入れるときは、HACCP を使う店だけ4つめのタブにする予定
 ]
-// アルバイトには金額を見せないので、レポートのタブも出さない（段 2-3）
-const ITEMS = computed(() => ALL_ITEMS.filter(it => it.tab !== 'report' || canSeeReport.value))   // レポートは「レポート・分析・証跡」の人だけ
+const ITEMS = computed(() => ALL_ITEMS)
 // 1つの光をタブの位置へ動かす。動いている間だけ横に伸ばして「流れた」感じを出す
 const activeIdx = computed(() => ITEMS.value.findIndex(it => it.tab === props.active))
 const orbStyle = computed(() => ({ transform: `translateX(${((activeIdx.value + 0.5) / ITEMS.value.length) * 100}%)` }))

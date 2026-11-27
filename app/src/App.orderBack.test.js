@@ -129,10 +129,12 @@ describe('発注セッションの戻る', () => {
     expect(host.querySelector('.bnav')).not.toBeNull()
   }, 20000)
 
-  it('管理タブに「入出庫の記録」「仕入れ」は無い（入出庫は品目シートで・2026-10-04）', async () => {
+  it('設定に「入出庫の記録」「仕入れ」は無い（入出庫は品目シートで・2026-10-04）', async () => {
     await mountApp()
     await seed()
-    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('設定')))
+    // 設定はホームのショートカットから開く（タブはやめた・2026-11-27）
+    await click([...host.querySelectorAll('.ht-sc')].find(b => b.querySelector('b')?.textContent === '設定'))
+    expect(host.querySelector('.stp')).toBeTruthy()
     const cards = [...host.querySelectorAll('.m-card')].map(b => b.textContent)
     expect(cards.some(t => t.includes('入出庫の記録') || t.includes('仕入れ'))).toBe(false)
   }, 20000)

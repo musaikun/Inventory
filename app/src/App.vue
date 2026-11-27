@@ -92,7 +92,7 @@ import GuestDoneView from './components/GuestDoneView.vue'
 import { askConfirm, answerConfirm, confirmState as askState } from './composables/askConfirm.js'
 import StaffJoinPage from './components/StaffJoinPage.vue'
 import { openJournalDay } from './components/JournalPage.vue'
-import SessionListPage, { _persistedTab as homeTab, _showDashboard as dashboardOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
+import SessionListPage, { _persistedTab as homeTab, _showDashboard as dashboardOpen, _showSettings as settingsOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
 import AxisAssignFocus from './components/AxisAssignFocus.vue'
 import HomeFooterNav from './components/HomeFooterNav.vue'
 import ItemFormModal from './components/ItemFormModal.vue'
@@ -584,8 +584,8 @@ function openPage(view) {
   // 履歴カレンダーは独立した画面（下部ナビから外した・User 2026-10-01。タブ送りと月送りのスワイプが重なる）。
   // レポートの一番上から開く。完了の結果が未確定でも見られる
   if (view === 'history') { _rememberPageFrom('history'); currentView.value = 'history'; _loadOrderData(); _pullMovements(); return }
-  // データ管理はホームの「管理」タブに統合した（独立ページは廃止・User決定 2026-10-01）
-  if (view === 'master') { homeTab.value = 'dashboard'; currentView.value = 'sessions'; return }
+  // データ管理はホームの設定に統合した（独立ページは廃止・User決定 2026-10-01。設定はタブをやめて重ねて開く画面・2026-11-27）
+  if (view === 'master') { homeTab.value = 'home'; settingsOpen.value = true; currentView.value = 'sessions'; return }
   // 完了の結果が確定するまで、品目・在庫を変える画面へは入らない（履歴は見られる）
   if (_blockedByCompletion()) return
   _rememberPageFrom(view)
@@ -1596,6 +1596,7 @@ function _closeTopLayer() {
   // view を見ずに拾うと、開いたまま棚卸へ入ったときに**セッション画面での戻るを消費**して
   // しまい、1回目の戻るでは何も起きない（画面はセッションのまま）ように見える。
   if (currentView.value === 'sessions' && dashboardOpen.value) { dashboardOpen.value = false; return true }
+  if (currentView.value === 'sessions' && settingsOpen.value)  { settingsOpen.value = false;  return true }
   if (currentView.value === 'sessions' && ordersOpen.value)    { ordersOpen.value = false;    return true }
   if (currentView.value === 'session-detail') { currentView.value = detailReturnView.value; return true }
   if (currentView.value === 'guest-result') { onLeaveGuestResult(); return true }
@@ -2312,12 +2313,14 @@ function _goHomeMain() {
   // 認証していない端末はランディングへ返す（ゲストの出口はここ）。
   if (!isAuthenticated.value) {
     dashboardOpen.value = false
+    settingsOpen.value = false
     ordersOpen.value = false
     currentView.value = 'landing'
     return
   }
   homeTab.value = 'home'
   dashboardOpen.value = false
+  settingsOpen.value = false
   ordersOpen.value = false
   currentView.value = 'sessions'
 }

@@ -345,7 +345,7 @@ const VIEW_TITLE = { orphan: 'カレンダーに無い棚卸', trend: '在庫金
   <div :class="embedded ? 'dash-embedded' : 'dash-overlay'">
     <div v-if="!embedded || view !== 'hub'" class="dash-header">
       <button class="dash-back" @click="back">‹ 戻る</button>
-      <div class="dash-title"><LineIcon v-if="view === 'hub'" name="chart" /> {{ view === 'hub' ? '在庫分析' : VIEW_TITLE[view] }}</div>
+      <div class="dash-title"><LineIcon v-if="view === 'hub'" name="chart" /> {{ view === 'hub' ? 'レポート' : VIEW_TITLE[view] }}</div>
       <div class="dash-header-spacer"></div>
     </div>
 

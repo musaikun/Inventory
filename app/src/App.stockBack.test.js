@@ -116,24 +116,26 @@ describe('棚卸セッションでブラウザの戻る', () => {
     expect(homeTabName()).toContain('ホーム')
   }, 20000)
 
-  it('管理タブを見てから始めても、戻るとホームタブに出る', async () => {
+  it('業務タブ・設定を見てから始めても、戻るとホームタブに出る（設定は閉じる）', async () => {
     await mountApp()
     const list = await import('./components/SessionListPage.vue')
 
-    // ホームで管理タブへ切り替えてから棚卸を開始する
-    list._persistedTab.value = 'dashboard'
+    // ホームで業務タブへ切り替えてから棚卸を開始する
+    list._persistedTab.value = 'calendar'
     await flush()
-    expect(homeTabName()).toContain('設定')
+    expect(homeTabName()).toContain('業務')
     list._persistedTab.value = 'sessions'
     await flush()
     await startStockSession()
-    list._persistedTab.value = 'dashboard'   // 棚卸中もホーム側のタブは残ったまま
+    list._persistedTab.value = 'calendar'   // 棚卸中もホーム側のタブは残ったまま
+    list._showSettings.value = true         // 設定（重ねて開く画面）のフラグも残っている
 
     await browserBack()
 
     expect(onHomeMain()).toBe(true)
     expect(homeTabName()).toContain('ホーム')
     expect(list._persistedTab.value).toBe('home')
+    expect(list._showSettings.value).toBe(false)
   }, 20000)
 
   it('在庫分析を開いたまま棚卸へ入っても、1回の戻るでホームへ抜ける', async () => {

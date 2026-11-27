@@ -89,11 +89,10 @@ async function seedItems() {
   await flush()
 }
 
-// 画面の再設計（2026-09-30）で、データ管理・仕入れはホームの「管理」タブから開く
-// データ管理は「管理」タブそのものになった（2026-10-01）
+// データ管理は設定に統合（2026-10-01）。設定はタブをやめ、ホームのショートカットから重ねて開く（2026-11-27）
 async function openFromManage(label) {
-  const nav = [...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('設定'))
-  if (nav) await click(nav)
+  const sc = [...host.querySelectorAll('.ht-sc')].find(b => b.querySelector('b')?.textContent === '設定')
+  if (sc) await click(sc)
   if (label === 'データ管理') return
   await click([...host.querySelectorAll('.m-card, .sl-it')].find(b => b.textContent.includes(label)))
 }
@@ -234,15 +233,15 @@ describe('振り分け画面の中でも受け皿を切らさない', () => {
 })
 
 describe('戻るはひとつ前の画面へ返す', () => {
-  it('管理タブ（データ管理）→ 戻る は トップ（ホーム）', async () => {
+  it('設定（データ管理）→ 戻る は 設定が閉じてトップ（ホーム）', async () => {
     await mountApp()
     await seedItems()
     await openFromManage('データ管理')
-    expect(host.querySelector('.mp')).toBeTruthy()
-    expect(activeTab()).toContain('設定')
+    expect(host.querySelector('.stp .mp')).toBeTruthy()
 
     await deviceBack()
     expect(view()).toBe('sessions')
+    expect(host.querySelector('.stp')).toBeNull()
     expect(activeTab()).toContain('ホーム')
   }, 20000)
 
@@ -251,7 +250,7 @@ describe('戻るはひとつ前の画面へ返す', () => {
 // モーダルが出ているときの戻るは、まずモーダルを閉じる（共通・User報告 2026-10-01）。
 // 以前はホームの設定タブで1項目を開いて戻ると、設定は開いたまま裏のタブが在庫へ戻った。
 describe('モーダルが出ているときの戻るは、まずモーダルを閉じる', () => {
-  it('設定タブで1項目を開いて戻る → 設定だけが閉じ、管理タブのまま', async () => {
+  it('設定で1項目を開いて戻る → その項目だけが閉じ、設定のまま', async () => {
     await mountApp()
     await seedItems()
     await openFromManage('表示の不具合をリセット')
@@ -259,8 +258,7 @@ describe('モーダルが出ているときの戻るは、まずモーダルを�
 
     await deviceBack()
     expect(host.querySelector('.modal-overlay')).toBeNull()
-    expect(host.querySelector('.bnav button.on').textContent).toContain('設定')
-    expect(host.querySelector('.manage')).toBeTruthy()
+    expect(host.querySelector('.stp .manage')).toBeTruthy()
   }, 20000)
 
   it('設定 → 中の画面 の順に重なっても、戻るは上から1枚ずつ', async () => {
@@ -270,6 +268,8 @@ describe('モーダルが出ているときの戻るは、まずモーダルを�
     expect(document.body.querySelector('.ob-sheet')).toBeTruthy()
     await deviceBack()
     expect(document.body.querySelector('.ob-sheet')).toBeNull()
-    expect(activeTab()).toContain('設定')
+    expect(host.querySelector('.stp')).toBeTruthy()
+    await deviceBack()
+    expect(host.querySelector('.stp')).toBeNull()
   }, 20000)
 })

@@ -101,31 +101,33 @@ describe('再読込しても同じページに留まる', () => {
   it('日誌タブ（お店のカレンダー）も再読み込みで残る', async () => {
     await mountApp()
     await seedItems()
-    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('業務管理')))
+    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('業務')))
     expect(host.querySelector('.jp .jm')).not.toBeNull()
 
     await reload()
     expect(view()).toBe('sessions')
-    expect(host.querySelector('.bnav button.on').textContent).toContain('業務管理')
+    expect(host.querySelector('.bnav button.on').textContent).toContain('業務')
     expect(host.querySelector('.jp .jm')).not.toBeNull()
   }, 20000)
 
-  it('管理タブ（データ管理）', async () => {
+  it('設定（データ管理）はホームのショートカットから重ねて開く画面。再読み込みではホームに戻る', async () => {
     await mountApp()
     await seedItems()
-    // データ管理はホームの「管理」タブそのもの（2026-10-01）
-    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('設定')))
-    expect(host.querySelector('.mp')).toBeTruthy()
+    // 設定はタブをやめ、ホームのショートカットから開く（User決定 2026-11-27）
+    expect([...host.querySelectorAll('.bnav button')].some(b => b.textContent.includes('設定'))).toBe(false)
+    await click([...host.querySelectorAll('.ht-sc')].find(b => b.querySelector('b')?.textContent === '設定'))
+    expect(host.querySelector('.stp .mp')).toBeTruthy()
 
     await reload()
     expect(view()).toBe('sessions')
-    expect(host.querySelector('.bnav button.on').textContent).toContain('設定')
+    expect(host.querySelector('.stp')).toBeNull()
+    expect(host.querySelector('.bnav button.on').textContent).toContain('ホーム')
   }, 20000)
 
   it('進行中セッションは保存ページより優先する', async () => {
     await mountApp()
     await seedItems()
-    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('業務管理')))
+    await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('業務')))
 
     // 日誌を見ているあいだに、別端末などで進行中の棚卸が残った状態を作る
     localStorage.setItem('_pending_session_v1', JSON.stringify({

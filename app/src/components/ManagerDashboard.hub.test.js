@@ -39,7 +39,7 @@ afterEach(() => {
 describe('在庫分析 — トップは要約と項目カード', () => {
   it('トップに各分析の中身は出さず、カードだけを並べる', async () => {
     await mount(TWO_MONTHS)
-    expect(title()).toBe('在庫分析')
+    expect(title()).toBe('レポート')
     expect(host.querySelector('.dash-total').textContent).toContain('16,800')
     expect(host.querySelector('.dash-trend')).toBeNull()
     expect(host.querySelector('.dash-abc-bars')).toBeNull()
@@ -57,7 +57,7 @@ describe('在庫分析 — トップは要約と項目カード', () => {
     expect(host.querySelector('.dash-context').textContent).toContain('2026年9月')
 
     await click(host.querySelector('.dash-back'))
-    expect(title()).toBe('在庫分析')
+    expect(title()).toBe('レポート')
     expect(closed).toBe(0)
     await click(host.querySelector('.dash-back'))
     expect(closed).toBe(1)

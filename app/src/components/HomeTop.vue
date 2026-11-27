@@ -8,7 +8,8 @@
  * - ボードは廃止（User決定 2026-11-06）。貼り紙のデータとサーバーはそのまま（消していない）
  * - 棚卸・発注が始まっていれば、ショートカットのアイコンで知らせる（進行中のカードはやめた・User決定 2026-10-27）。
  *   だれかがルームに入っていれば「進行中」（外の輪が回る）、だれもいなければ「中断中」（光って止まっている）
- * - ショートカット: 棚卸／発注／品目リスト整理／スタッフ／データ／設定（説明文なし・User決定 2026-10-26）。
+ * - ショートカット: 棚卸／発注／品目リスト整理／スタッフ／データ／レポート／設定（説明文なし・User決定 2026-10-26）。
+ *   見出し「ショートカット」は出さない。レポート・設定はタブをやめてここから開く（User決定 2026-11-27）
  *   在庫・業務管理・レポートは下のメニューと同じなので外した（User決定 2026-11-06）
  *   管理者には「スタッフ」も（承認待ちの数。管理から移した・User決定 2026-10-14）
  * 棚卸・発注は在庫タブの今のボタンからも始められる（両方に置く・User決定）。
@@ -19,7 +20,7 @@ import { tasksOn, eventsOn, overdueTasks, carriedTasks, isMarkedByMe, pullTasks,
 import { checklistsForDay, pullChecklists } from '../composables/useChecklists.js'
 import { homeStatus } from '../services/homeStatus.js'
 import { buildDayTimeline } from '../services/dayTimeline.js'
-import { storeName, isAuthenticated, isAdmin, can } from '../composables/useAuth.js'
+import { storeName, isAuthenticated, isAdmin, can, canSeeReport } from '../composables/useAuth.js'
 import { aliveTasks } from '../composables/useTasks.js'
 import { useWeather } from '../composables/useWeather.js'
 import { localDateKey } from '../utils/localDate.js'
@@ -144,7 +145,10 @@ const shortcuts = computed(() => [
   }] : []),
   // 取り込む・書き出すは1枚の「データ」にまとめ、押すと2択（数える順を入れて9枚に収める・User決定 2026-10-26）
   ...(can('item.admin') ? [{ key: 'data', label: 'データ', d: ['M8 4v12', 'M4 12l4 4 4-4', 'M16 20V8', 'M12 12l4-4 4 4'] }] : []),
-  { key: 'dashboard', label: '設定',
+  // レポート（在庫分析）。金額を見られる人だけ（以前は下部ナビのタブ・User決定 2026-11-27）
+  ...(canSeeReport.value ? [{ key: 'report', label: 'レポート', d: ['M5 20V10M12 20V4M19 20v-7'] }] : []),
+  // 設定（以前は下部ナビのタブ。ここから重ねて開く画面にした・User決定 2026-11-27）
+  { key: 'settings', label: '設定',
     d: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'] },
 ])
 function onShortcut(k) {
@@ -236,7 +240,6 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
       </div>
     </section>
 
-    <div class="ht-sec">ショートカット</div>
     <div class="ht-grid">
       <button
         v-for="s in shortcuts" :key="s.key" type="button" :class="['ht-sc', { hot: s.hot, ord: s.ord, run: s.run, live: s.live }]"
@@ -391,8 +394,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-first-acts button { min-height: 56px; border-radius: 14px; border: 1px solid var(--border, #d6e6ea); background: var(--surface, #fff); color: var(--text); font-size: 14px; font-weight: 800; cursor: pointer; display: grid; gap: 2px; align-content: center; padding: 6px 8px; }
 .ht-first-acts button.pri { border: none; background: var(--grad-btn); color: var(--on-grad); }
 .ht-first-acts button small { font-size: 11px; font-weight: 700; opacity: .8; }
-.ht-sec { margin: 16px 18px 8px; font-size: 11px; font-weight: 800; letter-spacing: .1em; color: var(--text-muted); }
-.ht-grid { margin: 0 14px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.ht-grid { margin: 16px 14px 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .ht-sc { position: relative; border: none; font: inherit; color: var(--text); background: var(--surface); border-radius: 18px; padding: 14px 4px 11px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.05); cursor: pointer; min-width: 0; }
 .ht-sc:disabled { opacity: .6; }
 .ht-ic { width: 44px; height: 44px; margin: 0 auto 7px; border-radius: 14px; display: grid; place-items: center; color: var(--primary); background: linear-gradient(145deg, #ecfeff, #e0f2fe); }

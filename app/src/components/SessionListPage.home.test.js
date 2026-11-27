@@ -76,7 +76,7 @@ beforeEach(() => {
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null; vi.restoreAllMocks() })
 
 describe('ホームの骨組み', () => {
-  it('在庫タブは表だけ（並び替えはホームの「品目リスト整理」・棚卸・発注の開始はホームだけ）・下部ナビ（ホーム／在庫／業務管理／レポート／設定）', async () => {
+  it('在庫タブは表だけ（並び替えはホームの「品目リスト整理」・棚卸・発注の開始はホームだけ）・下部ナビ（ホーム／業務／在庫）', async () => {
     await mountPage()
     expect(host.querySelector('.sp .inventory-table, .sp table')).not.toBeNull()
     expect(host.querySelector('.sp .act')).toBeNull()
@@ -84,7 +84,7 @@ describe('ホームの骨組み', () => {
     expect(shortcut('品目リスト整理')).toBeTruthy()
     expect(shortcut('棚卸')).toBeTruthy()
     expect(shortcut('発注')).toBeTruthy()
-    expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['ホーム', '在庫', '業務管理', 'レポート', '設定'])
+    expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['ホーム', '業務', '在庫'])   // レポート・設定はホームのショートカットへ（User決定 2026-11-27）
   }, 20_000)   // ファイルの最初のテストで、全件を並べて走らせると読み込みに5秒を超えることがある
 
   it('品目が無ければ（サンプルのままでも）表と操作ボタンの代わりに登録の入口', async () => {
@@ -95,21 +95,26 @@ describe('ホームの骨組み', () => {
     expect(host.querySelector('.home-top .sc')).toBeNull()
   })
 
-  it('日誌・レポート・管理はホームのタブ（日誌はお店のカレンダー・週の帯）', async () => {
+  it('業務はホームのタブ（お店のカレンダー）。レポート・設定はショートカットから重ねて開く（User決定 2026-11-27）', async () => {
     await mountPage()
     // 日誌＝お店のカレンダー（2026-10-25）。開いたら記録を取り込み直す
-    await click(btn(host.querySelector('.bnav'), '業務管理'))
+    await click(btn(host.querySelector('.bnav'), '業務'))
     expect(host.querySelector('.jp')).not.toBeNull()
     expect(host.querySelector('.jp .jm')).not.toBeNull()
     expect(events).toContainEqual(['calendarShown'])
-    // レポート＝在庫分析（重ねて開かず、タブの中）。履歴カレンダーの入口はもう無い
-    await click(btn(host.querySelector('.bnav'), 'レポート'))
+    // レポート＝在庫分析。ホームのショートカットから重ねて開き、戻るで閉じる。履歴カレンダーの入口はもう無い
+    await click(btn(host.querySelector('.bnav'), 'ホーム'))
+    await click(shortcut('レポート'))
     expect(host.querySelector('.rt-hist')).toBeNull()
-    expect(host.querySelector('.report-tab .dash-embedded')).not.toBeNull()
-    expect(host.querySelector('.report-tab').textContent).not.toContain('直近の棚卸')   // 詳細で見られる情報は出さない
-    // 管理＝データ管理を統合（取込・書き出し等の下に、発注の設定・各種設定など）
-    await click(btn(host.querySelector('.bnav'), '設定'))
-    expect(host.querySelector('.mp.embedded')).not.toBeNull()
+    expect(host.querySelector('.dash-overlay')).not.toBeNull()
+    expect(host.querySelector('.dash-title').textContent).toContain('レポート')
+    expect(host.querySelector('.dash-overlay').textContent).not.toContain('直近の棚卸')   // 詳細で見られる情報は出さない
+    await click(btn(host.querySelector('.dash-header'), '戻る'))
+    expect(host.querySelector('.dash-overlay')).toBeNull()
+    // 設定＝データ管理を統合（発注の設定・各種設定など）。ホームのショートカットから重ねて開く
+    await click(shortcut('設定'))
+    expect(host.querySelector('.stp .mp.embedded')).not.toBeNull()
+    expect(host.querySelector('.stp-t').textContent).toBe('設定')
     expect(host.querySelector('.mp-header')).toBeNull()
     // 「各種設定」の中身を直接並べる（2026-10-16）
     for (const label of ['発注日・締切', '発注点', '通知', 'カレンダーの天気', '表示の不具合をリセット', 'フィードバック', 'アプリ情報']) {
@@ -130,9 +135,9 @@ describe('ホームの骨組み', () => {
     expect(host.querySelector('.manage').textContent).not.toContain('練習')
   })
 
-  it('管理タブから発注基準・発注日の設定を開ける', async () => {
+  it('設定から発注基準・発注日の設定を開ける', async () => {
     await mountPage()
-    await click(btn(host.querySelector('.bnav'), '設定'))
+    await click(shortcut('設定'))
     await click(btn(host.querySelector('.manage'), '発注点'))
     expect(document.body.querySelector('.ob-sheet')).not.toBeNull()
   })
@@ -291,7 +296,7 @@ describe('破棄したセッション（24時間は元に戻せる）', () => {
   })
 })
 
-describe('レポートタブ（整理後）', () => {
+describe('レポート（整理後）', () => {
   it('金額なしの黄色い注意は出さず、分析の月の棚卸から詳細へ行ける', async () => {
     const { STORAGE_KEYS } = await import('../utils/storageKeys.js')
     localStorage.setItem(STORAGE_KEYS.history, JSON.stringify({
@@ -299,7 +304,7 @@ describe('レポートタブ（整理後）', () => {
     }))
     sessionList = [{ id: 's1', type: 'stock', status: 'completed', startedAt: '2026-09-30T05:00:00Z', endedAt: '2026-09-30T10:00:00Z' }]
     await mountPage()
-    await click(btn(host.querySelector('.bnav'), 'レポート'))
+    await click(shortcut('レポート'))
     expect(host.querySelector('.dash-warn')).toBeNull()
     await click(host.querySelector('.dash-open'))
     expect(events.find(e => e[0] === 'viewSession')?.[1]?.id).toBe('s1')
@@ -315,7 +320,7 @@ describe('トップ（ホーム）とやること（User決定 2026-10-07）', (
     await mountPage()
     expect(host.querySelector('.hn'), '店の今のカードは無い').toBeNull()
     await click(host.querySelector('.ht-th'))
-    expect(host.querySelector('.bnav button.on').textContent).toContain('業務管理')
+    expect(host.querySelector('.bnav button.on').textContent).toContain('業務')
     expect(host.querySelector('.dt-body'), '今日の一覧').not.toBeNull()
     await click(btn(host.querySelector('.bnav'), 'ホーム'))
     await click(host.querySelector(`.ht-it[data-key="${t.id}"]`))
@@ -337,13 +342,15 @@ describe('トップ（ホーム）とやること（User決定 2026-10-07）', (
     // 見出しを押すと日誌の今日のタイムライン。期限切れは終日に赤で
     await click(today.querySelector('.ht-th'))
     expect(host.querySelector('.dt-ring').textContent).toBe('0/2')
-    expect(host.querySelector('.bnav button.on').textContent).toContain('業務管理')
+    expect(host.querySelector('.bnav button.on').textContent).toContain('業務')
     expect(host.querySelector('.dt .dt-ad.missed')).not.toBeNull()
     await click(btn(host.querySelector('.bnav'), 'ホーム'))
-    // 在庫・業務管理・レポートは下のメニューにあるのでショートカットから外した（User決定 2026-11-06）
+    // 在庫・業務は下のメニューにあるのでショートカットには置かない（User決定 2026-11-06）。
+    // レポート・設定はタブをやめてショートカットへ（User決定 2026-11-27）。見出し「ショートカット」は出さない
     const sc = [...host.querySelectorAll('.ht-sc')]
     // 管理者（ここではオーナー）には「スタッフ」も（管理から移した・2026-10-14）
-    expect(sc.map(b => b.querySelector('b').textContent)).toEqual(['棚卸', '発注', '品目リスト整理', 'スタッフ', 'データ', '設定'])
+    expect(sc.map(b => b.querySelector('b').textContent)).toEqual(['棚卸', '発注', '品目リスト整理', 'スタッフ', 'データ', 'レポート', '設定'])
+    expect(host.querySelector('.ht').textContent).not.toContain('ショートカット')
     expect(host.querySelector('.ht-sc small')).toBeNull()   // 説明文は出さない（User決定 2026-10-26）
     await click(btn(host.querySelector('.bnav'), '在庫'))
     expect(host.querySelector('.bnav button.on').textContent).toContain('在庫')
