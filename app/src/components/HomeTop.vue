@@ -313,19 +313,20 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 
 <template>
   <div class="ht">
-    <!-- ホーム全体の背景: アプリの輪と重なったカードと淡い光が、ゆっくり漂う（User決定 2026-11-28・モック https://claude.ai/artifact/TUPawBbLmYefPR4AKhcfoC）。
-         動かすのは位置・回転だけ（GPU で動く）。ぼかしは最初から形に入れておく。
-         業務・在庫などが上に重なっている間・裏にあるとき・1分さわらないときは止める（bgPaused） -->
+    <!-- ホーム全体の背景: アプリの輪が2本、別々の速さ（23秒・31秒）でほんの少し傾きを変える。
+         全部を一緒に動かすとチープに見えたので、動くのは2本の輪の傾きだけ（User決定 2026-11-28・モック https://claude.ai/artifact/CddkWTeBkdbVjFoVm1y6td の「2 重なる輪」を全体に）。
+         動かすのは HTML 要素の transform だけ（GPU で動く）。業務・在庫などが上に重なっている間・裏にあるとき・1分さわらないときは止める（bgPaused） -->
     <div :class="['ht-bg', { paused: bgPaused }]" aria-hidden="true">
-      <i class="ht-blob b1"></i><i class="ht-blob b2"></i>
+      <svg width="0" height="0" class="ht-defs"><defs><linearGradient :id="gid" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2563eb" /><stop offset=".55" stop-color="#22d3ee" /><stop offset="1" stop-color="#34d399" /></linearGradient></defs></svg>
       <div ref="cardsEl" class="ht-artw">
-        <svg class="ht-art" viewBox="0 0 300 230">
-          <defs><linearGradient :id="gid" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2563eb" /><stop offset=".55" stop-color="#22d3ee" /><stop offset="1" stop-color="#34d399" /></linearGradient></defs>
-          <ellipse cx="150" cy="120" rx="120" ry="58" transform="rotate(-18 150 120)" fill="none" :stroke="`url(#${gid})`" stroke-width="3" />
-          <rect x="150" y="56" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(34,211,238,.18)" stroke="rgba(14,116,144,.5)" stroke-width="1.2" />
-          <rect x="172" y="44" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(52,211,153,.18)" stroke="rgba(14,116,144,.5)" stroke-width="1.2" />
-          <rect x="194" y="32" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(52,211,153,.24)" stroke="rgba(14,116,144,.5)" stroke-width="1.2" />
-        </svg>
+        <div class="ht-stage">
+          <div class="ht-lay l1">
+            <svg viewBox="0 0 380 291"><ellipse class="ht-rl soft" cx="190" cy="152" rx="152" ry="73.5" transform="rotate(-18 190 152)" :stroke="`url(#${gid})`" /><ellipse class="ht-rl" cx="190" cy="152" rx="152" ry="73.5" transform="rotate(-18 190 152)" :stroke="`url(#${gid})`" /></svg>
+          </div>
+          <div class="ht-lay l2">
+            <svg viewBox="0 0 380 291"><ellipse class="ht-rl" cx="190" cy="152" rx="152" ry="73.5" transform="rotate(-18 190 152)" :stroke="`url(#${gid})`" /></svg>
+          </div>
+        </div>
       </div>
     </div>
     <!-- 上部は1行だけ（名前・店名・日付・天気・User決定 2026-11-28） -->
@@ -486,20 +487,24 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 
 <style scoped>
 /* ホームは上部1行と、その下の上下2画面（D-046）。上部は止めたまま。
-   背景（.ht-bg）はホーム全体の後ろで、輪とカードと淡い光がゆっくり漂う（User決定 2026-11-28）。
+   背景（.ht-bg）はホーム全体の後ろで、アプリの輪が2本、別々の速さで傾きを変える（User決定 2026-11-28）。
    動かすのは HTML の要素の transform だけ（GPU で動く。SVG の中は動かさない＝描き直さない） */
 .ht { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .ht-bg { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
-.ht-blob { position: absolute; border-radius: 50%; will-change: transform; }
-.ht-blob.b1 { width: 360px; height: 360px; left: -120px; top: 140px; background: radial-gradient(closest-side, rgba(34,211,238,.22), rgba(34,211,238,0)); animation: ht-f1 26s ease-in-out infinite alternate; }
-.ht-blob.b2 { width: 320px; height: 320px; right: -110px; top: 420px; background: radial-gradient(closest-side, rgba(52,211,153,.2), rgba(52,211,153,0)); animation: ht-f2 30s ease-in-out infinite alternate; }
-.ht-artw { position: absolute; right: -170px; top: 40px; width: 520px; transform-origin: 40% 60%; will-change: transform; }
-.ht-art { display: block; width: 100%; height: auto; opacity: .22; will-change: transform; animation: ht-f3 28s ease-in-out infinite alternate; }
-@keyframes ht-f1 { from { transform: translate(0, 0); } to { transform: translate(60px, -40px); } }
-@keyframes ht-f2 { from { transform: translate(0, 0); } to { transform: translate(-50px, -70px); } }
-@keyframes ht-f3 { from { transform: translate(0, 0) rotate(0deg); } to { transform: translate(-30px, 40px) rotate(-6deg); } }
-.ht-bg.paused .ht-blob, .ht-bg.paused .ht-art { animation-play-state: paused; }
-@media (prefers-reduced-motion: reduce) { .ht-blob, .ht-art { animation: none; } }
+.ht-defs { position: absolute; }
+.ht-artw { position: absolute; inset: 0; transform-origin: 50% 56%; will-change: transform; }   /* スクロールの揺れはここ */
+.ht-stage { position: absolute; left: 50%; top: 56%; width: max(150%, 560px); aspect-ratio: 380 / 291; transform: translate(-50%, -50%); }
+.ht-lay { position: absolute; inset: 0; transform-origin: 50% 52%; will-change: transform; }
+.ht-lay svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.ht-rl { fill: none; stroke-width: 1.6; opacity: .5; vector-effect: non-scaling-stroke; }
+.ht-rl.soft { stroke-width: 10; opacity: .09; }   /* にじみ（ぼかしは使わず太い線を薄く） */
+.ht-lay.l1 { animation: ht-tilt-a 23s ease-in-out infinite alternate; }
+.ht-lay.l2 { animation: ht-tilt-b 31s ease-in-out infinite alternate; }
+.ht-lay.l2 .ht-rl { opacity: .3; }
+@keyframes ht-tilt-a { from { transform: rotate(-3deg); } to { transform: rotate(4deg); } }
+@keyframes ht-tilt-b { from { transform: rotate(14deg) scale(.86); } to { transform: rotate(6deg) scale(.9); } }
+.ht-bg.paused .ht-lay { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) { .ht-lay { animation: none; } }
 .ht-hd { position: relative; z-index: 1; flex: none; display: flex; align-items: center; gap: 8px; color: var(--text, #12303a);
   padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 6px; }
 .ht-brand { font-weight: 900; letter-spacing: .08em; font-size: 15px; }
