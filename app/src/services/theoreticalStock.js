@@ -6,7 +6,7 @@
 // 記録されない消費（営業中の使用等）は含まれないため、値は「参考値」であり
 // 実地の入力（棚卸・発注時在庫）とのズレ検出に使う。
 
-import { findLine, linesOf } from '../utils/lineIndex.js'
+import { linesOf } from '../utils/lineIndex.js'
 
 function _round(v) { return Math.round(v * 1000) / 1000 }
 
@@ -33,13 +33,17 @@ export function countMoment(s, it) {
  *   基準点も入出庫も無い品目は null（理論在庫を語れない）
  */
 export function theoreticalStock(item, snapshots = [], movements = [], { asOf = null, before = null } = {}) {
+  // item は品目名、または品目名の配列（統合する前の見込み・ITEM-001 I-5）。
+  // 同じ棚卸に同じ品目の行が2つ以上あれば（統合した2品目を両方数えていた日）足す
+  const names = Array.isArray(item) ? item : [item]
+  const _lines = (arr) => { const out = []; const seen = new Set(); for (const n of names) for (const l of linesOf(arr, n)) if (!seen.has(l)) { seen.add(l); out.push(l) } return out }
   let base = null
   for (const s of snapshots) {
-    const it = findLine(s?.items, item, i => i.qty != null)
-    if (!it) continue
-    const { date: d, savedAt: at } = countMoment(s, it)
+    const its = _lines(s?.items).filter(i => i.qty != null)
+    if (!its.length) continue
+    const { date: d, savedAt: at } = countMoment(s, its[0])
     if (!base || d.localeCompare(base.date) > 0 || (d === base.date && at.localeCompare(base.savedAt) > 0)) {
-      base = { date: d, savedAt: at, qty: Number(it.qty) }
+      base = { date: d, savedAt: at, qty: its.reduce((t, i) => t + Number(i.qty), 0) }
     }
   }
 
@@ -61,7 +65,7 @@ export function theoreticalStock(item, snapshots = [], movements = [], { asOf = 
       if (cmp === 0 && (m.savedAt || '').localeCompare(base.savedAt) <= 0) continue
     }
     let touched = false
-    for (const l of linesOf(m.lines, item)) {
+    for (const l of _lines(m.lines)) {
       const q = Number(l.qty)
       if (!Number.isFinite(q) || q <= 0) continue
       if (m.type === 'out') outQty += q

@@ -161,6 +161,22 @@ User（2026-11-28・D-044・`enterprise-design.md` §0.7）: 品目の ID と商
 - 検証: `cd app && npm test` 251 files・2335 pass ／ `cd worker && npm test` 59 files・780 pass ／ `npm run build` OK ／ `cd e2e && npx playwright test` 10 passed
 - 次: I-5（名前の変更と統合・統合で消した ID の付け替え）／ I-6（主キーを ID へ・items を正に・古い端末の受け付けを終える）
 
+## 2026-11-28 I-5 実装（Claude Code）— 名前の変更と統合（User がモック承認 https://claude.ai/artifact/TARkmMdMB8v7Ucxut732oq）
+
+- `useConfig`: `itemAliases`（消した ID → 残した ID）・`notDuplicates`（「別の品目」の組）。`canonItemId`（付け替えをたどる）を索引へ渡す。
+  `mergeItems({ keep, drop, name })`（単位が違えば止める・keep に無い値は drop から引き継ぐ・drop は一覧から外す・音声の辞書は drop の名前でも keep・
+  記録の行は書き換えない）、`undoMerge`（まとめる前の設定へ戻す）、`markNotDuplicate`。
+- `utils/lineIndex.js`: 行の ID も付け替えをたどる。`services/theoreticalStock.js`: 同じ棚卸に同じ品目の行が2つあれば足す・品目名の配列も受ける（まとめる前の見込み）。
+- `services/duplicateItems.js`（新）: 重複の候補（コードが同じ → 名前と単位が同じ → 名前が含まれる・1文字は除く・非表示と「別の品目」は除く）。
+- 画面: 在庫タブのチップ「重複かも n」→ `DuplicateItemsSheet.vue`（候補の一覧・まとめる・相手を選ぶ）→ お知らせ「元に戻す」（8秒）。
+  品目の情報（`ItemFormModal` の編集）で名前を変えられるように・「ほかの品目とまとめる…」。
+- Worker: DO の中継に `itemAliases`・`notDuplicates`、config の PUT は知らない古い端末の保存で前の値を残す（知っている端末の値が正）。
+- E2E で見つけて直した: 編集画面に名前の欄が2つ出ていた（説明文の位置で `v-else` が外れた）、お知らせの「元に戻す」が押せなかった（お知らせは押せない作り）。
+- 気づき: 棚卸の中で「とまと」と打つと音声の辞書の寄せ方で「トマト」が出るので、棚卸の中では重複ができにくい（重複は取込・在庫タブの追加でできる）。
+- 検証: `cd app && npm test` 253 files・2343 pass ／ `cd worker && npm test` 59 files・782 pass ／ `npm run build` OK ／
+  `cd e2e && npx playwright test` 12 passed（`item-merge.spec.js` 2本を追加）
+- 次: I-6（主キーを ID へ・items を正に・古い端末の受け付けを終える）。公開と本番の移行（WEB-04）と時期を合わせる
+
 ## 未決
 
 

@@ -67,3 +67,18 @@ describe('handleConfigPut: 品目の ID（ITEM-001）', () => {
     expect(db.saved.itemIds).toEqual({ ミニトマト: A })
   })
 })
+
+describe('handleConfigPut: 統合の付け替え（ITEM-001 I-5）', () => {
+  const AL = { it_00000000000000bb: 'it_00000000000000aa' }
+  it('知らない古い端末の保存では前の付け替えを残す', async () => {
+    const db = fakeDb({ order: ['トマト'], itemAliases: AL, notDuplicates: ['a|b'] })
+    await handleConfigPut(db, 'ABCD', { order: ['トマト'] })
+    expect(db.saved.itemAliases).toEqual(AL)
+    expect(db.saved.notDuplicates).toEqual(['a|b'])
+  })
+  it('知っている端末の値が正（元に戻すで空になったら空）', async () => {
+    const db = fakeDb({ order: ['トマト'], itemAliases: AL })
+    await handleConfigPut(db, 'ABCD', { order: ['トマト', 'とまと'], itemAliases: {} })
+    expect(db.saved.itemAliases).toEqual({})
+  })
+})

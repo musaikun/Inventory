@@ -104,6 +104,9 @@ export function normalizeConfig(src = {}) {
     ...(src.itemAdded && typeof src.itemAdded === 'object' && !Array.isArray(src.itemAdded) ? { itemAdded: src.itemAdded } : {}),
     // 品目名 → 変わらない ID（ITEM-001）。無い（古い端末）なら送らない＝受けた端末が手元の対応を残す
     ...(src.itemIds && typeof src.itemIds === 'object' && !Array.isArray(src.itemIds) ? { itemIds: src.itemIds } : {}),
+    // 統合の付け替え・「別の品目」の組（ITEM-001 I-5）。無い（古い端末）なら送らない
+    ...(src.itemAliases && typeof src.itemAliases === 'object' && !Array.isArray(src.itemAliases) ? { itemAliases: src.itemAliases } : {}),
+    ...(Array.isArray(src.notDuplicates) ? { notDuplicates: src.notDuplicates } : {}),
     axisNames:     Array.isArray(src.axisNames) ? src.axisNames : ['', ''],
     tagsA:         src.tagsA         ?? {},
     tagsB:         src.tagsB         ?? {},

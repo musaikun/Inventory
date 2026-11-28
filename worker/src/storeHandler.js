@@ -134,6 +134,9 @@ export async function handleConfigPut(db, code, body) {
       if (lacksImages && prevImages && typeof prevImages === 'object' && !Array.isArray(prevImages)) body = { ...body, images: prevImages }
       const prevIds = prev?.itemIds && typeof prev.itemIds === 'object' && !Array.isArray(prev.itemIds) ? prev.itemIds : null
       if (prevIds) body = { ...body, itemIds: hasIds ? mergeItemIds(prevIds, body.itemIds) : prevIds }
+      // 統合の付け替え・「別の品目」の組（ITEM-001 I-5）: 知らない古い端末の保存では前の値を残す。知っている端末の値が正（元に戻すで消えるため重ねない）
+      if (body.itemAliases === undefined && prev?.itemAliases !== undefined) body = { ...body, itemAliases: prev.itemAliases }
+      if (body.notDuplicates === undefined && prev?.notDuplicates !== undefined) body = { ...body, notDuplicates: prev.notDuplicates }
       if (lacksRoute && Array.isArray(prev?.axisGroupsR)) {
         body = { ...body }
         for (const k of ROUTE_KEYS) if (prev[k] !== undefined) body[k] = prev[k]

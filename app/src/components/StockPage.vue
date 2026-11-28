@@ -18,7 +18,7 @@ import LineIcon from './LineIcon.vue'
 import { ref, computed, onUnmounted } from 'vue'
 import { can, denyMessage } from '../composables/useAuth.js'
 import DismissibleHint from './DismissibleHint.vue'
-import { useConfig } from '../composables/useConfig.js'
+import { useConfig, itemIdOf } from '../composables/useConfig.js'
 import { useStockView } from '../composables/useStockView.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { completionBusy } from '../composables/useSession.js'
@@ -28,6 +28,8 @@ import { useMovements } from '../composables/useMovements.js'
 import { saveMovementToD1 } from '../composables/useStore.js'
 import { deviceName, actorId } from '../composables/useDeviceId.js'
 import ItemFormModal from './ItemFormModal.vue'
+import DuplicateItemsSheet from './DuplicateItemsSheet.vue'
+import { findDuplicatePairs } from '../services/duplicateItems.js'
 import HiddenItemsList from './HiddenItemsList.vue'
 import { useHistory } from '../composables/useHistory.js'
 import { itemCheckRows, ITEM_CHECKS } from '../utils/itemCheck.js'
@@ -40,7 +42,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['back', 'openMaster', 'startSession'])
 
-const { config, hideItem } = useConfig()
+const { config, hideItem, undoMerge } = useConfig()
 const { getSnapshots } = useHistory()
 const {
   allItems, needsReorder, reorderCount, reorderSetCount, stockOf, remainForDatesOf, unitOf, basisLabel, baseShort, _snaps, _moves,
@@ -96,8 +98,34 @@ const chips = computed(() => {
   if (expiryMap.value.size) out.push({ key: 'exp', label: '期限', n: expiryMap.value.size, warn: true })
   out.push({ key: 'check', label: '要確認', n: checkMap.value.size, warn: checkMap.value.size > 0 })
   if (hiddenCount.value || excludedCount.value) out.push({ key: 'hidden', label: '非表示', n: hiddenCount.value })
+  // 同じ品目らしい組があるときだけ（ITEM-001 I-5）。押すと候補の一覧（絞り込みではない）
+  if (dupCount.value) out.push({ key: 'dup', label: '重複かも', n: dupCount.value, warn: false })
   return out
 })
+const dupCount = computed(() => findDuplicatePairs({
+  order: config.order, units: config.units, codes: config.codes, hidden: config.hiddenItems,
+  notDuplicates: config.notDuplicates, idOf: itemIdOf,
+}).length)
+// 重複の候補・統合（ITEM-001 I-5）。'' | 'list' | 品目名（その品目とまとめる相手を選ぶ）
+const dupOpen = ref('')
+function onChip(c) {
+  if (c.key === 'dup') { dupOpen.value = 'list'; return }
+  filter.value = activeFilter.value === c.key ? '' : c.key
+}
+const mergeMsg = ref(null)   // { text, undo }
+let _mergeT = null
+function onMerged({ keep, drop, undo }) {
+  dupOpen.value = ''
+  detailTarget.value = null
+  mergeMsg.value = { text: `「${drop}」を「${keep}」にまとめました`, undo }
+  clearTimeout(_mergeT); _mergeT = setTimeout(() => { mergeMsg.value = null }, 8000)
+}
+function undoMergeNow() {
+  if (mergeMsg.value?.undo) undoMerge(mergeMsg.value.undo)
+  mergeMsg.value = null
+  clearTimeout(_mergeT)
+}
+function onMergeFrom(item) { form.value = null; dupOpen.value = item }
 // チップが消えた（発注点を全部外した等）ら絞り込みを外す
 const activeFilter = computed(() => (chips.value.some(c => c.key === filter.value) ? filter.value : ''))
 const itemFilter = computed(() => {
@@ -157,9 +185,10 @@ function onItemDeleted(name) {
   deletedMsg.value = `「${name}」を削除しました`
   clearTimeout(_delT); _delT = setTimeout(() => { deletedMsg.value = '' }, 2600)
 }
-onUnmounted(() => clearTimeout(_delT))
+onUnmounted(() => { clearTimeout(_delT); clearTimeout(_mergeT) })
 // 端末の戻る操作は、ページを閉じる前に上のシートから閉じる（既存の段に乗せる）
 onUnmounted(registerInnerLayerCloser(() => {
+  if (dupOpen.value) { dupOpen.value = ''; return true }
   if (form.value) { closeForm(); return true }
   if (detailTarget.value) { detailTarget.value = null; return true }
   return false
@@ -198,7 +227,7 @@ onUnmounted(registerInnerLayerCloser(() => {
         <button
           v-for="c in chips" :key="c.key" type="button"
           :class="['sp-chip', { on: activeFilter === c.key, warn: c.warn }]" :aria-pressed="activeFilter === c.key"
-          @click="filter = activeFilter === c.key ? '' : c.key"
+          @click="onChip(c)"
         >{{ c.label }}<span class="sp-chip-n">{{ c.n }}</span><span v-if="activeFilter === c.key" class="sp-chip-x" aria-hidden="true">✕</span></button>
       </div>
 
@@ -282,10 +311,23 @@ onUnmounted(registerInnerLayerCloser(() => {
       @saved="closeForm"
       @close="closeForm"
       @deleted="onItemDeleted"
+      @merge="onMergeFrom"
+    />
+    <DuplicateItemsSheet
+      v-if="dupOpen"
+      :start="dupOpen === 'list' ? '' : dupOpen"
+      :stock-of="stockOf" :base-short="baseShort" :unit-of="unitOf" :snaps="_snaps" :moves="_moves"
+      @close="dupOpen = ''"
+      @merged="onMerged"
     />
     <Teleport to="body">
       <Transition name="toast">
         <div v-if="deletedMsg" class="toast" data-type="success" role="status">{{ deletedMsg }}</div>
+      </Transition>
+      <Transition name="toast">
+        <div v-if="mergeMsg" class="toast sp-merge-toast" data-type="success" role="status">
+          <span>{{ mergeMsg.text }}</span><button type="button" @click="undoMergeNow">元に戻す</button>
+        </div>
       </Transition>
     </Teleport>
   </div>
@@ -352,4 +394,7 @@ onUnmounted(registerInnerLayerCloser(() => {
 .sp-btn.pri { border: none; background: var(--btn-bg); color: var(--btn-fg); }
 .sp-btn.sec { border: 1.5px solid #bfd6dc; background: #fff; color: #1f3d45; }
 .sp-link { border: none; background: none; color: var(--primary, #0e7490); font-size: 13px; font-weight: 700; cursor: pointer; margin-top: 6px; }
+.sp-merge-toast { display: flex; align-items: center; gap: 10px; pointer-events: auto; }   /* お知らせは普段押せない（style.css）。元に戻すだけ押せるように */
+.sp-merge-toast span { flex: 1; }
+.sp-merge-toast button { border: none; background: none; font: inherit; font-weight: 800; color: #a5f3fc; cursor: pointer; padding: 4px 2px; }
 </style>

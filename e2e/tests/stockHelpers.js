@@ -9,7 +9,8 @@ export async function openStockTab(page) {
 
 /** 在庫タブの品目の行（品目名の行） */
 export function stockRow(page, item) {
-  return page.locator('tr').filter({ has: page.locator('.sp-cell') }).filter({ hasText: item }).first()
+  // 名前が一致する行だけ（「トマト」で「ミニトマト」の行を拾わない）
+  return page.locator('tr').filter({ has: page.locator('.sp-cell') }).filter({ has: page.getByText(item, { exact: true }) }).first()
 }
 
 /** 在庫タブの数の欄 */

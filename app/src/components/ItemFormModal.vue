@@ -33,10 +33,10 @@ const props = defineProps({
   context:         { type: String, default: 'home' },  // 'home' | 'session' | 'request'
 })
 // added(name) / saved(name) / request({ name, unit, category }) / unhide(name) / use-existing(name)
-const emit = defineEmits(['added', 'saved', 'close', 'request', 'unhide', 'use-existing', 'deleted'])
+const emit = defineEmits(['added', 'saved', 'close', 'request', 'unhide', 'use-existing', 'deleted', 'merge'])
 useEscapeKey(() => close())
 
-const { config, addItem, patchItem, setEmptyList, setItemImage, removeConfigItem, hideItem } = useConfig()
+const { config, addItem, patchItem, setEmptyList, setItemImage, removeConfigItem, hideItem, updateConfigItem } = useConfig()
 const { inventory, completedAt } = useInventory()
 const isEdit = computed(() => props.mode === 'edit')
 
@@ -49,6 +49,7 @@ const lotSize  = ref(isEdit.value ? (config.lotSizes?.[props.item] ?? '') : '')
 const category = ref(isEdit.value ? (config.categories?.[props.item] ?? '') : props.initialCategory)
 const price    = ref(isEdit.value ? (config.prices?.[props.item] ?? '') : '')
 const error    = ref('')
+const editName = ref(props.item || '')   // 編集のときの名前（ITEM-001 I-5）
 const added    = ref([])          // このシートで追加した品目（直近が先頭）
 const confirmedSimilar = ref('')  // 似た名前の警告を見たうえで押し直した名前
 const nameEl = ref(null)
@@ -158,9 +159,17 @@ function onNameInput() { error.value = ''; confirmedSimilar.value = '' }
 function submit() {
   error.value = ''
   if (isEdit.value) {
-    patchItem(props.item, { unit: unit.value, lotSize: lotSize.value, category: category.value, price: price.value })
-    if (imageEnabled.value) _commitImage(props.item)
-    emit('saved', props.item)
+    let target = props.item
+    const nn = editName.value.trim()
+    if (nn && nn !== props.item) {
+      if (config.order.includes(nn)) { error.value = 'その名前は既に登録されています'; return }
+      const r = updateConfigItem(props.item, nn, config.prices?.[props.item] ?? null, config.categories?.[props.item] ?? '', undefined)
+      if (!r) { error.value = 'その名前には変えられません'; return }
+      target = r
+    }
+    patchItem(target, { unit: unit.value, lotSize: lotSize.value, category: category.value, price: price.value })
+    if (imageEnabled.value) _commitImage(target)
+    emit('saved', target)
     return
   }
   const n = trimmed.value
@@ -200,12 +209,16 @@ function submit() {
       <div class="if-title">{{ isEdit ? '品目の情報' : isRequest ? '品目の追加をホストに申請' : context === 'session' ? '新しい品目を登録' : '品目を追加' }}</div>
 
       <label class="if-label" for="if-name">品目名{{ isEdit ? '' : '（必須）' }}</label>
-      <div v-if="isEdit" class="if-fixed">{{ item }}</div>
+      <!-- 名前も変えられる（ITEM-001 I-5）。記録は品目の ID で結ぶので、前の棚卸・入出庫・期限はこの品目の記録として続く -->
+      <input
+        v-if="isEdit" id="if-name" v-model="editName" class="if-input req" maxlength="60" @input="error = ''"
+      />
       <input
         v-else id="if-name" ref="nameEl" v-model="name" class="if-input req" maxlength="60"
         placeholder="例：ベーコンスライス" enterkeyhint="done"
         @input="onNameInput" @keyup.enter="submit"
       />
+      <p v-if="isEdit && editName.trim() !== item" class="if-note">名前を変えても、前の棚卸・入出庫・期限はこの品目の記録として続きます。</p>
       <div v-if="hiddenMatch" class="if-similar armed">
         「<b>{{ trimmed }}</b>」は非表示にしている品目です。新しく作らずに表示へ戻せます。
         <button v-if="!isRequest" type="button" class="if-inline" @click="emit('unhide', trimmed)">表示に戻して使う</button>
@@ -269,6 +282,9 @@ function submit() {
       <div v-if="error" class="if-err">{{ error }}</div>
       <div v-if="added.length" class="if-added" role="status">✓ 追加しました：{{ added.slice(0, 3).join('・') }}<span v-if="added.length > 3"> ほか{{ added.length - 3 }}件</span></div>
 
+      <!-- ほかの品目とまとめる（ITEM-001 I-5）。押すと相手を選ぶ -->
+      <button v-if="isEdit && can('item.admin')" type="button" class="if-merge" @click="emit('merge', item)">ほかの品目とまとめる…</button>
+
       <!-- 削除（編集のときだけ。確認はこの中で） -->
       <template v-if="isEdit">
         <button v-if="!delAsk && can('item.admin')" type="button" class="if-del-open" @click="delAsk = true">この品目を削除…</button>
@@ -329,6 +345,7 @@ function submit() {
 .if-similar.armed { border-color: #f59e0b; }
 .if-err { margin-top: 8px; font-size: 12.5px; color: #b91c1c; }
 .if-note { font-size: 11.5px; color: #7d969c; margin: 10px 0 0; }
+.if-merge { display: block; width: 100%; margin-top: 12px; padding: 10px; border: 1px solid #d6e2e5; border-radius: 10px; background: #fff; font: inherit; font-weight: 800; color: #0b2229; cursor: pointer; }
 .if-added { margin-top: 10px; font-size: 12.5px; font-weight: 700; color: #047857; background: #f0fdf4; border-radius: 10px; padding: 8px 10px; }
 .if-acts { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; margin-top: 14px; }
 .if-btn { border: none; border-radius: 10px; padding: 13px; font-size: 15px; font-weight: 800; cursor: pointer; }

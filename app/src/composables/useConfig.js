@@ -58,6 +58,8 @@ const config = reactive({
   isCustom:       false,
   savedAt:        null,
   manualItems:    [],  // フォームから手動追加した品目名（CSV品目と区別）
+  itemAliases:    {},  // 統合で消した品目の ID → 残した品目の ID（ITEM-001 I-5。記録の行は書き換えず、読むときに付け替える）
+  notDuplicates:  [],  // 「別の品目」と答えた組（'idA|idB'・小さい方が先）。重複の候補に出さない
   itemIds:        {},  // 品目名 → 変わらない ID（ITEM-001。消した品目の ID も残す・services/itemId.js）
   itemAdded:      {},  // 手で足した品目 → { at, session? }。棚卸・発注の最中に足したらそのセッションID（破棄で一緒に消す・User決定 2026-10-27）
   axisNames:      ['', ''],  // 汎用2軸の名前（例: '場所', '仕入先'）。空=未使用
@@ -161,6 +163,8 @@ function _serializeConfigData() {
     importExcluded: config.importExcluded,
     itemAdded:     config.itemAdded,
     itemIds:       config.itemIds,
+    itemAliases:   config.itemAliases,
+    notDuplicates: config.notDuplicates,
     // 品目ごとのまとまり（ITEM-001 I-4b）。移行の間は上の表が正で、これは表から毎回作り直す。同期（DO）では中継しない
     items:         toConfigItems(config),
   }
@@ -213,6 +217,9 @@ function _assignConfigData(src) {
   // 品目の ID。持たない元（古い端末・取込計画）からは今の対応を引き継ぎ、無い品目に足す（ITEM-001）
   const ids = src.itemIds && typeof src.itemIds === 'object' && !Array.isArray(src.itemIds) ? { ...(config.itemIds ?? {}), ...src.itemIds } : (config.itemIds ?? {})
   config.itemIds = ids
+  // 統合の付け替え・「別の品目」の組。持たない元（古い端末）からは手元を残す（ITEM-001 I-5）
+  config.itemAliases = src.itemAliases && typeof src.itemAliases === 'object' && !Array.isArray(src.itemAliases) ? src.itemAliases : (config.itemAliases ?? {})
+  config.notDuplicates = Array.isArray(src.notDuplicates) ? src.notDuplicates.filter(x => typeof x === 'string') : (config.notDuplicates ?? [])
   _fillItemIds()
 }
 
@@ -227,8 +234,14 @@ watch(() => config.order.join('\u0001'), _fillItemIds, { flush: 'sync' })
 /** 品目の ID。まだ表に無い名前でも、今の店舗コードから決まる値を返す */
 export function itemIdOf(name) { return config.itemIds?.[name] ?? itemIdFor(_shop(), name) }
 // 記録の行を品目の ID で結ぶ（ITEM-001 I-4a・utils/lineIndex.js）。対応が変われば索引を作り直す
-setItemKeyResolver(itemIdOf)
-watch(() => config.itemIds, bumpItemKeys, { flush: 'sync' })
+/** 統合の付け替えを済ませた ID（消した品目の ID → 残した品目の ID。付け替えが続いていればたどる） */
+export function canonItemId(id) {
+  let cur = id
+  for (let i = 0; i < 10; i++) { const next = config.itemAliases?.[cur]; if (!next || next === cur) break; cur = next }
+  return cur
+}
+setItemKeyResolver(name => canonItemId(itemIdOf(name)), canonItemId)
+watch(() => [config.itemIds, config.itemAliases], bumpItemKeys, { flush: 'sync' })
 
 // 今いる棚卸・発注のセッション（App が画面に合わせて入れる）。この間に足した品目に印を付ける
 let _addingSession = null
@@ -782,6 +795,60 @@ export function useConfig() {
   }
 
   // unit を渡すと単位も更新する（undefined のときは触らない＝後方互換）
+  // ── 品目の統合（ITEM-001 I-5・User 決定 2026-11-28・モック https://claude.ai/artifact/TARkmMdMB8v7Ucxut732oq）──
+  // drop を keep にまとめる。記録の行は書き換えない: drop の ID → keep の ID の付け替え（itemAliases）を足すだけ。
+  // keep に無い値（単価・写真・発注点など）は drop から引き継ぐ。drop は品目の一覧から外れる（消した品目の扱いにはしない）。
+  // 音声の辞書は drop の名前でも keep が出るようにする。単位が違えば止める。
+  // 戻り値: { ok: true, undo } ／ { ok: false, reason: 'missing' | 'same' | 'unit' | 'name' }
+  const MERGE_FILL = ['units', 'prices', 'categories', 'codes', 'lotSizes', 'images', 'prevMonths', 'reorderPoints', 'replenishTargets', 'tagsA', 'tagsB', 'tagsR']
+  const MERGE_DROP_ARRAYS = ['manualItems', 'hiddenItems', 'hiddenAuto', 'axisItemOrderA', 'axisItemOrderB', 'axisItemOrderR', 'routeMore']
+  function mergeItems({ keep, drop, name = null }) {
+    if (!config.order.includes(keep) || !config.order.includes(drop)) return { ok: false, reason: 'missing' }
+    if (keep === drop) return { ok: false, reason: 'same' }
+    const uK = (config.units[keep] ?? '').trim(), uD = (config.units[drop] ?? '').trim()
+    if (uK && uD && uK !== uD) return { ok: false, reason: 'unit' }
+    const newName = (name ?? keep).trim()
+    if (!newName) return { ok: false, reason: 'name' }
+    if (newName !== keep && newName !== drop && config.order.includes(newName)) return { ok: false, reason: 'name' }
+    const before = JSON.parse(JSON.stringify({ ..._serializeConfigData(), manualItems: config.manualItems }))
+    const keepId = itemIdOf(keep), dropId = itemIdOf(drop)
+    for (const k of MERGE_FILL) {
+      const m = config[k]
+      if (!m) continue
+      const empty = v => v == null || v === '' || (Array.isArray(v) && !v.length)
+      if (empty(m[keep]) && !empty(m[drop])) m[keep] = m[drop]
+      delete m[drop]
+    }
+    for (const k of MERGE_DROP_ARRAYS) if (Array.isArray(config[k])) config[k] = config[k].filter(n => n !== drop)
+    delete config.hiddenAt[drop]
+    delete config.itemAdded[drop]
+    for (const [alias, target] of Object.entries(config.dictionary)) if (target === drop) config.dictionary[alias] = keep
+    if (!config.dictionary[drop]) config.dictionary[drop] = keep
+    // 付け替え: drop の ID と、drop へ付け替えていた ID を keep へ
+    const aliases = { ...(config.itemAliases ?? {}) }
+    for (const [from, to] of Object.entries(aliases)) if (to === dropId) aliases[from] = keepId
+    if (dropId !== keepId) aliases[dropId] = keepId
+    config.itemAliases = aliases
+    config.order = config.order.filter(n => n !== drop)
+    if (newName !== keep) updateConfigItem(keep, newName === drop ? drop : newName, config.prices[keep] ?? null, config.categories[keep] ?? '', undefined)
+    _save()
+    return { ok: true, keep: newName, undo: before }
+  }
+  /** 統合を元に戻す（mergeItems の undo をそのまま渡す）。記録は書き換えていないので、付け替えを外せば元の2つに分かれる */
+  function undoMerge(before) {
+    if (!before || typeof before !== 'object') return false
+    _assignConfigData(before)
+    if (Array.isArray(before.manualItems)) config.manualItems = before.manualItems
+    _save()
+    return true
+  }
+  /** 重複の候補で「別の品目」と答えた組を覚える（次から出さない） */
+  function markNotDuplicate(a, b) {
+    const key = [itemIdOf(a), itemIdOf(b)].sort().join('|')
+    if (!(config.notDuplicates ?? []).includes(key)) config.notDuplicates = [...(config.notDuplicates ?? []), key]
+    _save()
+  }
+
   function updateConfigItem(oldName, newName, price, category, unit) {
     const idx = config.order.indexOf(oldName)
     if (idx < 0) return false
@@ -1477,6 +1544,7 @@ export function useConfig() {
 
   return {
     config,
+    mergeItems, undoMerge, markNotDuplicate,
     dictionary,
     masterDict,
     itemCount,
