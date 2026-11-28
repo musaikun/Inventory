@@ -71,7 +71,7 @@ describe('useTasks', () => {
     expect(T.tasksOn('2026-10-04')[0].text).toBe('新しい変更')
   })
 
-  it('期間（締め切り）がある業務は、締め切りの日からバッジに数える（User 2026-11-28）', async () => {
+  it('期間（締め切り）がある業務は、締め切りの日からバッジに数える。未定の進行中は数えない（User 2026-11-28）', async () => {
     const { localDateKey } = await import('../utils/localDate.js')
     const today = localDateKey()
     const later = localDateKey(new Date(Date.now() + 3 * 86400_000))
@@ -80,7 +80,9 @@ describe('useTasks', () => {
     T.addTask(before, '今日まで', null, null, { deadline: today })
     T.addTask(before, '締め切り過ぎ', null, null, { deadline: before })
     T.addTask(before, '進行中・まだ', null, null, { progress: 'doing', deadline: later })
-    expect(T.todayOpenCount.value).toBe(2)
+    T.addTask(before, '進行中・締め切り未定', null, null, { progress: 'doing' })   // 未定の進行中は数えない
+    T.addTask(before, 'ふつう・期間なし')                                           // 期間の無いふつうのやることは今まで通り
+    expect(T.todayOpenCount.value).toBe(3)
   })
 
   it('済みにした進行中を進行中へ戻せる（状態・手順はそのまま）', async () => {

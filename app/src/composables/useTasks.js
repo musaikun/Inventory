@@ -339,11 +339,11 @@ export function markTasksSeen() {
 /**
  * 今日の未完了のやることの数（ナビのバッジ）。期限切れも含める。
  * 期間（締め切り）があるものは、締め切りの日から数える（User 2026-11-28。始めた日から毎日数えると、
- * まだ間に合う業務の数がずっと出続けた）
+ * まだ間に合う業務の数がずっと出続けた）。締め切りが未定の進行中は数えない（User 2026-11-28）
  */
 export const todayOpenCount = computed(() => {
   const today = localDateKey()
-  return _data.list.filter(t => t.date && t.date <= today && _todo(t) && !t.doneAt && (!t.deadline || t.deadline <= today)).length
+  return _data.list.filter(t => t.date && t.date <= today && _todo(t) && !t.doneAt && (t.deadline ? t.deadline <= today : !t.progress)).length
 })
 
 export function isMyTask(t) { return !!t && isMeId(t.createdById) }
