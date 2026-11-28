@@ -55,11 +55,9 @@ describe('品目ごとのまとまり（ITEM-001 I-4b）', () => {
     cfg.config.deletedItems = []
   })
 
-  it('保存・同期の中身に、ID がキーのまとまりが入る（表から作る）', () => {
+  it('保存・同期の中身にまとまり（単価を含む）は入れない（本番の古い Worker が金額を見られない人から落とせないため）', () => {
     cfg.addItem('レタス', 150, '野菜', '玉')
-    const out = cfg.serializeConfigData()
-    const id = cfg.config.itemIds['レタス']
-    expect(out.items[id]).toMatchObject({ name: 'レタス', unit: '玉', price: 150, category: '野菜' })
+    expect('items' in cfg.serializeConfigData()).toBe(false)
   })
 
   it('まとまりだけの設定が届いたら、まとまりから表を組み立てる', () => {

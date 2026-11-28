@@ -177,6 +177,16 @@ User（2026-11-28・D-044・`enterprise-design.md` §0.7）: 品目の ID と商
   `cd e2e && npx playwright test` 12 passed（`item-merge.spec.js` 2本を追加）
 - 次: I-6（主キーを ID へ・items を正に・古い端末の受け付けを終える）。公開と本番の移行（WEB-04）と時期を合わせる
 
+## 2026-11-28 修正: 設定の `items` をサーバーへ送らない（Claude Code）
+
+- 本番の Worker は 2026-11-15 の v0.212.0（migration 0037 まで）。develop preview（push ごとに最新の App）はその Worker につながる。
+- I-4b（v0.225.0）で保存・同期の中身に `items`（単価を含む）を入れたが、本番の Worker の `moneyGuard` は `items` を知らないため、
+  **金額を見られないスタッフの GET /config に単価が届く状態**だった（オーナーが v0.225.0 以降で設定を保存した店）。
+- 修正: `items` を保存・同期の中身から外した（表から作れるので失うものは無い）。読み込みは `items` だけの設定も引き続き受ける。
+  D1 に既に入った `items` は、次にオーナーが設定を保存したとき（本番の Worker は送られた中身をそのまま保存する）に消える。
+  本番の Worker を更新すれば（`moneyGuard` が `items` を落とす）応答からも落ちる。
+- `items` を送るのは、本番の Worker が `moneyGuard` の対応版になってから（I-6 と合わせる）。
+
 ## 未決
 
 

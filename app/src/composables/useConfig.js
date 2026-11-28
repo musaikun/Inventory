@@ -13,7 +13,7 @@ import { toCSVRow } from '../utils/csvParse.js'
 import { normalizeSchedules } from '../services/orderScheduleUtil.js'
 import { normalizeAssumptions } from '../services/assumedOrderBase.js'
 import { ensureItemIds, renameItemId, itemIdFor } from '../services/itemId.js'
-import { toConfigItems, expandConfigItems } from '../services/configItems.js'
+import { expandConfigItems } from '../services/configItems.js'
 import { setItemKeyResolver, bumpItemKeys } from '../utils/lineIndex.js'
 import {
   parseItemCSV,
@@ -165,8 +165,9 @@ function _serializeConfigData() {
     itemIds:       config.itemIds,
     itemAliases:   config.itemAliases,
     notDuplicates: config.notDuplicates,
-    // 品目ごとのまとまり（ITEM-001 I-4b）。移行の間は上の表が正で、これは表から毎回作り直す。同期（DO）では中継しない
-    items:         toConfigItems(config),
+    // 品目ごとのまとまり（items・ITEM-001 I-4b）は保存・同期の中身に入れない（2026-11-28 修正）。
+    // 単価を含むので、金額を見られない人から落とす処理（Worker の moneyGuard）を知らない本番の Worker へ送ると
+    // スタッフに単価が届く。items は表から作れるので、要るときに toConfigItems で作る（読み込みは items だけの設定も受ける）
   }
 }
 function _assignConfigData(src) {
