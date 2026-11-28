@@ -1,6 +1,7 @@
 // 在庫（理論在庫＝直近の棚卸＋その後の入庫−出庫）・発注基準・要補充の判定（User 2026-11-09・D-035・PROD-001）。
 // 仕入れの「在庫」タブと「品目・在庫」ページで同じ数字を出すために共通化した。
 // 呼ぶたびに computed を作るので、ページ（コンポーネント）の setup で1回だけ呼ぶ。
+import { findLine } from '../utils/lineIndex.js'
 import { ref, computed } from 'vue'
 import { useConfig } from './useConfig.js'
 import { useHistory } from './useHistory.js'
@@ -45,7 +46,7 @@ export function useStockView() {
   function itemMovements(item) {
     const out = []
     for (const mv of getMovements()) {   // 既に date 降順
-      const line = (mv.lines || []).find(l => l.item === item)
+      const line = findLine(mv.lines || [], item)
       if (line) out.push({ id: mv.id, date: mv.date, type: mv.type, qty: line.qty, unit: line.unit, note: mv.note })
       if (out.length >= 6) break
     }

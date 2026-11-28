@@ -1,3 +1,4 @@
+import { sameItem } from '../utils/lineIndex.js'
 import { localDateKey } from '../utils/localDate.js'
 
 // 入庫ごとの日付（User決定 2026-10-27・migration 0034）。
@@ -24,7 +25,7 @@ export function stockDatesOf(item, movements = [], theo = null) {
   for (const m of movements || []) {
     if (!m || m.deletedAt || m.type === 'out') continue
     for (const l of m.lines || []) {
-      if (l.item !== item || !(Number(l.qty) > 0)) continue
+      if (!sameItem(l, item) || !(Number(l.qty) > 0)) continue
       ins.push({
         date: l.lotDate || m.date,
         kind: l.lotDate ? (l.lotKind === 'exp' ? 'exp' : 'buy') : 'buy',
@@ -77,7 +78,7 @@ export function lastDateKind(item, movements = []) {
   for (const m of movements || []) {
     if (!m || m.deletedAt || m.type === 'out') continue
     for (const l of m.lines || []) {
-      if (l.item !== item || !l.lotDate) continue
+      if (!sameItem(l, item) || !l.lotDate) continue
       const at = `${m.date || ''}|${m.savedAt || ''}`
       if (!best || at > best.at) best = { at, kind: l.lotKind === 'exp' ? 'exp' : 'buy' }
     }

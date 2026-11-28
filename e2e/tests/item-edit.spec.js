@@ -42,11 +42,9 @@ test('品目の単位・単価を直すと、別の端末にも届く', async ({
   await ctxB.close()
 })
 
-test('品目の名前を変えても、在庫の数（棚卸＋入出庫）がつながったまま', async ({ browser }) => {
-  // 今は品目を名前で結んでいるので、名前を変えると前の棚卸・入出庫が新しい名前に結びつかない。
-  // ITEM-001 の I-4（ID で引く）で通るようになる。通ったら test.fail を外す
-  test.fail()
-  const { ctx, page: a } = await storeWithCountedItem(browser, 'トマト', 7)
+test('品目の名前を変えても、在庫の数（棚卸＋入出庫）がつながったまま。別の端末でも', async ({ browser }) => {
+  // 記録は品目の変わらない ID で結ぶ（ITEM-001 I-4a）。以前は名前で結んでいたので、名前を変えると「棚卸なし」になった
+  const { ctx, page: a, code } = await storeWithCountedItem(browser, 'トマト', 7)
   await openItemSheet(a, 'トマト')
   await padMove(a, 'in', 5)
   await a.locator('.is-reg').click()
@@ -67,5 +65,14 @@ test('品目の名前を変えても、在庫の数（棚卸＋入出庫）が�
   await openStockTab(a)
   await expect(stockRow(a, 'ミニトマト')).toBeVisible()
   await expect(stockCell(a, 'ミニトマト')).toContainText('12', { timeout: 3000 })
+
+  // 別の端末（localStorage 空）: 前の棚卸と入出庫はサーバーから届き、古い名前のまま。ID で新しい名前につながる
+  const ctxB = await browser.newContext()
+  const b = await ctxB.newPage()
+  acceptDialogs(b)
+  await login(b, code)
+  await openStockTab(b)
+  await expect(stockCell(b, 'ミニトマト')).toContainText('12')
+  await ctxB.close()
   await ctx.close()
 })

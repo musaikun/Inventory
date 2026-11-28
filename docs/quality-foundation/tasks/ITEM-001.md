@@ -128,9 +128,24 @@ User（2026-11-28・D-044・`enterprise-design.md` §0.7）: 品目の ID と商
   1. 棚卸の数に入庫・出庫が足し引きされ、別の端末でも同じ在庫になる（7 → +5 −2 → 10・端末B でも 10）
   2. 品目の単位・単価を直すと、別の端末にも届く
   3. 品目の名前を変えても、在庫の数がつながったまま — **今は落ちる**（`test.fail`）。I-4 で通ったら `test.fail` を外す
-- **見つかった不具合（今のアプリ）**: 棚卸の中の「品目を編集」で名前を変えると、在庫タブで「棚卸なし」になり、前の棚卸の数と入出庫が消えたように見える
+- **見つかった不具合（I-4a で修正済み）**: 棚卸の中の「品目を編集」で名前を変えると、在庫タブで「棚卸なし」になり、前の棚卸の数と入出庫が消えたように見える
   （記録が名前で結ばれているため）。E2E 3 で再現を固定した。I-4 で直す。
 - 検証: `cd e2e && npx playwright test` 10 passed（うち1本は想定どおりの失敗）
+
+## 2026-11-28 I-4a 実装（Claude Code）— 記録を品目の ID で引く
+
+- `utils/lineIndex.js`: 索引の鍵を品目の ID に。行に `itemId` があればそれ、無い古い行は名前から（`useConfig` が `setItemKeyResolver(itemIdOf)` で渡す）。
+  設定の `itemIds` が変わったら索引を作り直す（`bumpItemKeys`）。求め方が無い（純粋な関数のテスト）ときは従来どおり名前。
+  `sameItem(line, name)` を追加。
+- 索引を通さずに名前を比べていた箇所を `sameItem`／`findLine` に: `stockDates`（期限の割り当て2か所）、`orderRefs`、`orderLearning`、`useStockView.itemMovements`。
+  索引を使う `theoreticalStock`・`impliedConsumption`・`itemDayLog`・`itemCheck` はそのまま ID で結ばれる。
+- **不具合が直った**: 棚卸の中で品目の名前を変えても、在庫の数（前の棚卸＋入出庫）・品目の入出庫・期限がつながる。別の端末でも同じ（E2E で確認）。
+  名前を変えた品目の古い行は、最初の名前から決まる ID になるので新しい名前に結びつく。
+- まだ名前で比べているところ（見た目に影響が小さい・I-4b 以降）: 棚卸の結果の前回との比べ（`sessionReport`）、担当者の集計、CSV の書き出し、
+  サーバーの適正在庫の学習（`item_par_levels`・I-6）、履歴の詳細の品目名（記録した時の名前を出す）。
+- 検証: `cd app && npm test` 250 files・2330 pass（`lineIndex.itemId.test.js` 3件を追加）／ `npm run build` OK ／
+  `cd e2e && npx playwright test` 10 passed（名前の変更の E2E は `test.fail` を外して通過・別端末の確認を追加）
+- 次: I-4b（設定を品目ごとのまとまり `items: { ID: {...} }` へ。古い形との読み書きの互換を残す）
 
 ## 未決
 

@@ -7,6 +7,7 @@
 //  - 直近1週間      : 1週間に 2回以上頼んでいれば、1回あたりの平均
 //  - 推奨          : 補充目標が分かるときだけ（人が決めた発注点・補充目標、または学習した適正在庫）。
 //                    「仮」の目標（assumed）からは出さない
+import { sameItem } from '../utils/lineIndex.js'
 import { weekdayOf } from './orderLearning.js'
 
 export const WEEKDAY_MIN = 3
@@ -28,7 +29,7 @@ function _byDate(orders, item, today) {
   for (const o of orders ?? []) {
     if (!o?.date || o.deletedAt || o.date >= today) continue
     for (const l of o.lines ?? []) {
-      if (l.item !== item) continue
+      if (!sameItem(l, item)) continue
       const q = Number(l.qty)
       if (Number.isFinite(q) && q > 0) m.set(o.date, (m.get(o.date) ?? 0) + q)
     }

@@ -44,7 +44,7 @@ ownerと回避策を付けてWeb公開後へ送れる候補です。正式なrel
 |---|---:|---|---|---|---|
 | PLAY-004 | P1 | 保留 | Claude Code | TWA、reviewer、store listing、screenshots | [PLAY-004.md](tasks/PLAY-004.md) |
 | DO-001 | P1 | 未着手 | Codex | 公開後の同期UX改善候補 | [DO-001.md](tasks/DO-001.md) |
-| ITEM-001 | P1 | 進行中 | Claude Code | 品目に変わらない ID を持たせる（名前の変更・統合・テナントの配布の前提）。I-1〜I-3 実装済み（v0.222.0・migration 0038・cron で古い行を埋める）。次は I-4（読む側を ID へ・大） | [ITEM-001.md](tasks/ITEM-001.md) |
+| ITEM-001 | P1 | 進行中 | Claude Code | 品目に変わらない ID を持たせる（名前の変更・統合・テナントの配布の前提）。I-1〜I-3 実装済み（v0.222.0・migration 0038）。E2E 追加済み。I-4a（記録を ID で引く・名前の変更で在庫が切れる不具合を修正・v0.224.0）済み。次は I-4b（設定を品目ごとのまとまりへ） | [ITEM-001.md](tasks/ITEM-001.md) |
 | UI-001 | P2 | レビュー待ち | Claude Code | デスクトップ表示（>=1024px サイドナビ + 本文カラム） | [UI-001.md](tasks/UI-001.md) |
 | UI-004 | P2 | レビュー待ち | User | Rive試作・公開準備をec4adcaでcommit、リモート95f2b25と統合検証済み。Editorでの見た目判断待ち。素材書き出しはプラン制限、Web/実機確認は未完了 | [UI-004.md](tasks/UI-004.md) |
 | UI-003 | P2 | レビュー待ち | User | 実装・自動test・build済み。375px実機でU-1〜U-13（循環・慣性・複数段ドラッグ・畳んだ状態の件数押下・面積2段・0件の案内）を目視待ち | [UI-003.md](tasks/UI-003.md) |

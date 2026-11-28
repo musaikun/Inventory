@@ -8,6 +8,7 @@
 //   date から曜日を導出して曜日別に束ねる。excluded=true は学習から除外
 //   （臨時大量発注・誤入力・オープン/閉店・イベント等、将来の除外フラグ用）。
 
+import { sameItem } from '../utils/lineIndex.js'
 import { effectiveLot } from './lot.js'
 import { medianEstimator } from './estimators/median.js'
 
@@ -35,7 +36,7 @@ export function weekdayOf(dateStr) {
 // window 件に絞り、excluded は除外する。
 export function samplesFor(events, item, weekday, { window = DEFAULT_WINDOW } = {}) {
   return (events || [])
-    .filter(e => e && e.item === item && !e.excluded &&
+    .filter(e => e && sameItem(e, item) && !e.excluded &&
                  Number.isFinite(Number(e.postStock)) &&
                  weekdayOf(e.date) === weekday)
     .sort((a, b) => (a.date || '').localeCompare(b.date || ''))

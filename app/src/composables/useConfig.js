@@ -13,6 +13,7 @@ import { toCSVRow } from '../utils/csvParse.js'
 import { normalizeSchedules } from '../services/orderScheduleUtil.js'
 import { normalizeAssumptions } from '../services/assumedOrderBase.js'
 import { ensureItemIds, renameItemId, itemIdFor } from '../services/itemId.js'
+import { setItemKeyResolver, bumpItemKeys } from '../utils/lineIndex.js'
 import {
   parseItemCSV,
   parseMappedCSV,
@@ -220,6 +221,9 @@ function _fillItemIds() {
 watch(() => config.order.join('\u0001'), _fillItemIds, { flush: 'sync' })
 /** 品目の ID。まだ表に無い名前でも、今の店舗コードから決まる値を返す */
 export function itemIdOf(name) { return config.itemIds?.[name] ?? itemIdFor(_shop(), name) }
+// 記録の行を品目の ID で結ぶ（ITEM-001 I-4a・utils/lineIndex.js）。対応が変われば索引を作り直す
+setItemKeyResolver(itemIdOf)
+watch(() => config.itemIds, bumpItemKeys, { flush: 'sync' })
 
 // 今いる棚卸・発注のセッション（App が画面に合わせて入れる）。この間に足した品目に印を付ける
 let _addingSession = null
