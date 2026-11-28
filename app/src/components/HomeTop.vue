@@ -113,47 +113,20 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', _onVis)
 })
 
-// ── スクロールすると背景の絵が少し揺れる（User 2026-11-28）──
-// スクロールの速さを勢いとして足し、ばねで元の傾きへ戻す。止まったら描画をやめる（毎フレームは揺れている間だけ）。
-// 位置は DOM へ直接書く（Vue の再描画を通さない）。動きを減らす設定の端末では揺らさない
+// ── 背景はスクロールや画面の切り替えでは動かさない（操作とは関係なく、ゆっくり動くだけ・User 2026-11-28）。
+// 以前はスクロールの速さで輪を揺らしていた。ここでは、送ったときに切れ目で中身がふっと消える印だけ付ける
 const bodyEl = ref(null)
-const cardsEl = ref(null)
-let _sc = null, _scrolled = false, _lastTop = 0, _ang = 0, _vel = 0, _raf = 0
-const _MAX = 5   // 傾きの上限（度）。少し揺れる程度に
-function _sway() {
-  _vel += -0.06 * _ang - 0.16 * _vel   // ばね（戻す力）と減衰
-  _ang = Math.max(-_MAX, Math.min(_MAX, _ang + _vel))
-  if (cardsEl.value) cardsEl.value.style.transform = `rotate(${(_ang * .6).toFixed(2)}deg) translateY(${(_ang * 1.2).toFixed(2)}px)`
-  if (Math.abs(_ang) < 0.02 && Math.abs(_vel) < 0.02) {
-    _ang = 0; _vel = 0; _raf = 0
-    if (cardsEl.value) cardsEl.value.style.transform = ''
-    return
-  }
-  _raf = requestAnimationFrame(_sway)
-}
+let _sc = null, _scrolled = false
 function _onScroll() {
-  const top = _sc.scrollTop
-  const dy = top - _lastTop
-  _lastTop = top
-  // 少しでも下へ送ったら、切れ目（上部の下）で中身がふっと消えるようにする
-  const scrolled = top > 0
+  const scrolled = _sc.scrollTop > 0
   if (scrolled !== _scrolled) { _scrolled = scrolled; bodyEl.value?.classList.toggle('scrolled', scrolled) }
-  if (_still) return
-  _vel += Math.max(-.9, Math.min(.9, dy * 0.03))
-  if (!_raf) _raf = requestAnimationFrame(_sway)
 }
-const _still = typeof requestAnimationFrame !== 'function'
-  || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches)
 onMounted(() => {
   _sc = bodyEl.value
   if (!_sc) return
-  _lastTop = _sc.scrollTop
   _sc.addEventListener('scroll', _onScroll, { passive: true })
 })
-onUnmounted(() => {
-  _sc?.removeEventListener('scroll', _onScroll)
-  if (_raf) cancelAnimationFrame(_raf)
-})
+onUnmounted(() => { _sc?.removeEventListener('scroll', _onScroll) })
 // 本日の状況: 今日のやること・定期・期限切れ・持ち越し・進行中を同じ形の棒で1列に。済んだものは出さない（User決定 2026-11-12・D-042）
 // 1枚目は中でスクロールさせないので、画面に入る分だけ出す（残りは「ほか n件」・User 2026-11-28）。
 // 行の高さは中身で変わる（長い名前は2行・進行中の印など）ので、行数を計算で決めず、実際に並べて測る:
@@ -330,7 +303,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
         <!-- 背景の輪の色は月ごと（本日の状況の輪はいつもの色のまま） -->
         <linearGradient :id="`${gid}-bg`" x1="0" y1="0" x2="1" y2="0"><stop offset="0" :stop-color="bgRing[0]" /><stop offset=".55" :stop-color="bgRing[1]" /><stop offset="1" :stop-color="bgRing[2]" /></linearGradient>
       </defs></svg>
-      <div ref="cardsEl" class="ht-artw">
+      <div class="ht-artw">
         <div class="ht-stage">
           <div class="ht-lay l1">
             <svg viewBox="0 0 380 291"><ellipse class="ht-rl soft" cx="190" cy="152" rx="152" ry="73.5" transform="rotate(-18 190 152)" :stroke="`url(#${gid}-bg)`" /><ellipse class="ht-rl" cx="190" cy="152" rx="152" ry="73.5" transform="rotate(-18 190 152)" :stroke="`url(#${gid}-bg)`" /></svg>
@@ -510,7 +483,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .ht-bg { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
 .ht-defs { position: absolute; }
-.ht-artw { position: absolute; inset: 0; transform-origin: 50% 56%; will-change: transform; }   /* スクロールの揺れはここ */
+.ht-artw { position: absolute; inset: 0; }
 .ht-stage { position: absolute; left: 50%; top: 56%; width: max(150%, 560px); aspect-ratio: 380 / 291; transform: translate(-50%, -50%); }
 .ht-lay { position: absolute; inset: 0; transform-origin: 50% 52%; will-change: transform; }
 .ht-lay svg { display: block; width: 100%; height: 100%; overflow: visible; }
