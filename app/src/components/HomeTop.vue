@@ -80,6 +80,48 @@ _tickNow()
 let _nowTimer = null
 onMounted(() => { _nowTimer = setInterval(_tickNow, 60_000) })
 onUnmounted(() => clearInterval(_nowTimer))
+
+// ── スクロールすると上部のカードが少し揺れる（User 2026-11-28）──
+// スクロールの速さを勢いとして足し、ばねで元の傾きへ戻す。止まったら描画をやめる（毎フレームは揺れている間だけ）。
+// 位置は DOM へ直接書く（Vue の再描画を通さない）。動きを減らす設定の端末では揺らさない
+const bodyEl = ref(null)
+const cardsEl = ref(null)
+let _sc = null, _scrolled = false, _lastTop = 0, _ang = 0, _vel = 0, _raf = 0
+const _MAX = 5   // 傾きの上限（度）。少し揺れる程度に
+function _sway() {
+  _vel += -0.06 * _ang - 0.16 * _vel   // ばね（戻す力）と減衰
+  _ang = Math.max(-_MAX, Math.min(_MAX, _ang + _vel))
+  if (cardsEl.value) cardsEl.value.style.transform = `rotate(${_ang.toFixed(2)}deg) translateY(${(_ang * .5).toFixed(2)}px)`
+  if (Math.abs(_ang) < 0.02 && Math.abs(_vel) < 0.02) {
+    _ang = 0; _vel = 0; _raf = 0
+    if (cardsEl.value) cardsEl.value.style.transform = ''
+    return
+  }
+  _raf = requestAnimationFrame(_sway)
+}
+function _onScroll() {
+  const top = _sc.scrollTop
+  const dy = top - _lastTop
+  _lastTop = top
+  // 少しでも下へ送ったら、切れ目（上部の下）で中身がふっと消えるようにする
+  const scrolled = top > 0
+  if (scrolled !== _scrolled) { _scrolled = scrolled; bodyEl.value?.classList.toggle('scrolled', scrolled) }
+  if (_still) return
+  _vel += Math.max(-.9, Math.min(.9, dy * 0.03))
+  if (!_raf) _raf = requestAnimationFrame(_sway)
+}
+const _still = typeof requestAnimationFrame !== 'function'
+  || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches)
+onMounted(() => {
+  _sc = bodyEl.value
+  if (!_sc) return
+  _lastTop = _sc.scrollTop
+  _sc.addEventListener('scroll', _onScroll, { passive: true })
+})
+onUnmounted(() => {
+  _sc?.removeEventListener('scroll', _onScroll)
+  if (_raf) cancelAnimationFrame(_raf)
+})
 // 本日の状況: 今日のやること・定期・期限切れ・持ち越し・進行中を同じ形の棒で1列に。済んだものは出さない（User決定 2026-11-12・D-042）
 const status = computed(() => homeStatus({
   today, now: nowHm.value,
@@ -175,7 +217,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
         <ellipse cx="150" cy="120" rx="120" ry="58" transform="rotate(-18 150 120)" fill="none" :stroke="`url(#${gid})`" stroke-width="9" opacity=".55" :filter="`url(#${gid}-b)`" />
         <ellipse cx="150" cy="120" rx="120" ry="58" transform="rotate(-18 150 120)" fill="none" :stroke="`url(#${gid})`" stroke-width="3.5" />
         <!-- 重なったカードがゆっくり浮き沈みする（少しずつずらして） -->
-        <g opacity=".85">
+        <g ref="cardsEl" class="ht-cards" opacity=".85">
           <g class="ht-card c1"><rect x="150" y="56" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(165,243,252,.22)" stroke="rgba(165,243,252,.7)" stroke-width="1.2" /></g>
           <g class="ht-card c2"><rect x="172" y="44" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(110,231,183,.25)" stroke="rgba(110,231,183,.8)" stroke-width="1.2" /></g>
           <g class="ht-card c3"><rect x="194" y="32" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(52,211,153,.3)" stroke="rgba(167,243,208,.9)" stroke-width="1.2" /></g>
@@ -196,6 +238,8 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
       </div>
     </section>
 
+    <!-- 上部（名前・店名・日付・天気・動き）は止めたまま、ここから下だけがその上を流れる（User 2026-11-28） -->
+    <div ref="bodyEl" class="ht-body">
     <!-- 本日の状況（以前の「今日のやること」と「店の今」を1枚に・User決定 2026-11-12・D-042） -->
     <section class="ht-today" aria-label="本日の状況">
       <button type="button" class="ht-th" aria-label="今日の一覧を開く" @click="emit('openTodo')">
@@ -256,6 +300,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
         <b>{{ s.label }}</b>
       </button>
     </div>
+    </div><!-- /.ht-body -->
 
     <Teleport to="body">
       <div v-if="sheet" class="ht-sh-bg" @click.self="sheet = ''">
@@ -319,8 +364,11 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 </template>
 
 <style scoped>
-.ht { padding-bottom: 24px; }
-.ht-hero { position: relative; min-height: 168px; padding: 16px 18px 76px; color: #e6fbff; overflow: hidden;
+/* 上部（名前・店名・日付・天気・動き）は止めたまま、いつも見える（User 2026-11-28）。
+   スクロールするのは下の .ht-body だけ。.ht は枠（.home-panels）の高さぴったりで、枠そのものはスクロールしない。
+   .ht-body の上端は上部の下から64px上（本日の状況のカードが上部に重なる線）。中身はその線で切れて上部の下へ消える */
+.ht { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ht-hero { flex: none; position: relative; z-index: 0; min-height: 168px; padding: 16px 18px 76px; color: #e6fbff; overflow: hidden;
   background: radial-gradient(120% 90% at 85% 10%, #0f4c5c 0%, #0a3340 45%, #06222b 100%); }
 .ht-ring { position: absolute; right: -80px; top: -6px; opacity: .9; pointer-events: none; }
 .ht-glow { position: absolute; right: 10px; top: -16px; width: 140px; height: 140px; border-radius: 50%; background: radial-gradient(circle, rgba(34,211,238,.35), transparent 70%); filter: blur(6px); pointer-events: none;
@@ -334,6 +382,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
   background: radial-gradient(circle, #fff 0 22%, rgba(224, 253, 255, .75) 34%, rgba(165, 243, 252, .25) 58%, transparent 72%); }
 @keyframes ht-ox { from { transform: translateX(0); } to { transform: translateX(240px); } }
 @keyframes ht-oy { from { transform: translateY(0); } to { transform: translateY(116px); } }
+.ht-cards { transform-box: fill-box; transform-origin: 50% 100%; }
 .ht-card { transform-box: fill-box; transform-origin: center; animation: ht-float 4.8s ease-in-out infinite; }
 .ht-card.c2 { animation-delay: -1.6s; }
 .ht-card.c3 { animation-delay: -3.2s; }
@@ -350,7 +399,10 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-hi b { display: block; font-size: 18px; font-weight: 800; letter-spacing: .04em; line-height: 1.35; }
 .ht-wx { display: inline-block; margin-top: 8px; font-size: 12px; color: #bfeaf2; }
 
-.ht-today { position: relative; z-index: 1; width: calc(100% - 28px); margin: -64px 14px 0; color: var(--text);
+.ht-body { position: relative; z-index: 1; flex: 1; min-height: 0; margin-top: -64px; padding-bottom: 24px;
+  overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.ht-body.scrolled { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px); mask-image: linear-gradient(to bottom, transparent, #000 18px); }
+.ht-today { position: relative; z-index: 1; width: calc(100% - 28px); margin: 0 14px; color: var(--text);
   background: rgba(255,255,255,.97); border-radius: 20px; padding: 14px; box-shadow: 0 10px 28px rgba(6,34,43,.18); display: grid; gap: 6px; }
 .ht-th { display: flex; gap: 12px; align-items: center; border: none; background: none; padding: 0 0 8px; font: inherit; color: inherit; text-align: left; cursor: pointer; border-bottom: 1px solid #e2ecef; }
 .ht-pr { flex: none; position: relative; width: 56px; height: 56px; }

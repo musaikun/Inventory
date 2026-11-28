@@ -628,6 +628,8 @@ onUnmounted(registerInnerLayerCloser(() => {
   display: flex; flex-direction: column; padding-bottom: var(--bnav-h);
 }
 .home-panels > .home-panel { flex: 1 0 auto; }
+/* ホームは上部を止め、中（HomeTop の .ht-body）だけがスクロールする（User 2026-11-28）。枠の高さぴったりに */
+.home-panels > .top-panel { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
 /* タブを変えたら面をふわっと出す（透明度だけ）。
    以前は left で 24px 横に滑らせていたが、left は GPU に載らず、面の中身（在庫の表など）を
    毎フレーム組み直して描き直すため、スマホでカクついた（2026-11-26）。
