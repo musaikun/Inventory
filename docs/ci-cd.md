@@ -40,9 +40,9 @@ User承認だけでなく[Web公開準備](quality-foundation/web-release-readin
 PRO_REVIEW_WORKER=https://example.workers.dev ./scripts/health-check.sh   # 対象の差し替え
 ```
 
-> **既知の制約**: GitHubの`schedule`は**default branchのworkflowしか動かさない**。
-> このrepositoryのdefault branchは`main`で、workflowは`develop`にある。`main`へ入るまで
-> 定期実行は始まらない（手動実行はできる）。
+> **default branch は `develop`**（D-045・2026-11-28 User）。GitHubの`schedule`と`workflow_dispatch`は
+> default branchのworkflowを使うので、GitHubの設定で切り替えた時点から、`develop`に置いた定期実行が動き、
+> 手動実行の branch も既定で `develop` になる。
 
 
 ## 「Proだけ反映されない」の正体（workflow間の非対称）
@@ -96,7 +96,7 @@ command/step、環境、未検証範囲を残します。
 | `Pro Review Pages`を手動実行 | Worker/App test → Pro build → Access保護Preview | `pro-review.inventory-app-pro-review.pages.dev` |
 | `Production Backend`を手動実行 | test → 本番D1 preflight →（apply時のみ）migration → 本番Worker deploy | Worker `inventory-sync` / D1 `inventory-store` |
 | `Worker Health Check`（6時間ごと / 手動） | 公開中のWorkerを外から確認。落ちていたらrunが失敗し、それが通知になる | 変更しない（読むだけ） |
-| `main` / その他branchへpush | 自動処理なし（2026-08-28に無ゲートの `deploy.yml` を削除・下記） | — |
+| `main` / その他branchへpush | 自動処理なし（2026-08-28に無ゲートの `deploy.yml` を削除・下記）。`main` は 2026-09-19 で止めた古い版で、使わない（D-045） | — |
 | テスト失敗時 | デプロイは実行されない（ゲート） | — |
 
 - `develop` pushはfrontend previewだけを更新し、D1・Worker・本番Pagesを変更しない。
@@ -113,9 +113,9 @@ command/step、環境、未検証範囲を残します。
 > `main` の `scripts/migrate.sh` も 0009 までの古い版で 0010〜0017 を当てられなかった。
 > 二重の本番deploy経路を残さないため、`main` 側も 2026-08-28 に削除した。
 >
-> workflow は `main` にも置いてある。workflow_dispatch はデフォルトブランチに
-> ファイルが無いと Actions のUIへ出ないため。**実行時の branch は develop を選ぶ**
-> （`main` のコードは古い。workflow 側にもガードがある）。
+> 以前は workflow を `main` にも置いていた（workflow_dispatch はデフォルトブランチに
+> ファイルが無いと Actions のUIへ出ないため）。default branch を `develop` にした（D-045）ので、
+> 実行時の branch は既定で develop になる。古い `main` を選んだ apply は workflow 側のガードで止まる。
 
 > **プレビューの注意**: 現状プレビューのフロントは**本番 Worker / 本番 D1** を見る
 > （`VITE_SYNC_WORKER_URL` が共通のため）。プレビューで実機テストする際は

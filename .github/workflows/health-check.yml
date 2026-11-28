@@ -10,8 +10,8 @@ name: Worker Health Check
 # どちらも「誰かが画面を開くまで気付けなかった」。
 #
 # このworkflowが落ちること自体が通知になる（GitHubが失敗を知らせる）。
-# **schedule はdefault branchのworkflowしか動かない。** このrepositoryのdefault branchは
-# `main` なので、`develop` に置いただけでは定期実行は始まらない（手動実行はできる）。
+# **schedule はdefault branchのworkflowしか動かない。** default branch は `develop`（D-045）。
+# GitHub の設定で default branch を develop に切り替えた時点から、ここに置いた定期実行が動く。
 on:
   schedule:
     # 6時間ごと。検証環境の停止に気付くにはこれで足り、Actionsの消費も小さい。

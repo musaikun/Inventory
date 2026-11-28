@@ -55,9 +55,9 @@ jobs:
           echo "confirm が APPLY-PRODUCTION ではありません。中止します。" >&2
           exit 1
 
-      # 本番へ出す中身は **develop** の内容。`main` にもこのファイルを置いてあるのは、
-      # workflow_dispatch がデフォルトブランチに無いと Actions のUIへ出ないため
-      # （`main` のコードは develop より古い）。Run workflow では branch に develop を選ぶ。
+      # 本番へ出す中身は **develop** の内容。default branch は develop（D-045）なので、
+      # Run workflow の branch は既定で develop になる。古い `main`（2026-09-19 で止めた版）を
+      # 選んで apply しないよう、ここで止める。
       - name: Guard branch
         if: inputs.step == 'apply' && github.ref_name != 'develop'
         run: |

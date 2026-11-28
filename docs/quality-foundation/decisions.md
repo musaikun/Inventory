@@ -286,7 +286,7 @@
 - 確認を残す範囲（従来どおり明示依頼が必要）:
   - 本番デプロイ（`scripts/deploy.sh`）
   - D1 の本番マイグレーション適用（0012〜0016 を含む。→ [WEB-04](web-release-readiness.md)）
-  - `main` への統合、および `develop` 以外のブランチへの push
+  - `main` への統合、および `develop` 以外のブランチへの push（`main` は D-045 で使わなくなった）
 - 前提条件: push 前に `cd app && npm test` と `npm run build` が成功していること。
   失敗している場合は push せず、結果を報告する。
 - 理由: UI 改善のように小さく反復する作業で、develop preview（Actions が Worker/App test →
@@ -643,4 +643,17 @@
 - 理由: 6月の設計の後に、スタッフのログイン・役割と、アカウントでのログインの提案が入り、「店舗＝共有アカウントだけ」の前提が崩れたため。
 - 追記（2026-11-28 User）: 配布物は自動で反映する。ただし店のデータは消さない・店で直した値は戻さない（外した品目は「配布終了」の印で残す）。
   本部は店の品目リストを取り込んで配布物にできる。エリア担当は見るだけ。単価の決め方（地域差）は User 検討中（`enterprise-design.md` §0.8）。
+
+## D-045 — default branch は `develop`。`main` は使わない
+
+- 日付: 2026-11-28
+- 状態: 採用（GitHub の default branch の切り替えは User が設定画面で行う）
+- 決定者: User
+- 判断: 作業・preview・本番 backend の中身はすべて `develop`。GitHub の default branch を `develop` にし、
+  `main` は 2026-09-19 で止めた古い版として残す（消さない・push しない・統合しない）。
+  「どれが本番の版か」はブランチではなく、Production Backend を apply した run の commit と、preview に出ている commit（画面の `v0.x.y (sha)`）で見る。
+- 理由: `main` は 2026-09-19 から更新が無く、`develop` に 589 commit 遅れていた。`main` を残していたのは
+  workflow を default branch に置くため（`schedule`・`workflow_dispatch`）だけで、GitHub を開くと古いコードが最初に見えていた。
+- 見送った案: `main` を「本番に出した版」にして、本番に出すたびに統合する。本番フロントの出し方（WEB-001）が未確定のため。
+  本番の公開が近づいたら見直す。
 

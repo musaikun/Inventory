@@ -68,10 +68,9 @@ PagesのPreview Accessはproject内の全Previewを保護するが、production 
 
 `develop`以外の内容を入れたいときだけ`workflow_dispatch`を使う。
 **実行時に選んだブランチをbuildする**ので、入れたいブランチを選ぶ。
-ただしworkflowは`develop`にだけ存在し、default branchは`main`のままなので、
-`main`へ配置されるまで`workflow_dispatch`はUI・APIとも使えない。
-（Claude Codeのセッションからも`403 Resource not accessible by integration`になる。
-push トリガはこれを迂回するために足した。）
+default branch を `develop` に切り替えた（D-045）あとは、`workflow_dispatch` も Actions のUIから使える。
+（切り替える前は workflow が default branch の `main` に無く、UI・APIとも使えなかった。
+Claude Codeのセッションからは`403 Resource not accessible by integration`になる。push トリガはこれを迂回するために足した。）
 
 1 回の run で **Worker → Pages の順に両方**を更新する。Pages だけ新しい状態にすると、
 config 中継の新フィールドがゲスト側から落ちるなどの不整合が出るため、分離して実行しない。
