@@ -14,7 +14,7 @@
  * 棚卸・発注は在庫タブの今のボタンからも始められる（両方に置く・User決定）。
  */
 import LineIcon from './LineIcon.vue'
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import AppMark from './AppMark.vue'
 import { tasksOn, eventsOn, overdueTasks, carriedTasks, isMarkedByMe, pullTasks, progressTasks, newTasks, todayOpenCount } from '../composables/useTasks.js'
 import { checklistsForDay, pullChecklists } from '../composables/useChecklists.js'
@@ -147,15 +147,44 @@ onUnmounted(() => {
   if (_raf) cancelAnimationFrame(_raf)
 })
 // 本日の状況: 今日のやること・定期・期限切れ・持ち越し・進行中を同じ形の棒で1列に。済んだものは出さない（User決定 2026-11-12・D-042）
-// 1枚目は中でスクロールさせないので、画面の高さに入る行数だけ出す（残りは「ほか n件」・User 2026-11-28）
+// 1枚目は中でスクロールさせないので、画面に入る分だけ出す（残りは「ほか n件」・User 2026-11-28）。
+// 行の高さは中身で変わる（長い名前は2行・進行中の印など）ので、行数を計算で決めず、実際に並べて測る:
+// まず全部並べ、1枚目からはみ出す間だけ1件ずつ減らす（同じ描画の前に済むので、ちらつかない）
 const pageH = ref(0)
-const maxRows = computed(() => (pageH.value ? Math.max(2, Math.min(8, Math.floor((pageH.value - 152) / 64))) : 8))
-const status = computed(() => homeStatus({
+const p1El = ref(null)
+const all = computed(() => homeStatus({
   today, now: nowHm.value,
   tasks: todays.value, overdue: late.value, carry: carriedTasks(today),
   checklists: checklistsForDay(today), progress: progressTasks.value, events: eventsOn(today),
   isDone: t => (t.assign === 'all' ? isMarkedByMe(t) || !!t.doneAt : !!t.doneAt),
-}, Math.max(1, maxRows.value - Math.min(2, eventsOn(today).length)), 2))
+}, 999, 999))
+const fit = ref({ rows: 8, events: 2 })   // 測れない環境（テスト）では以前の上限
+const status = computed(() => {
+  const a = all.value
+  const r = Math.min(fit.value.rows, a.rows.length), e = Math.min(fit.value.events, a.events.length)
+  return { ...a, rows: a.rows.slice(0, r), more: a.rows.length - r, events: a.events.slice(0, e), eventsMore: a.events.length - e }
+})
+let _fitRun = 0
+async function refit() {
+  const el = p1El.value
+  if (!el || !el.clientHeight) return
+  const run = ++_fitRun
+  const a = all.value
+  fit.value = { rows: a.rows.length, events: a.events.length }
+  for (let i = 0; i < 200; i++) {
+    await nextTick()
+    if (run !== _fitRun) return                         // 途中で中身が変わった（新しい測り直しに任せる）
+    if (el.scrollHeight <= el.clientHeight + 1) return  // 収まった
+    const { rows, events } = fit.value
+    // 減らす順: やること（2件より多い分）→ イベント（1件まで）→ やること（1件まで）→ イベント
+    if (rows > 2) fit.value = { rows: rows - 1, events }
+    else if (events > 1) fit.value = { rows, events: events - 1 }
+    else if (rows > 1) fit.value = { rows: rows - 1, events }
+    else if (events > 0) fit.value = { rows, events: events - 1 }
+    else return
+  }
+}
+watch([pageH, () => all.value.rows.map(r => r.key).join(), () => all.value.events.map(e => e.key).join(), () => props.firstRun], refit, { flush: 'post' })
 
 // ── 上下の2画面（本日の状況 / ショートカット）。1画面ずつ止まる（User 2026-11-28・モック https://claude.ai/artifact/WskkjpxqUixRRWNVDxho2W）──
 const page = ref(0)
@@ -178,6 +207,7 @@ onMounted(() => {
   const el = bodyEl.value
   if (!el) return
   pageH.value = el.clientHeight
+  refit()
   if (typeof ResizeObserver === 'function') { _ro = new ResizeObserver(() => { pageH.value = el.clientHeight; goPage(page.value, false) }); _ro.observe(el) }
   el.addEventListener('scroll', _onPage, { passive: true })
   const p = _savedPage()
@@ -309,7 +339,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
     <!-- 上部は止めたまま、ここから下だけが動く（上下の2画面・D-046） -->
     <div ref="bodyEl" class="ht-body">
     <!-- 1枚目: 本日の状況。中ではスクロールさせない（上下のスワイプは画面の切り替え・User 2026-11-28） -->
-    <div class="ht-page p1" aria-label="本日の状況">
+    <div ref="p1El" class="ht-page p1" aria-label="本日の状況">
     <!-- 本日の状況（以前の「今日のやること」と「店の今」を1枚に・User決定 2026-11-12・D-042） -->
     <section class="ht-today" aria-label="本日の状況">
       <button type="button" class="ht-th" aria-label="今日の一覧を開く" @click="emit('openTodo')">
