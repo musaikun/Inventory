@@ -399,7 +399,10 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-hi b { display: block; font-size: 18px; font-weight: 800; letter-spacing: .04em; line-height: 1.35; }
 .ht-wx { display: inline-block; margin-top: 8px; font-size: 12px; color: #bfeaf2; }
 
-.ht-body { position: relative; z-index: 1; flex: 1; min-height: 0; margin-top: -64px; padding-bottom: 24px;
+/* 下の余白は多めに: 実機ではホームバーの分などで下部ナビが高くなり、最後の行の名前がナビに隠れて
+   そこまで送れなかった（User報告 2026-11-28）。端末の差があっても最後の行がナビの上まで上がるように */
+.ht-body { position: relative; z-index: 1; flex: 1; min-height: 0; margin-top: -64px;
+  padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
   overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .ht-body.scrolled { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px); mask-image: linear-gradient(to bottom, transparent, #000 18px); }
 .ht-today { position: relative; z-index: 1; width: calc(100% - 28px); margin: 0 14px; color: var(--text);
