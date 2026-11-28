@@ -1,4 +1,5 @@
 import { JOIN_KIND, joinTaskText, responsibleAdmin } from './staffJoinTask.js'
+import { backfillItemIds } from './itemIdBackfill.js'
 import { sendWebPush } from './webPush.js'
 import { cleanupExpiredAccountDeletionRecords } from './accountDeletion.js'
 import { cleanupExpiredSecurityRecords } from './rateLimiter.js'
@@ -178,6 +179,13 @@ export async function handleCron(env) {
     await env.DB.prepare('DELETE FROM push_sent WHERE sent_at < datetime(\'now\', ?)').bind(`-${SENT_KEEP_DAYS} days`).run()
   } catch (error) {
     console.warn('[push] sent-mark cleanup failed:', error?.message ?? error)
+  }
+  try {
+    // 古い明細へ品目の ID を埋める（ITEM-001 I-3）。終わった後は部分 index を1回読むだけ
+    const r = await backfillItemIds(env.DB)
+    if (r.updated) console.log(JSON.stringify({ event: 'item-id-backfill', stores: r.stores, updated: r.updated }))
+  } catch (error) {
+    console.warn('[item-id] backfill failed:', error?.message ?? error)
   }
   try {
     await remindJoinTasks(env)

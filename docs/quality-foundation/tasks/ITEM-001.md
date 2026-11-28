@@ -108,6 +108,19 @@ User（2026-11-28・D-044・`enterprise-design.md` §0.7）: 品目の ID と商
   `cd app && npm test` 249 files・2324 pass ／ `npm run build` OK ／ `cd e2e && npx playwright test` 7 passed（全 migration を当てたローカル Worker）
 - 次: I-3（古い行の `item_id` を設定の `itemIds` から埋める・食い違いを直す）
 
+## 2026-11-28 I-3 実装（Claude Code）
+
+- `worker/src/itemIdBackfill.js`（新）: `item_id` が NULL の行だけを、その店の設定の `itemIds`（無い名前は店舗コード＋名前から計算）で埋める。
+  I-2 以降の行（端末が ID を添えた行）は上書きしない。1文で 200 名ずつ（`json_each`）。
+- 毎時の cron（`pushHandler.handleCron`）で、1回あたり最大 2 店・D1 呼び出し 20 本までで少しずつ進める（尽きたら次の回に続き）。
+- migration 0038 に部分 index（`… WHERE item_id IS NULL`）を4つ追加（0038 はまだ本番に当てていないので同じファイルに足した）。
+  埋め終わると index が空になり、毎時の「残っている店はあるか」は軽い。
+- 名前を変えた品目の古い行: 変える前の名前は表から外れるので、計算した ID（＝最初の名前から決まる ID）が入る。
+  名前を変えた後に同じ名前で作り直した場合だけ食い違いうる → I-5（名前の変更・統合）で扱う。
+- 端末に残っている古い記録（棚卸の履歴・入出庫・発注の cache）は、読むときに `itemIdOf` で補う（I-4）。D1 の `store_history` の JSON は対象外（I-4 で明細から読む）。
+- 検証: `cd worker && npm test` 58 files・777 pass（実 SQLite: NULL だけ埋める・I-2 の行は触らない・途中で止めて続きを埋める・他店に触らない）
+- 次: I-4（読む側を ID で引く・設定を ID キーへ。**大きい段**。先に E2E を厚くする）
+
 ## 未決
 
 
