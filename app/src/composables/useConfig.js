@@ -1,4 +1,4 @@
-import { reactive, computed, ref } from 'vue'
+import { reactive, computed, ref, watch } from 'vue'
 import {
   DICTIONARY as DEFAULT_DICT,
   INVENTORY_ORDER as DEFAULT_ORDER,
@@ -12,6 +12,7 @@ import { isPro, FREE_ITEM_LIMIT, itemLimit, canAddItem } from '../utils/planLimi
 import { toCSVRow } from '../utils/csvParse.js'
 import { normalizeSchedules } from '../services/orderScheduleUtil.js'
 import { normalizeAssumptions } from '../services/assumedOrderBase.js'
+import { ensureItemIds, renameItemId, itemIdFor } from '../services/itemId.js'
 import {
   parseItemCSV,
   parseMappedCSV,
@@ -55,6 +56,7 @@ const config = reactive({
   isCustom:       false,
   savedAt:        null,
   manualItems:    [],  // フォームから手動追加した品目名（CSV品目と区別）
+  itemIds:        {},  // 品目名 → 変わらない ID（ITEM-001。消した品目の ID も残す・services/itemId.js）
   itemAdded:      {},  // 手で足した品目 → { at, session? }。棚卸・発注の最中に足したらそのセッションID（破棄で一緒に消す・User決定 2026-10-27）
   axisNames:      ['', ''],  // 汎用2軸の名前（例: '場所', '仕入先'）。空=未使用
   tagsA:          {},        // 品目 → 軸1のグループ名（フラットマップ）
@@ -156,6 +158,7 @@ function _serializeConfigData() {
     orderAssumptions: config.orderAssumptions,
     importExcluded: config.importExcluded,
     itemAdded:     config.itemAdded,
+    itemIds:       config.itemIds,
   }
 }
 function _assignConfigData(src) {
@@ -201,7 +204,22 @@ function _assignConfigData(src) {
   const added = src.itemAdded && typeof src.itemAdded === 'object' && !Array.isArray(src.itemAdded) ? src.itemAdded : (config.itemAdded ?? {})
   const inOrder = new Set(config.order)
   config.itemAdded = Object.fromEntries(Object.entries(added).filter(([n, v]) => inOrder.has(n) && v && typeof v === 'object'))
+  // 品目の ID。持たない元（古い端末・取込計画）からは今の対応を引き継ぎ、無い品目に足す（ITEM-001）
+  const ids = src.itemIds && typeof src.itemIds === 'object' && !Array.isArray(src.itemIds) ? { ...(config.itemIds ?? {}), ...src.itemIds } : (config.itemIds ?? {})
+  config.itemIds = ids
+  _fillItemIds()
 }
+
+// ── 品目の ID（ITEM-001 段 I-1）─────────────────────────────
+// 店舗コード＋最初の名前から決まるので端末で付けてよい。品目が増えたら（取込・手で追加）すぐ付ける
+function _shop() { try { return localStorage.getItem(STORAGE_KEYS.shopCode) || '' } catch (_) { return '' } }
+function _fillItemIds() {
+  const { map, added } = ensureItemIds(config.itemIds, config.order, _shop())
+  if (added || map !== config.itemIds) config.itemIds = map
+}
+watch(() => config.order.join('\u0001'), _fillItemIds, { flush: 'sync' })
+/** 品目の ID。まだ表に無い名前でも、今の店舗コードから決まる値を返す */
+export function itemIdOf(name) { return config.itemIds?.[name] ?? itemIdFor(_shop(), name) }
 
 // 今いる棚卸・発注のセッション（App が画面に合わせて入れる）。この間に足した品目に印を付ける
 let _addingSession = null
@@ -775,6 +793,7 @@ export function useConfig() {
       const mi = config.manualItems.indexOf(oldName)
       if (mi >= 0) config.manualItems[mi] = n
       if (config.itemAdded[oldName]) { config.itemAdded[n] = config.itemAdded[oldName]; delete config.itemAdded[oldName] }
+      config.itemIds = renameItemId(config.itemIds, oldName, n)   // 名前を変えても ID は変えない（ITEM-001）
     }
     if (price != null && !isNaN(price) && price > 0) config.prices[n] = price
     else delete config.prices[n]

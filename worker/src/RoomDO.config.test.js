@@ -145,3 +145,10 @@ describe('棚卸の導線（3つ目の枠・2026-10-30）', () => {
     expect(keepImagesFromPrevious(normalizeConfig(src), src, { ...route }).axisGroupsR).toEqual([])
   })
 })
+
+describe('normalizeConfig: 品目の ID（ITEM-001）', () => {
+  it('ID の表を中継する。持たない古い端末の送信では載せない（受けた端末が手元の対応を残す）', () => {
+    expect(normalizeConfig({ order: ['トマト'], itemIds: { トマト: 'it_00000000000000aa' } }).itemIds).toEqual({ トマト: 'it_00000000000000aa' })
+    expect('itemIds' in normalizeConfig({ order: ['トマト'] })).toBe(false)
+  })
+})

@@ -44,7 +44,7 @@ ownerと回避策を付けてWeb公開後へ送れる候補です。正式なrel
 |---|---:|---|---|---|---|
 | PLAY-004 | P1 | 保留 | Claude Code | TWA、reviewer、store listing、screenshots | [PLAY-004.md](tasks/PLAY-004.md) |
 | DO-001 | P1 | 未着手 | Codex | 公開後の同期UX改善候補 | [DO-001.md](tasks/DO-001.md) |
-| ITEM-001 | P1 | 進行中 | Claude Code | 品目に変わらない ID を持たせる（名前の変更・統合・テナントの配布の前提）。洗い出し済み・段 I-1〜I-6 の案を User 確認待ち | [ITEM-001.md](tasks/ITEM-001.md) |
+| ITEM-001 | P1 | 進行中 | Claude Code | 品目に変わらない ID を持たせる（名前の変更・統合・テナントの配布の前提）。I-1（設定に名前 → ID）実装済み（v0.220.0）。次は I-2（記録に ID を併記・D1） | [ITEM-001.md](tasks/ITEM-001.md) |
 | UI-001 | P2 | レビュー待ち | Claude Code | デスクトップ表示（>=1024px サイドナビ + 本文カラム） | [UI-001.md](tasks/UI-001.md) |
 | UI-004 | P2 | レビュー待ち | User | Rive試作・公開準備をec4adcaでcommit、リモート95f2b25と統合検証済み。Editorでの見た目判断待ち。素材書き出しはプラン制限、Web/実機確認は未完了 | [UI-004.md](tasks/UI-004.md) |
 | UI-003 | P2 | レビュー待ち | User | 実装・自動test・build済み。375px実機でU-1〜U-13（循環・慣性・複数段ドラッグ・畳んだ状態の件数押下・面積2段・0件の案内）を目視待ち | [UI-003.md](tasks/UI-003.md) |

@@ -107,6 +107,14 @@ export async function handleConfigGet(db, code) {
   return row ? JSON.parse(row.config_json) : null
 }
 
+// 品目の ID の表を重ねる（ITEM-001）。送られた対応を正とし、前の対応は残す。
+// ただし名前を変えて ID が別の名前へ移ったものは、古い名前の対応を落とす（同じ名前で作り直した品目に古い ID を渡さない）
+export function mergeItemIds(prev, next) {
+  const moved = new Set(Object.values(next))
+  const keep = Object.entries(prev).filter(([n, id]) => !moved.has(id) || next[n] === id)
+  return { ...Object.fromEntries(keep), ...next }
+}
+
 // PUT /store/:code/config
 export async function handleConfigPut(db, code, body) {
   if (_tooLarge(body)) return { _status: 413, error: 'データサイズが大きすぎます' }
@@ -114,12 +122,17 @@ export async function handleConfigPut(db, code, body) {
   // 新しい端末は写真が0枚でも `images: {}` を送るので、キーが無いときだけ前の値を引き継ぐ。
   // 導線（axisGroupsR ほか・2026-10-30）も同じ。導線を知らない端末の保存で消さない。
   const lacksImages = body?.images === undefined, lacksRoute = !Array.isArray(body?.axisGroupsR)
-  if (body && typeof body === 'object' && !Array.isArray(body) && (lacksImages || lacksRoute)) {
+  const hasIds = body?.itemIds && typeof body.itemIds === 'object' && !Array.isArray(body.itemIds)
+  // 品目の ID（ITEM-001）は消さない: 知らない古い端末の保存では前の値を残し、知っている端末の保存は前の値に重ねる
+  // （消した品目の ID も残すため、送られてこなかった対応を落とさない）
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
     try {
       const prevRow = await db.prepare('SELECT config_json FROM store_configs WHERE shop_code = ?').bind(code).first()
       const prev = prevRow ? JSON.parse(prevRow.config_json) : null
       const prevImages = prev?.images
       if (lacksImages && prevImages && typeof prevImages === 'object' && !Array.isArray(prevImages)) body = { ...body, images: prevImages }
+      const prevIds = prev?.itemIds && typeof prev.itemIds === 'object' && !Array.isArray(prev.itemIds) ? prev.itemIds : null
+      if (prevIds) body = { ...body, itemIds: hasIds ? mergeItemIds(prevIds, body.itemIds) : prevIds }
       if (lacksRoute && Array.isArray(prev?.axisGroupsR)) {
         body = { ...body }
         for (const k of ROUTE_KEYS) if (prev[k] !== undefined) body[k] = prev[k]

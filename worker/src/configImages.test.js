@@ -48,3 +48,22 @@ describe('handleConfigPut: 棚卸の導線（2026-10-30）', () => {
     expect(db.saved.axisGroupsR).toEqual([])
   })
 })
+
+describe('handleConfigPut: 品目の ID（ITEM-001）', () => {
+  const A = 'it_00000000000000aa', B = 'it_00000000000000bb'
+  it('ID を知らない古い端末の保存では、前の ID を残す', async () => {
+    const db = fakeDb({ order: ['トマト'], itemIds: { トマト: A } })
+    await handleConfigPut(db, 'ABCD', { order: ['トマト', 'レタス'] })
+    expect(db.saved.itemIds).toEqual({ トマト: A })
+  })
+  it('知っている端末の保存は前の ID に重ねる（消した品目の ID は残る）', async () => {
+    const db = fakeDb({ order: ['トマト', '塩'], itemIds: { トマト: A, 塩: B } })
+    await handleConfigPut(db, 'ABCD', { order: ['トマト'], itemIds: { トマト: A } })
+    expect(db.saved.itemIds).toEqual({ トマト: A, 塩: B })
+  })
+  it('名前を変えて ID が移ったら、古い名前の対応は落とす', async () => {
+    const db = fakeDb({ order: ['トマト'], itemIds: { トマト: A } })
+    await handleConfigPut(db, 'ABCD', { order: ['ミニトマト'], itemIds: { ミニトマト: A } })
+    expect(db.saved.itemIds).toEqual({ ミニトマト: A })
+  })
+})

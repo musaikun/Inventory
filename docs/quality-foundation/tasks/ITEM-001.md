@@ -78,9 +78,21 @@ User（2026-11-28・D-044・`enterprise-design.md` §0.7）: 品目の ID と商
 - I-1〜I-3 はふるまいが変わらず、戻せる。I-4 から先は読み方が変わるので、E2E（TEST-002）を先に厚くしておきたい。
 - 本番のデータベースの更新が要る段（I-2・I-3・I-6）は、公開の準備（WEB-04 の未適用 migration）と順番を合わせる。
 
+## 2026-11-28 User 決定・I-1 実装（Claude Code）
+
+- User 決定: ID は「店舗コード＋最初の名前」から決まる値（店の品目）／本部の品目はサーバーで付ける／完了・過去取込の照合値は名前のまま
+- I-1 実装:
+  - `services/itemId.js`（新）: `itemIdFor(shop, name)`（`it_` ＋ 16 桁・cyrb53 を2つの種で）、`ensureItemIds`（無い品目に足す・今の対応と消した品目の ID は残す・
+    使用中の ID と重なれば `名前#k` で付け直す）、`renameItemId`。
+  - `useConfig`: `config.itemIds`（保存・同期の中身に入る）。品目の並びが変わったらすぐ付ける（`watch` sync）。届いた config に無ければ手元を引き継ぐ。
+    名前の変更（`updateConfigItem`）で ID を新しい名前へ移す。`itemIdOf(name)` を公開。
+  - Worker: `normalizeConfig`（DO の中継）に `itemIds`（無ければ載せない）。`handleConfigPut` は前の `itemIds` に重ねて保存（`mergeItemIds`：
+    名前の変更で移った ID の古い名前は落とす）。古い端末の保存では前の値を残す。config の PUT は毎回前の行を1回読むようになった。
+  - 画面・記録の読み方は変えていない。
+- 検証: `cd app && npm test` 249 files・2324 pass ／ `cd worker && npm test` 57 files・770 pass ／ `npm run build` OK ／ `cd e2e && npx playwright test` 7 passed
+- 次: I-2（新しく書く記録に ID を併記・D1 に `item_id` 列）。本番の D1 の更新が要る
+
 ## 未決
 
-0. 完了・過去取込の照合値（`fingerprint`）を名前のまま作り続けるか（おすすめ: 名前のまま固定。ID にすると切り替えの前後で同じ送信を別物と判定しうる）。
 
-1. ID の作り方（決まったハッシュでよいか）。
 2. I-4 で設定の形を `items: { id: {...} }` に作り替えるか、今の「項目ごとの表」のままキーだけ ID にするか（前者は配布物と相性が良いが変更が大きい）。
