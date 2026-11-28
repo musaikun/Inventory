@@ -16,6 +16,7 @@
  */
 import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import AppMark from './AppMark.vue'
 import { tasksOn, eventsOn, overdueTasks, carriedTasks, isMarkedByMe, pullTasks, progressTasks } from '../composables/useTasks.js'
 import { checklistsForDay, pullChecklists } from '../composables/useChecklists.js'
 import { homeStatus } from '../services/homeStatus.js'
@@ -185,7 +186,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
            横と縦の動きを1/4周ずらして重ねると楕円になる。transform だけなので GPU で動く -->
       <div class="ht-orbit" aria-hidden="true"><div class="ht-ox"><div class="ht-oy"><i class="ht-spark"></i></div></div></div>
       <div class="ht-top">
-        <svg width="24" height="24" viewBox="0 0 40 40" aria-hidden="true"><ellipse cx="20" cy="20" rx="16" ry="10" transform="rotate(-18 20 20)" fill="none" :stroke="`url(#${gid})`" stroke-width="3.4" /></svg>
+        <AppMark :size="24" />
         <span class="ht-brand">{{ APP_NAME }}</span>
         <span v-if="storeName" class="ht-store">{{ storeName }}</span>
       </div>

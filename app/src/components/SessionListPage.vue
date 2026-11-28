@@ -382,7 +382,7 @@ onUnmounted(registerInnerLayerCloser(() => {
 <template>
   <div class="home">
     <header v-if="tab !== 'home' && tab !== 'calendar'" class="home-head">
-      <span class="home-logo"><AppMark :size="26" />{{ APP_NAME }}</span>
+      <span class="home-logo"><AppMark :size="24" />{{ APP_NAME }}</span>
       <span class="home-store">{{ storeName || '' }}<small v-if="shopCode"> {{ shopCode }}</small></span>
     </header>
 
@@ -640,7 +640,8 @@ onUnmounted(registerInnerLayerCloser(() => {
   flex: none; z-index: 3; display: flex; align-items: center; gap: 8px;
   padding: 12px 14px; background: #fff; border-bottom: 1px solid #d6e6ea;
 }
-.home-logo { display: inline-flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 800; letter-spacing: .08em; color: #12303a; }
+/* ホームの上部（HomeTop の .ht-brand）と同じ印・字（User 2026-11-28） */
+.home-logo { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 900; letter-spacing: .08em; color: #12303a; }
 .home-store { font-size: 12px; font-weight: 700; color: #4c6a72; }
 .home-store small { font-weight: 600; color: #7d969c; letter-spacing: .5px; margin-left: 6px; }
 .home-top { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 0; }
