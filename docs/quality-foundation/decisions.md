@@ -647,7 +647,7 @@
 ## D-045 — default branch は `develop`。`main` は使わない
 
 - 日付: 2026-11-28
-- 状態: 採用（GitHub の default branch の切り替えは User が設定画面で行う）
+- 状態: 採用。2026-11-28 User が GitHub の default branch を `develop` に切り替え済み（`git ls-remote --symref origin HEAD` → `refs/heads/develop` で確認）
 - 決定者: User
 - 判断: 作業・preview・本番 backend の中身はすべて `develop`。GitHub の default branch を `develop` にし、
   `main` は 2026-09-19 で止めた古い版として残す（消さない・push しない・統合しない）。
