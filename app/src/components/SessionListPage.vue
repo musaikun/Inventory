@@ -44,7 +44,7 @@ import StaffPage from './StaffPage.vue'
 import { staffPageOpen } from '../composables/staffNav.js'
 import DataPort from './DataPort.vue'
 import { useSessionLauncher } from '../composables/useSessionLauncher.js'
-import { shopCode, deleteSnapshotFromD1 } from '../composables/useStore.js'
+import { deleteSnapshotFromD1 } from '../composables/useStore.js'
 import { useConfig } from '../composables/useConfig.js'
 import { useHistory } from '../composables/useHistory.js'
 import { settingsSection, registerInnerLayerCloser, showOrderSchedule, orderScheduleFocusId, pendingDiscardId, pendingImportFile } from '../composables/appMenuState.js'
@@ -55,14 +55,12 @@ import { hasSchedule, scheduleName } from '../services/orderScheduleUtil.js'
 import StockPage from './StockPage.vue'
 import ManagerDashboard from './ManagerDashboard.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
-import HomeFooterNav from './HomeFooterNav.vue'
+import { useSwipeBack } from '../composables/useSwipeBack.js'
 import HomeTop from './HomeTop.vue'
 import JournalPage, { openJournalDay, openJournalItem } from './JournalPage.vue'
 import { localDateKey } from '../utils/localDate.js'
 import MasterManagePage from './MasterManagePage.vue'
 import SettingsPage from './SettingsPage.vue'
-import AppMark from './AppMark.vue'
-import { APP_NAME } from '../appInfo.js'
 
 const props = defineProps({
   liveItemCount:  { type: Number, default: null },
@@ -87,7 +85,6 @@ const tab = _persistedTab
 // ホーム → 業務 → 在庫 の3つ（User決定 2026-11-27）。レポート・設定はホームのショートカットから開く画面へ。
 // HACCP を入れるときは 4つめのタブにする予定（HACCP を使う店だけ）
 const tabsNow = () => ['home', 'calendar', 'sessions']
-const slideDir = ref('')                       // 'l' | 'r'（切り替えの動きの向き）
 // トップの「今日のやること」→ 日誌のリスト
 // ホームの2枚は行き先を分ける（User 2026-11-08）: 今日のやること → 今日の一覧 ／ 店の今 → 今日の予定ボード・押した業務の中身
 // オーナーの暗証番号を6桁へ（D-036・案A）。4桁の店はホームで知らせる。「あとで」はその日だけ。期限を過ぎたら閉じられない
@@ -107,9 +104,23 @@ function openJournalOne(item) { openJournalItem(localDateKey(), item); goTab('ca
 function goTab(next) {
   const tabs = tabsNow()
   if (!tabs.includes(next) || next === tab.value) return
-  slideDir.value = tabs.indexOf(next) > tabs.indexOf(tab.value) ? 'l' : 'r'
+  leavingSub.value = ''
   tab.value = next
 }
+// 業務・在庫を閉じてホームへ（右へ滑らせて消す）。右へ引いて戻るときは、引いた動きのまま goTab('home')
+const leavingSub = ref('')
+let _leaveT = null
+function closeSub() {
+  if (tab.value === 'home') return
+  const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (reduce || typeof requestAnimationFrame !== 'function') { goTab('home'); return }
+  leavingSub.value = tab.value
+  clearTimeout(_leaveT); _leaveT = setTimeout(() => { if (leavingSub.value) goTab('home') }, 200)
+}
+onUnmounted(() => clearTimeout(_leaveT))
+const stockSub = ref(null), workSub = ref(null)
+const stockBack = useSwipeBack(stockSub, { onBack: () => goTab('home') })
+const workBack = useSwipeBack(workSub, { onBack: () => goTab('home') })
 // カレンダーを開いたら、発注・入出庫の記録を取り込み直す（App が受ける）
 watch(tab, t => { if (t === 'calendar') emit('calendarShown') }, { immediate: true })
 
@@ -333,6 +344,8 @@ function onHomeGo(k) {
   else if (k === 'import' || k === 'export') portRef.value?.open(k)
   else if (k === 'report') { if (canSeeReport.value) showReport.value = true }
   else if (k === 'settings') showSettings.value = true
+  else if (k === 'work') goTab('calendar')        // 業務・在庫は以前のタブ。メニューから重ねて開く（User決定 2026-11-28）
+  else if (k === 'inventory') goTab('sessions')
   else goTab(k)
 }
 const orderBaseRows = computed(() => allItems.value.map(item => ({
@@ -375,25 +388,22 @@ async function onLogout() {
 onUnmounted(registerInnerLayerCloser(() => {
   if (showOrderBase.value) { showOrderBase.value = false; return true }
   if (sheet.value) { closeSheet(); return true }
-  if (tab.value !== 'home') { goTab('home'); return true }
+  if (tab.value !== 'home') { closeSub(); return true }
   return false
 }))
 </script>
 
 <template>
   <div class="home">
-    <header v-if="tab !== 'home' && tab !== 'calendar'" class="home-head">
-      <span class="home-logo"><AppMark :size="24" />{{ APP_NAME }}</span>
-      <span class="home-store">{{ storeName || '' }}<small v-if="shopCode"> {{ shopCode }}</small></span>
-    </header>
 
     <LoadingSpinner v-if="loading" />
 
-    <!-- 下のタブは押して切り替える（左右のスワイプでは変えない。横のスワイプは各画面の中で使う・User決定 2026-10-14） -->
+    <!-- 下のタブはやめた（User決定 2026-11-28）。ホームはいつも下にあり、業務・在庫はその上に重なる画面 -->
     <div class="home-panels">
     <!-- ── トップ（ホーム）とやること（User決定 2026-10-07）── -->
-    <div v-if="!loading && tab === 'home'" :class="['home-panel', 'top-panel', slideDir && `slide-${slideDir}`]">
+    <div v-if="!loading" class="home-panel top-panel">
       <HomeTop
+        :covered="tab !== 'home' || showReport || showSettings"
         :active-session="activeSession"
         :active-order-session="activeOrderSession"
         :is-order-day="todayOrder.isDay"
@@ -415,35 +425,47 @@ onUnmounted(registerInnerLayerCloser(() => {
       />
     </div>
 
-    <!-- ── 在庫 ── -->
-    <StockPage
-      v-show="!loading && tab === 'sessions'"
-      :class="['home-panel', slideDir && `slide-${slideDir}`]"
-      ref="stockRef"
-      embedded
-      :stocktake-open="!!activeSession"
-      @open-master="pickItemFile"
-      @start-session="startStockEmpty"
+    <!-- ── 在庫・業務: ホームの上に重なる画面。戻るは「‹ ホーム」・端末の戻る・右へ引く（User決定 2026-11-28）── -->
+    <section
+      v-show="!loading && tab === 'sessions'" ref="stockSub" :class="['sub', { leaving: leavingSub === 'sessions' }]" aria-label="在庫"
+      @touchstart="stockBack.onTouchStart" @touchmove="stockBack.onTouchMove" @touchend="stockBack.onTouchEnd" @touchcancel="stockBack.onTouchCancel"
     >
-      <template #top="{ empty }">
-        <div class="home-top">
-          <div v-if="error" class="home-err">{{ error }}</div>
-        </div>
-      </template>
-    </StockPage>
+      <header class="sub-h"><button type="button" class="sub-back" @click="closeSub">‹ ホーム</button><b>在庫</b><span class="sub-sp" aria-hidden="true"></span></header>
+      <div class="sub-body">
+        <StockPage
+          ref="stockRef"
+          embedded
+          :stocktake-open="!!activeSession"
+          @open-master="pickItemFile"
+          @start-session="startStockEmpty"
+        >
+          <template #top="{ empty }">
+            <div class="home-top">
+              <div v-if="error" class="home-err">{{ error }}</div>
+            </div>
+          </template>
+        </StockPage>
+      </div>
+    </section>
 
-    <!-- ── 日誌（やること・予定・記録。以前のカレンダー・User決定 2026-10-09）── -->
-    <JournalPage
-      v-if="!loading && tab === 'calendar'"
-      :class="['home-panel', slideDir && `slide-${slideDir}`]"
-      :active-session="activeSession"
-      :active-order-session="activeOrderSession"
-      :stock-count="_itemCount(activeSession)"
-      :order-count="_itemCount(activeOrderSession)"
-      @view-session="s => emit('viewSession', s)"
-      @open-upgrade="r => emit('openUpgrade', r)"
-      @resume="resume"
-    />
+    <!-- 業務（やること・予定・記録。以前の日誌・カレンダー） -->
+    <section
+      v-if="!loading && tab === 'calendar'" ref="workSub" :class="['sub', { leaving: leavingSub === 'calendar' }]" aria-label="業務"
+      @touchstart="workBack.onTouchStart" @touchmove="workBack.onTouchMove" @touchend="workBack.onTouchEnd" @touchcancel="workBack.onTouchCancel"
+    >
+      <header class="sub-h"><button type="button" class="sub-back" @click="closeSub">‹ ホーム</button><b>業務</b><span class="sub-sp" aria-hidden="true"></span></header>
+      <div class="sub-body">
+        <JournalPage
+          :active-session="activeSession"
+          :active-order-session="activeOrderSession"
+          :stock-count="_itemCount(activeSession)"
+          :order-count="_itemCount(activeOrderSession)"
+          @view-session="s => emit('viewSession', s)"
+          @open-upgrade="r => emit('openUpgrade', r)"
+          @resume="resume"
+        />
+      </div>
+    </section>
 
     <!-- ── レポート（在庫分析）。ホームのショートカットから重ねて開く（User決定 2026-11-27・以前はタブ）── -->
     <ManagerDashboard
@@ -504,8 +526,6 @@ onUnmounted(registerInnerLayerCloser(() => {
     </div><!-- /.home-panels -->
     <PinChangeSheet v-if="pinPrompt" mode="upgrade" @close="laterPin" />
 
-    <!-- ── 下部ナビ（全画面共通の部品）── -->
-    <HomeFooterNav :active="tab" @go="goTab" />
 
     <OrderScheduleModal v-if="showOrderSchedule" @close="showOrderSchedule = false" />
     <!-- 業務: ルーティンの一覧とチェック表（設定から・User決定 2026-11-07） -->
@@ -617,36 +637,28 @@ onUnmounted(registerInnerLayerCloser(() => {
 
 <style scoped>
 /* ホームは画面の高さぴったりの枠（ページそのものはスクロールしない・User 2026-10-04）。
-   見出しと下部ナビの間（.home-panels）だけが、中身が収まらないときにスクロールする。
-   以前は各タブが下に大きめの余白を持ち、中身が収まっていても少しだけスクロールして上が見切れた */
+   下のタブはやめた（User決定 2026-11-28）。ホーム（HomeTop）はいつも下にあり、業務・在庫（.sub）はその上に重なる */
 .home {
-  height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
-  background: var(--bg, #edf5f7); --bnav-h: calc(58px + env(safe-area-inset-bottom));
+  position: relative; height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--bg, #edf5f7);
 }
-/* 横スワイプでタブを移る面。縦スクロールはブラウザに任せ、横だけこちらで受ける */
-.home-panels {
-  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
-  display: flex; flex-direction: column; padding-bottom: var(--bnav-h);
-}
-.home-panels > .home-panel { flex: 1 0 auto; }
-/* ホームは上部を止め、中（HomeTop の .ht-body）だけがスクロールする（User 2026-11-28）。枠の高さぴったりに */
+.home-panels { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .home-panels > .top-panel { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
-/* タブを変えたら面をふわっと出す（透明度だけ）。
-   以前は left で 24px 横に滑らせていたが、left は GPU に載らず、面の中身（在庫の表など）を
-   毎フレーム組み直して描き直すため、スマホでカクついた（2026-11-26）。
-   transform で滑らせると中の position: fixed（＋のボタン）が面に付いてずれる（User 2026-11-08）ので使えない。
-   透明度は fixed の位置を変えず、GPU だけで動く */
-.home-panel.slide-l, .home-panel.slide-r { animation: home-fade .2s ease-out; }
-@keyframes home-fade { from { opacity: .35; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .home-panel.slide-l, .home-panel.slide-r { animation: none; } }
-.home-head {
-  flex: none; z-index: 3; display: flex; align-items: center; gap: 8px;
-  padding: 12px 14px; background: #fff; border-bottom: 1px solid #d6e6ea;
-}
-/* ホームの上部（HomeTop の .ht-brand）と同じ印・字（User 2026-11-28） */
-.home-logo { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 900; letter-spacing: .08em; color: #12303a; }
-.home-store { font-size: 12px; font-weight: 700; color: #4c6a72; }
-.home-store small { font-weight: 600; color: #7d969c; letter-spacing: .5px; margin-left: 6px; }
+/* 業務・在庫。右から出て、右へ消える。transform は動いている間だけ（終われば付けない＝中の＋のボタンがずれない・2026-11-08）。
+   この面は画面と同じ大きさなので、動いている間も＋のボタンの位置は変わらない */
+.sub { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; background: var(--bg, #edf5f7);
+  touch-action: pan-y; animation: sub-in .26s cubic-bezier(.3, .7, .2, 1); }
+.sub.leaving { animation: sub-out .2s ease-in forwards; }
+@keyframes sub-in { from { transform: translateX(100%); } to { transform: none; } }
+@keyframes sub-out { from { transform: none; } to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .sub, .sub.leaving { animation: none; } }
+.sub-h { flex: none; display: flex; align-items: center; gap: 8px; padding: calc(10px + env(safe-area-inset-top, 0px)) 12px 10px;
+  background: #fff; border-bottom: 1px solid #d6e6ea; }
+.sub-back { width: 76px; text-align: left; border: none; background: none; font: inherit; font-size: 14px; font-weight: 800; color: var(--primary, #0e7490); cursor: pointer; padding: 4px 2px; }
+.sub-h b { flex: 1; text-align: center; font-size: 16px; font-weight: 900; color: #12303a; }
+.sub-sp { width: 76px; }
+.sub-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; }
+.sub-body > * { flex: 1 1 auto; min-height: 0; }
 .home-top { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 0; }
 .home-err { font-size: 12.5px; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 8px 10px; }
 

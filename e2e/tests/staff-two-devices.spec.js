@@ -45,7 +45,8 @@ test('スタッフを招待して承認すると、2台がルームなしで同�
   expect(JSON.stringify(moves.body)).toContain('鈴木')
 
   // スタッフ（アルバイトの既定＝在庫管理・タスク管理）: レポートとスタッフ管理の入口が無く、設定に店の削除が出ない
-  await staff.getByText('ホーム', { exact: true }).last().click()
+  const back = staff.locator('section.sub:visible .sub-back')
+  if (await back.count()) await back.click()   // 業務・在庫を開いていればホームへ（下のタブはやめた）
   await expect(staff.getByText('レポート', { exact: true })).toHaveCount(0)
   await expect(staff.getByText('スタッフ', { exact: true })).toHaveCount(0)
   await staff.getByText('設定', { exact: true }).first().click()

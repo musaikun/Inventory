@@ -22,9 +22,8 @@ let host = null
 
 // 棚卸・発注の開始はホームのショートカットだけ（在庫タブには置かない・User決定 2026-10-10）
 const shortcut = label => [...host.querySelectorAll('.ht-grid .ht-sc')].find(b => b.querySelector('b')?.textContent === label)
-// ホームのタブに居なければ、下のナビの「ホーム」へ移ってから押す
+// ホームはいつも下にある（業務・在庫はその上に重なる・2026-11-28）ので、そのまま押せる
 async function goShortcut(label) {
-  if (!shortcut(label)) await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('ホーム')))
   return shortcut(label)
 }
 
@@ -113,7 +112,7 @@ describe('発注セッションの戻る', () => {
     await click([...document.querySelectorAll('.leave-btn')].find(b => b.textContent.includes('中断してホームへ')))
 
     expect(movementPage()).toBeNull()
-    expect(host.querySelector('.bnav')).not.toBeNull()   // ホームに戻っている
+    expect(host.querySelector('.ht-grid')).not.toBeNull()   // ホームに戻っている
   }, 20000)
 
   it('棚卸セッションもホームへ返る', async () => {
@@ -126,7 +125,7 @@ describe('発注セッションの戻る', () => {
     expect(leave.getAttribute('title')).toBe('ホームに戻る')
     await click(leave)
     await click([...document.querySelectorAll('.leave-btn')].find(b => b.textContent.includes('中断してホームへ')))
-    expect(host.querySelector('.bnav')).not.toBeNull()
+    expect(host.querySelector('.ht-grid')).not.toBeNull()
   }, 20000)
 
   it('設定に「入出庫の記録」「仕入れ」は無い（入出庫は品目シートで・2026-10-04）', async () => {
@@ -200,7 +199,7 @@ describe('セッションの ☰ から中断・破棄', () => {
     await openLeave()
     await click(leaveBtn('この棚卸を破棄'))
     await flush(10)
-    expect(host.querySelector('.bnav')).not.toBeNull()
+    expect(host.querySelector('.ht-grid')).not.toBeNull()
     expect(host.querySelector('.sh').textContent).toContain('破棄')
     const deletes = apiFetchMock.mock.calls.filter(([, o]) => o?.method === 'DELETE')
     expect(deletes).toHaveLength(0)

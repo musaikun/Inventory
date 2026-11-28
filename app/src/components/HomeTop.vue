@@ -8,16 +8,15 @@
  * - ボードは廃止（User決定 2026-11-06）。貼り紙のデータとサーバーはそのまま（消していない）
  * - 棚卸・発注が始まっていれば、ショートカットのアイコンで知らせる（進行中のカードはやめた・User決定 2026-10-27）。
  *   だれかがルームに入っていれば「進行中」（外の輪が回る）、だれもいなければ「中断中」（光って止まっている）
- * - ショートカット: 棚卸／発注／品目リスト整理／スタッフ／データ／レポート／設定（説明文なし・User決定 2026-10-26）。
- *   見出し「ショートカット」は出さない。レポート・設定はタブをやめてここから開く（User決定 2026-11-27）
- *   在庫・業務管理・レポートは下のメニューと同じなので外した（User決定 2026-11-06）
+ * - メニュー（以前のショートカット）: 業務／在庫／棚卸／発注／品目リスト整理／スタッフ／データ／レポート／設定（説明文なし・User決定 2026-10-26）。
+ *   下のタブはやめ、業務・在庫もここから開く（D-047・User決定 2026-11-28）。レポート・設定もここから（2026-11-27）
  *   管理者には「スタッフ」も（承認待ちの数。管理から移した・User決定 2026-10-14）
  * 棚卸・発注は在庫タブの今のボタンからも始められる（両方に置く・User決定）。
  */
 import LineIcon from './LineIcon.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import AppMark from './AppMark.vue'
-import { tasksOn, eventsOn, overdueTasks, carriedTasks, isMarkedByMe, pullTasks, progressTasks } from '../composables/useTasks.js'
+import { tasksOn, eventsOn, overdueTasks, carriedTasks, isMarkedByMe, pullTasks, progressTasks, newTasks, todayOpenCount } from '../composables/useTasks.js'
 import { checklistsForDay, pullChecklists } from '../composables/useChecklists.js'
 import { homeStatus } from '../services/homeStatus.js'
 import { buildDayTimeline } from '../services/dayTimeline.js'
@@ -43,6 +42,8 @@ const props = defineProps({
   liveOrder:          { type: Object, default: null },
   // 品目がまだ1つも無い店（登録した直後）。最初の一歩をホームに出す（User 2026-11-13）
   firstRun:           { type: Boolean, default: false },
+  // 業務・在庫などがホームの上に重なっているとき（背景の動きを止める）
+  covered:            { type: Boolean, default: false },
 })
 const emit = defineEmits(['go', 'stock', 'order', 'resume', 'openTodo', 'openBoard', 'openItem', 'firstImport', 'firstCount'])
 
@@ -51,7 +52,7 @@ onMounted(() => { pullTasks(); pullChecklists() })
 // ── 日付（あいさつは出さない・User決定 2026-10-30）──
 const now = new Date()
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
-const dateLabel = `${now.getMonth() + 1}月${now.getDate()}日（${WEEK[now.getDay()]}）`
+const dateLabel = `${now.getMonth() + 1}/${now.getDate()}（${WEEK[now.getDay()]}）`
 
 const { state: weatherState } = useWeather()
 const today = localDateKey()
@@ -60,7 +61,8 @@ const wx = computed(() => {
   if (!w) return null
   const t = w.tempHi != null ? `${Math.round(w.tempHi)}°` : ''
   const pop = w.pop != null ? `降水 ${w.pop}%` : ''
-  return { icon: w.icon, text: [t, weatherState.loc?.name || '', pop].filter(Boolean).join(' ・ ') }   // アイコンは線のアイコンで（2026-11-05）
+  // 上部は1行なので気温だけ出す。全部（地名・降水）は押さえたときの説明に（User決定 2026-11-28）
+  return { icon: w.icon, short: t, text: [t, weatherState.loc?.name || '', pop].filter(Boolean).join(' ・ ') }   // アイコンは線のアイコンで（2026-11-05）
 })
 
 // ── 今日のやること ──
@@ -83,7 +85,27 @@ let _nowTimer = null
 onMounted(() => { _nowTimer = setInterval(_tickNow, 60_000) })
 onUnmounted(() => clearInterval(_nowTimer))
 
-// ── スクロールすると上部のカードが少し揺れる（User 2026-11-28）──
+// ── 背景の動きを止めるとき: 上に画面が重なっている・アプリが裏にある・1分さわらない（電池のため・User決定 2026-11-28）──
+const IDLE_MS = 60_000
+const idle = ref(false)
+const hidden = ref(typeof document !== 'undefined' && document.visibilityState === 'hidden')
+const bgPaused = computed(() => props.covered || idle.value || hidden.value)
+let _idleT = null
+function _wake() { idle.value = false; clearTimeout(_idleT); _idleT = setTimeout(() => { idle.value = true }, IDLE_MS) }
+function _onVis() { hidden.value = document.visibilityState === 'hidden'; if (!hidden.value) _wake() }
+const _WAKE_EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchstart']
+onMounted(() => {
+  _wake()
+  for (const ev of _WAKE_EVENTS) document.addEventListener(ev, _wake, { passive: true })
+  document.addEventListener('visibilitychange', _onVis)
+})
+onUnmounted(() => {
+  clearTimeout(_idleT)
+  for (const ev of _WAKE_EVENTS) document.removeEventListener(ev, _wake)
+  document.removeEventListener('visibilitychange', _onVis)
+})
+
+// ── スクロールすると背景の絵が少し揺れる（User 2026-11-28）──
 // スクロールの速さを勢いとして足し、ばねで元の傾きへ戻す。止まったら描画をやめる（毎フレームは揺れている間だけ）。
 // 位置は DOM へ直接書く（Vue の再描画を通さない）。動きを減らす設定の端末では揺らさない
 const bodyEl = ref(null)
@@ -93,7 +115,7 @@ const _MAX = 5   // 傾きの上限（度）。少し揺れる程度に
 function _sway() {
   _vel += -0.06 * _ang - 0.16 * _vel   // ばね（戻す力）と減衰
   _ang = Math.max(-_MAX, Math.min(_MAX, _ang + _vel))
-  if (cardsEl.value) cardsEl.value.style.transform = `rotate(${_ang.toFixed(2)}deg) translateY(${(_ang * .5).toFixed(2)}px)`
+  if (cardsEl.value) cardsEl.value.style.transform = `rotate(${(_ang * .6).toFixed(2)}deg) translateY(${(_ang * 1.2).toFixed(2)}px)`
   if (Math.abs(_ang) < 0.02 && Math.abs(_vel) < 0.02) {
     _ang = 0; _vel = 0; _raf = 0
     if (cardsEl.value) cardsEl.value.style.transform = ''
@@ -127,7 +149,7 @@ onUnmounted(() => {
 // 本日の状況: 今日のやること・定期・期限切れ・持ち越し・進行中を同じ形の棒で1列に。済んだものは出さない（User決定 2026-11-12・D-042）
 // 1枚目は中でスクロールさせないので、画面の高さに入る行数だけ出す（残りは「ほか n件」・User 2026-11-28）
 const pageH = ref(0)
-const maxRows = computed(() => (pageH.value ? Math.max(2, Math.min(8, Math.floor((pageH.value - 204) / 64))) : 8))
+const maxRows = computed(() => (pageH.value ? Math.max(2, Math.min(8, Math.floor((pageH.value - 152) / 64))) : 8))
 const status = computed(() => homeStatus({
   today, now: nowHm.value,
   tasks: todays.value, overdue: late.value, carry: carriedTasks(today),
@@ -215,7 +237,13 @@ const _inRoom = room => (room?.participants?.length ?? 0) > 0
 const stockLive = computed(() => !!props.activeSession && _inRoom(props.live))
 const orderLive = computed(() => !!props.activeOrderSession && _inRoom(props.liveOrder))
 const _runBadge = (live, kind) => ({ text: live ? '進行中' : '中断中', kind: live ? `${kind} live` : kind })
+// 業務・在庫は以前の下部ナビのタブ。タブをやめてメニューの先頭に置いた（User決定 2026-11-28）。
+// 業務の数は以前のナビのバッジと同じ: 他の端末が足したやることがあれば「新着」、無ければ今日のまだの数
+const workBadge = computed(() => (newTasks.value.length ? { text: '新着', kind: 'cy' } : todayOpenCount.value ? { text: String(todayOpenCount.value), kind: 'red' } : null))
 const shortcuts = computed(() => [
+  { key: 'work', label: '業務', big: true, badge: workBadge.value,
+    d: ['M9 6h11M9 12h11M9 18h11', 'M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2'] },
+  { key: 'inventory', label: '在庫', big: true, d: ['M3 8l9-5 9 5v8l-9 5-9-5z', 'M3 8l9 5 9-5M12 13v8'] },
   { key: 'stock', label: '棚卸', run: !!props.activeSession, live: stockLive.value,
     badge: props.activeSession ? _runBadge(stockLive.value, 'cy') : null,
     d: ['M9 4h6v3H9zM7 5H5v15h14V5h-2', 'M8 12l2.5 2.5L16 9'] },
@@ -255,38 +283,30 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 
 <template>
   <div class="ht">
-    <section class="ht-hero">
-      <div class="ht-glow" aria-hidden="true"></div>
-      <svg class="ht-ring" width="225" height="173" viewBox="0 0 300 230" aria-hidden="true">
-        <defs>
-          <linearGradient :id="gid" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2563eb" /><stop offset=".55" stop-color="#22d3ee" /><stop offset="1" stop-color="#34d399" /></linearGradient>
-          <filter :id="`${gid}-b`"><feGaussianBlur stdDeviation="3" /></filter>
-        </defs>
-        <ellipse cx="150" cy="120" rx="120" ry="58" transform="rotate(-18 150 120)" fill="none" :stroke="`url(#${gid})`" stroke-width="9" opacity=".55" :filter="`url(#${gid}-b)`" />
-        <ellipse cx="150" cy="120" rx="120" ry="58" transform="rotate(-18 150 120)" fill="none" :stroke="`url(#${gid})`" stroke-width="3.5" />
-        <!-- 重なったカードがゆっくり浮き沈みする（少しずつずらして） -->
-        <g ref="cardsEl" class="ht-cards" opacity=".85">
-          <g class="ht-card c1"><rect x="150" y="56" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(165,243,252,.22)" stroke="rgba(165,243,252,.7)" stroke-width="1.2" /></g>
-          <g class="ht-card c2"><rect x="172" y="44" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(110,231,183,.25)" stroke="rgba(110,231,183,.8)" stroke-width="1.2" /></g>
-          <g class="ht-card c3"><rect x="194" y="32" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(52,211,153,.3)" stroke="rgba(167,243,208,.9)" stroke-width="1.2" /></g>
-        </g>
-      </svg>
-      <!-- 輪の上を光が流れる。SVG の線（stroke-dashoffset）で回すと毎フレーム描き直しになり、
-           ホームにいる間ずっと重かった（タブ切替のカクつき・2026-11-26）。
-           横と縦の動きを1/4周ずらして重ねると楕円になる。transform だけなので GPU で動く -->
-      <div class="ht-orbit" aria-hidden="true"><div class="ht-ox"><div class="ht-oy"><i class="ht-spark"></i></div></div></div>
-      <div class="ht-top">
-        <AppMark :size="24" />
-        <span class="ht-brand">{{ APP_NAME }}</span>
-        <span v-if="storeName" class="ht-store">{{ storeName }}</span>
+    <!-- ホーム全体の背景: アプリの輪と重なったカードと淡い光が、ゆっくり漂う（User決定 2026-11-28・モック https://claude.ai/artifact/TUPawBbLmYefPR4AKhcfoC）。
+         動かすのは位置・回転だけ（GPU で動く）。ぼかしは最初から形に入れておく。
+         業務・在庫などが上に重なっている間・裏にあるとき・1分さわらないときは止める（bgPaused） -->
+    <div :class="['ht-bg', { paused: bgPaused }]" aria-hidden="true">
+      <i class="ht-blob b1"></i><i class="ht-blob b2"></i>
+      <div ref="cardsEl" class="ht-artw">
+        <svg class="ht-art" viewBox="0 0 300 230">
+          <defs><linearGradient :id="gid" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2563eb" /><stop offset=".55" stop-color="#22d3ee" /><stop offset="1" stop-color="#34d399" /></linearGradient></defs>
+          <ellipse cx="150" cy="120" rx="120" ry="58" transform="rotate(-18 150 120)" fill="none" :stroke="`url(#${gid})`" stroke-width="3" />
+          <rect x="150" y="56" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(34,211,238,.18)" stroke="rgba(14,116,144,.5)" stroke-width="1.2" />
+          <rect x="172" y="44" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(52,211,153,.18)" stroke="rgba(14,116,144,.5)" stroke-width="1.2" />
+          <rect x="194" y="32" width="34" height="48" rx="6" transform="skewY(-12)" fill="rgba(52,211,153,.24)" stroke="rgba(14,116,144,.5)" stroke-width="1.2" />
+        </svg>
       </div>
-      <div class="ht-hi">
-        <b>{{ dateLabel }}</b>
-        <span v-if="wx" class="ht-wx"><LineIcon :name="wx.icon" /> {{ wx.text }}</span>
-      </div>
-    </section>
+    </div>
+    <!-- 上部は1行だけ（名前・店名・日付・天気・User決定 2026-11-28） -->
+    <header class="ht-hd">
+      <AppMark :size="22" />
+      <span class="ht-brand">{{ APP_NAME }}</span>
+      <span v-if="storeName" class="ht-store">{{ storeName }}</span>
+      <span class="ht-when"><span>{{ dateLabel }}</span><span v-if="wx" class="ht-wx" :title="wx.text"><LineIcon :name="wx.icon" />{{ wx.short }}</span></span>
+    </header>
 
-    <!-- 上部（名前・店名・日付・天気・動き）は止めたまま、ここから下だけがその上を流れる（User 2026-11-28） -->
+    <!-- 上部は止めたまま、ここから下だけが動く（上下の2画面・D-046） -->
     <div ref="bodyEl" class="ht-body">
     <!-- 1枚目: 本日の状況。中ではスクロールさせない（上下のスワイプは画面の切り替え・User 2026-11-28） -->
     <div class="ht-page p1" aria-label="本日の状況">
@@ -335,19 +355,19 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
       </div>
     </section>
 
-    <button type="button" class="ht-peek" aria-label="ショートカットへ" @click="goPage(1)">ショートカット
+    <button type="button" class="ht-peek" aria-label="メニューへ" @click="goPage(1)">メニュー
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
     </button>
     </div><!-- /.p1 -->
 
-    <!-- 2枚目: ショートカットと最近の記録 -->
-    <div class="ht-page p2" aria-label="ショートカット">
+    <!-- 2枚目: メニューと最近の記録。業務・在庫もここから開く（下のタブはやめた・User決定 2026-11-28） -->
+    <div class="ht-page p2" aria-label="メニュー">
     <button type="button" class="ht-peek up" aria-label="本日の状況へ" @click="goPage(0)">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>本日の状況
     </button>
     <div class="ht-grid">
       <button
-        v-for="s in shortcuts" :key="s.key" type="button" :class="['ht-sc', { hot: s.hot, ord: s.ord, run: s.run, live: s.live }]"
+        v-for="s in shortcuts" :key="s.key" type="button" :class="['ht-sc', { hot: s.hot, ord: s.ord, run: s.run, live: s.live, big: s.big }]"
         :aria-label="s.run ? `${s.label}（${s.badge.text}）を続ける` : undefined"
         :disabled="(s.key === 'stock' && startingKind === 'stock') || (s.key === 'order' && startingKind === 'order')"
         @click="onShortcut(s.key)"
@@ -370,7 +390,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
     </div><!-- /.ht-body -->
     <div class="ht-dots" role="tablist" aria-label="ホームの画面">
       <button type="button" role="tab" :class="{ on: page === 0 }" :aria-selected="page === 0" aria-label="本日の状況" @click="goPage(0)"></button>
-      <button type="button" role="tab" :class="{ on: page === 1 }" :aria-selected="page === 1" aria-label="ショートカット" @click="goPage(1)"></button>
+      <button type="button" role="tab" :class="{ on: page === 1 }" :aria-selected="page === 1" aria-label="メニュー" @click="goPage(1)"></button>
     </div>
 
     <Teleport to="body">
@@ -435,41 +455,27 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 </template>
 
 <style scoped>
-/* 上部（名前・店名・日付・天気・動き）は止めたまま、いつも見える（User 2026-11-28）。
-   スクロールするのは下の .ht-body だけ。.ht は枠（.home-panels）の高さぴったりで、枠そのものはスクロールしない。
-   本日の状況は上部に重ねない（スクロールで上部の下へ流れるので、重ねる意味がなくなった・User 2026-11-28）。
-   上部は低く（名前・日付・天気が入る高さだけ）。輪とカードの絵も3/4に縮めて、低い帯に収める */
-.ht { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.ht-hero { flex: none; position: relative; z-index: 0; padding: 14px 18px 16px; color: #e6fbff; overflow: hidden;
-  background: radial-gradient(120% 90% at 85% 10%, #0f4c5c 0%, #0a3340 45%, #06222b 100%); }
-.ht-ring { position: absolute; right: -60px; top: -10px; opacity: .9; pointer-events: none; }
-.ht-glow { position: absolute; right: 10px; top: -16px; width: 140px; height: 140px; border-radius: 50%; background: radial-gradient(circle, rgba(34,211,238,.35), transparent 70%); filter: blur(6px); pointer-events: none;
-  animation: ht-breathe 5s ease-in-out infinite; }
-/* 上部のイメージの動き（アイコンの光る輪）。動きを減らす設定の端末では止める。
-   .ht-orbit は SVG の楕円（中心 150,120・半径 120×58・-18°、絵は3/4）と同じ位置・形の箱 */
-.ht-orbit { position: absolute; right: -37.5px; top: 36.5px; width: 180px; height: 87px; transform: rotate(-18deg); pointer-events: none; }
-.ht-ox { position: absolute; left: 0; top: 0; animation: ht-ox 3s cubic-bezier(.37, 0, .63, 1) infinite alternate; }
-.ht-oy { animation: ht-oy 3s cubic-bezier(.37, 0, .63, 1) -1.5s infinite alternate; }
-.ht-spark { display: block; width: 15px; height: 15px; margin: -7.5px 0 0 -7.5px; border-radius: 50%;
-  background: radial-gradient(circle, #fff 0 22%, rgba(224, 253, 255, .75) 34%, rgba(165, 243, 252, .25) 58%, transparent 72%); }
-@keyframes ht-ox { from { transform: translateX(0); } to { transform: translateX(180px); } }
-@keyframes ht-oy { from { transform: translateY(0); } to { transform: translateY(87px); } }
-.ht-cards { transform-box: fill-box; transform-origin: 50% 100%; }
-.ht-card { transform-box: fill-box; transform-origin: center; animation: ht-float 4.8s ease-in-out infinite; }
-.ht-card.c2 { animation-delay: -1.6s; }
-.ht-card.c3 { animation-delay: -3.2s; }
-@keyframes ht-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
-@keyframes ht-breathe { 0%, 100% { opacity: .75; transform: scale(1); } 50% { opacity: 1; transform: scale(1.12); } }
-@media (prefers-reduced-motion: reduce) {
-  .ht-ox, .ht-oy, .ht-card, .ht-glow { animation: none; }
-  .ht-orbit { display: none; }
-}
-.ht-top { position: relative; display: flex; align-items: center; gap: 8px; }
+/* ホームは上部1行と、その下の上下2画面（D-046）。上部は止めたまま。
+   背景（.ht-bg）はホーム全体の後ろで、輪とカードと淡い光がゆっくり漂う（User決定 2026-11-28）。
+   動かすのは HTML の要素の transform だけ（GPU で動く。SVG の中は動かさない＝描き直さない） */
+.ht { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.ht-bg { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.ht-blob { position: absolute; border-radius: 50%; will-change: transform; }
+.ht-blob.b1 { width: 360px; height: 360px; left: -120px; top: 140px; background: radial-gradient(closest-side, rgba(34,211,238,.22), rgba(34,211,238,0)); animation: ht-f1 26s ease-in-out infinite alternate; }
+.ht-blob.b2 { width: 320px; height: 320px; right: -110px; top: 420px; background: radial-gradient(closest-side, rgba(52,211,153,.2), rgba(52,211,153,0)); animation: ht-f2 30s ease-in-out infinite alternate; }
+.ht-artw { position: absolute; right: -170px; top: 40px; width: 520px; transform-origin: 40% 60%; will-change: transform; }
+.ht-art { display: block; width: 100%; height: auto; opacity: .22; will-change: transform; animation: ht-f3 28s ease-in-out infinite alternate; }
+@keyframes ht-f1 { from { transform: translate(0, 0); } to { transform: translate(60px, -40px); } }
+@keyframes ht-f2 { from { transform: translate(0, 0); } to { transform: translate(-50px, -70px); } }
+@keyframes ht-f3 { from { transform: translate(0, 0) rotate(0deg); } to { transform: translate(-30px, 40px) rotate(-6deg); } }
+.ht-bg.paused .ht-blob, .ht-bg.paused .ht-art { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) { .ht-blob, .ht-art { animation: none; } }
+.ht-hd { position: relative; z-index: 1; flex: none; display: flex; align-items: center; gap: 8px; color: var(--text, #12303a);
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 6px; }
 .ht-brand { font-weight: 900; letter-spacing: .08em; font-size: 15px; }
-.ht-store { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ht-hi { position: relative; margin-top: 14px; }
-.ht-hi b { display: block; font-size: 18px; font-weight: 800; letter-spacing: .04em; line-height: 1.35; }
-.ht-wx { display: inline-block; margin-top: 8px; font-size: 12px; color: #bfeaf2; }
+.ht-store { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: rgba(14,116,144,.08); border: 1px solid rgba(14,116,144,.2); color: var(--text-muted); max-width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-when { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ht-wx { display: inline-flex; align-items: center; gap: 2px; }
 
 /* 下の余白は多めに: 実機ではホームバーの分などで下部ナビが高くなり、最後の行の名前がナビに隠れて
    そこまで送れなかった（User報告 2026-11-28）。端末の差があっても最後の行がナビの上まで上がるように */
@@ -480,7 +486,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 .ht-body::-webkit-scrollbar { display: none; }
 /* 1画面の高さ＝見えている枠。下部ナビに隠れない分（端末差あり）を各画面の下に取る */
 .ht-page { height: 100%; box-sizing: border-box; scroll-snap-align: start; scroll-snap-stop: always; display: flex; flex-direction: column;
-  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); overflow: hidden; }
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); overflow: hidden; }   /* 下のメニューはやめた（2026-11-28） */
 .ht-page.p1 { padding-top: 14px; }
 .ht-page.p2 { padding-top: 6px; }
 .ht-peek { flex: none; margin: auto auto 0; display: flex; align-items: center; gap: 4px; padding: 10px 16px 6px; border: none; background: none;
@@ -551,6 +557,7 @@ button.ht-rc { cursor: pointer; }
 .ht-sc { position: relative; border: none; font: inherit; color: var(--text); background: var(--surface); border-radius: 18px; padding: 14px 4px 11px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.05); cursor: pointer; min-width: 0; }
 .ht-sc:disabled { opacity: .6; }
 .ht-ic { width: 44px; height: 44px; margin: 0 auto 7px; border-radius: 14px; display: grid; place-items: center; color: var(--primary); background: linear-gradient(145deg, #ecfeff, #e0f2fe); }
+.ht-sc.big .ht-ic { color: #fff; background: linear-gradient(145deg, #0e7490, #0b3b48); }   /* 業務・在庫（以前のタブ） */
 .ht-sc.hot .ht-ic { color: #fff; background: linear-gradient(145deg, #0e7490, #0b3b48); box-shadow: 0 0 0 2px rgba(34,211,238,.35), 0 6px 14px rgba(14,116,144,.35); }
 .ht-sc.ord .ht-ic { color: #c2410c; background: linear-gradient(145deg, #fff7ed, #ffedd5); }
 /* 始まっている棚卸・発注: 光る（中断中は止まったまま、進行中は外の輪が回って後ろが脈打つ） */

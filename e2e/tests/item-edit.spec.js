@@ -52,7 +52,7 @@ test('品目の名前を変えても、在庫の数（棚卸＋入出庫）が�
   await closeItemSheet(a)
 
   // 名前を変えられるのは棚卸の中の「品目を編集」。数は入れずに名前だけ変えて、棚卸を止めてホームへ
-  await a.getByText('ホーム', { exact: true }).last().click()
+  await a.locator('section.sub:visible .sub-back').click()   // 在庫からホームへ（下のタブはやめた）
   await startAnotherStocktakeToday(a)
   await a.getByRole('row', { name: /^トマト(\s|$)/ }).getByRole('button', { name: '編集' }).click()
   await a.locator('.edit-name-input').fill('ミニトマト')

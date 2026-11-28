@@ -17,7 +17,7 @@
 import { ref, computed, watch } from 'vue'
 import { localDateKey } from '../utils/localDate.js'
 import { isHoliday, holidayName } from '../services/jpHolidays.js'
-import { useHorizontalSwipe } from '../composables/useSwipe.js'
+import { useVerticalSwipe } from '../composables/useSwipe.js'
 
 const props = defineProps({
   today: { type: String, required: true },
@@ -139,7 +139,20 @@ const SPAN_LABEL = { doing: '進行中', wait: '待ち', stale: '止まってい
 const hasEvent = computed(() => props.spans.some(s => s.state === 'event'))
 const hasProg = computed(() => props.spans.some(s => s.state !== 'event'))
 const md = k => `${Number(k.slice(5, 7))}/${Number(k.slice(8, 10))}`
-const swipe = useHorizontalSwipe({ onLeft: () => step(1), onRight: () => step(-1), threshold: 60 })
+// 月は上下で送る（User決定 2026-11-28。横の動きは「右へ引いてホームへ戻る」に使う）。
+// 上へ払う＝次の月、下へ払う＝前の月。マスが多くて中がスクロールする月は、端まで来てから払ったときだけ送る
+const gridEl = ref(null)
+let _atTop = true, _atBottom = true
+const _vs = useVerticalSwipe({ onUp: () => { if (_atBottom) step(1) }, onDown: () => { if (_atTop) step(-1) }, threshold: 60 })
+const swipe = {
+  onTouchStart(e) {
+    const g = gridEl.value
+    _atTop = !g || g.scrollTop <= 1
+    _atBottom = !g || g.scrollTop + g.clientHeight >= g.scrollHeight - 2
+    _vs.onTouchStart(e)
+  },
+  onTouchMove: _vs.onTouchMove, onTouchEnd: _vs.onTouchEnd, onTouchCancel: _vs.onTouchCancel,
+}
 const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し', f: '予定あり' }
 </script>
 
@@ -149,11 +162,11 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し', f: '予定
       <h2><b>{{ ym.m + 1 }}月</b><small>{{ ym.y }}</small></h2>
       <button type="button" class="jm-hist" aria-label="済んだ業務の履歴" @click="emit('history')">✓ 履歴</button>
       <button v-if="!isThisMonth" type="button" class="jm-today" @click="goToday">今日</button>
-      <button type="button" class="jm-nav" aria-label="前の月" @click="step(-1)">‹</button>
-      <button type="button" class="jm-nav" aria-label="次の月" @click="step(1)">›</button>
+      <button type="button" class="jm-nav" aria-label="前の月" @click="step(-1)">⌃</button>
+      <button type="button" class="jm-nav" aria-label="次の月" @click="step(1)">⌄</button>
     </header>
     <div class="jm-w"><span v-for="(w, i) in WEEK" :key="w" :class="{ sun: i === 0, sat: i === 6 }">{{ w }}</span></div>
-    <div :key="`${ym.y}-${ym.m}`" :class="['jm-grid', slide && `slide-${slide}`]" :style="{ gridTemplateRows: `repeat(${rowsN}, minmax(min-content, 1fr))` }">
+    <div ref="gridEl" :key="`${ym.y}-${ym.m}`" :class="['jm-grid', slide && `slide-${slide}`]" :style="{ gridTemplateRows: `repeat(${rowsN}, minmax(min-content, 1fr))` }">
       <button
         v-for="c in cells" :key="c.key" type="button"
         :class="['jm-c', { out: !c.inMonth, sun: c.sun, sat: c.sat, today: c.key === today, sel: c.key === selected }]"
@@ -211,8 +224,8 @@ const ST_LABEL = { y: '全部済み', p: '一部', x: 'やり残し', f: '予定
 .jm-grid { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; background: #e3ecef; }
 .jm-grid.slide-next { animation: jmNext .26s cubic-bezier(.2,.8,.2,1); }
 .jm-grid.slide-prev { animation: jmPrev .26s cubic-bezier(.2,.8,.2,1); }
-@keyframes jmNext { from { transform: translateX(40%); opacity: 0; } to { transform: none; opacity: 1; } }
-@keyframes jmPrev { from { transform: translateX(-40%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes jmNext { from { transform: translateY(24%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes jmPrev { from { transform: translateY(-24%); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .jm-grid.slide-next, .jm-grid.slide-prev { animation: none; } }
 .jm { overflow: hidden; }
 .jm-c { border: none; margin: 0; padding: 4px 3px 5px; font: inherit; text-align: left; cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; min-height: 0; overflow: hidden; background: var(--surface); color: var(--text); }

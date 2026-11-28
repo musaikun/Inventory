@@ -66,6 +66,11 @@ const btn = (root, label) => [...root.querySelectorAll('button')].find(b => b.te
 const sheet = () => host.querySelector('.sh')
 // 棚卸・発注の開始はホームのショートカットだけ（在庫タブには置かない・User決定 2026-10-10）
 const shortcut = label => [...host.querySelectorAll('.ht-grid .ht-sc')].find(b => b.querySelector('b')?.textContent === label)
+// 下のタブはやめた（User決定 2026-11-28）。業務・在庫はメニューから重ねて開き、「‹ ホーム」で戻る
+const sub = name => [...host.querySelectorAll('section.sub')].find(x => x.getAttribute('aria-label') === name && x.style.display !== 'none') ?? null
+const openSub = name => click(shortcut(name))
+const backHome = () => click([...host.querySelectorAll('section.sub')].find(x => x.style.display !== 'none').querySelector('.sub-back'))
+async function backHomeDone() { await backHome(); await new Promise(r => setTimeout(r, 260)); for (let i = 0; i < 4; i++) await nextTick() }
 
 beforeEach(() => {
   localStorage.clear(); localStorage.setItem('_journal_view_v1', 'list'); sessionStorage.clear()
@@ -76,7 +81,7 @@ beforeEach(() => {
 afterEach(() => { app?.unmount(); host?.remove(); app = null; host = null; vi.restoreAllMocks() })
 
 describe('ホームの骨組み', () => {
-  it('在庫タブは表だけ（並び替えはホームの「品目リスト整理」・棚卸・発注の開始はホームだけ）・下部ナビ（ホーム／業務／在庫）', async () => {
+  it('在庫は表だけ（並び替えはホームの「品目リスト整理」・棚卸・発注の開始はホームだけ）・下のタブは無い', async () => {
     await mountPage()
     expect(host.querySelector('.sp .inventory-table, .sp table')).not.toBeNull()
     expect(host.querySelector('.sp .act')).toBeNull()
@@ -84,7 +89,9 @@ describe('ホームの骨組み', () => {
     expect(shortcut('品目リスト整理')).toBeTruthy()
     expect(shortcut('棚卸')).toBeTruthy()
     expect(shortcut('発注')).toBeTruthy()
-    expect([...host.querySelectorAll('.bnav button')].map(b => b.textContent.replace(/\s/g, ''))).toEqual(['ホーム', '業務', '在庫'])   // レポート・設定はホームのショートカットへ（User決定 2026-11-27）
+    expect(host.querySelector('.bnav')).toBeNull()   // 下のタブはやめた。業務・在庫はメニューから（User決定 2026-11-28）
+    expect(shortcut('業務')).toBeTruthy()
+    expect(shortcut('在庫')).toBeTruthy()
   }, 20_000)   // ファイルの最初のテストで、全件を並べて走らせると読み込みに5秒を超えることがある
 
   it('品目が無ければ（サンプルのままでも）表と操作ボタンの代わりに登録の入口', async () => {
@@ -97,7 +104,7 @@ describe('ホームの骨組み', () => {
 
   it('アプリに戻ってきたときの一覧の読み直しでは、タブを作り直さない（入力途中のシートが消えない・User報告 2026-11-28）', async () => {
     await mountPage()
-    await click(btn(host.querySelector('.bnav'), '業務'))
+    await openSub('業務')
     const jp = host.querySelector('.jp')
     expect(jp).not.toBeNull()
     const A = await import('../composables/useAuth.js')
@@ -114,12 +121,12 @@ describe('ホームの骨組み', () => {
   it('業務はホームのタブ（お店のカレンダー）。レポート・設定はショートカットから重ねて開く（User決定 2026-11-27）', async () => {
     await mountPage()
     // 日誌＝お店のカレンダー（2026-10-25）。開いたら記録を取り込み直す
-    await click(btn(host.querySelector('.bnav'), '業務'))
+    await openSub('業務')
     expect(host.querySelector('.jp')).not.toBeNull()
     expect(host.querySelector('.jp .jm')).not.toBeNull()
     expect(events).toContainEqual(['calendarShown'])
     // レポート＝在庫分析。ホームのショートカットから重ねて開き、戻るで閉じる。履歴カレンダーの入口はもう無い
-    await click(btn(host.querySelector('.bnav'), 'ホーム'))
+    await backHomeDone()
     await click(shortcut('レポート'))
     expect(host.querySelector('.rt-hist')).toBeNull()
     expect(host.querySelector('.dash-overlay')).not.toBeNull()
@@ -336,9 +343,9 @@ describe('トップ（ホーム）とやること（User決定 2026-10-07）', (
     await mountPage()
     expect(host.querySelector('.hn'), '店の今のカードは無い').toBeNull()
     await click(host.querySelector('.ht-th'))
-    expect(host.querySelector('.bnav button.on').textContent).toContain('業務')
+    expect(sub('業務')).not.toBeNull()
     expect(host.querySelector('.dt-body'), '今日の一覧').not.toBeNull()
-    await click(btn(host.querySelector('.bnav'), 'ホーム'))
+    await backHomeDone()
     await click(host.querySelector(`.ht-it[data-key="${t.id}"]`))
     expect(document.body.querySelector('.jp-sheet'), 'その業務の中身').not.toBeNull()
     expect(document.body.querySelector('.jp-sheet').textContent).toContain('揚げ油の交換')
@@ -358,21 +365,20 @@ describe('トップ（ホーム）とやること（User決定 2026-10-07）', (
     // 見出しを押すと日誌の今日のタイムライン。期限切れは終日に赤で
     await click(today.querySelector('.ht-th'))
     expect(host.querySelector('.dt-ring').textContent).toBe('0/2')
-    expect(host.querySelector('.bnav button.on').textContent).toContain('業務')
+    expect(sub('業務')).not.toBeNull()
     expect(host.querySelector('.dt .dt-ad.missed')).not.toBeNull()
-    await click(btn(host.querySelector('.bnav'), 'ホーム'))
-    // 在庫・業務は下のメニューにあるのでショートカットには置かない（User決定 2026-11-06）。
-    // レポート・設定はタブをやめてショートカットへ（User決定 2026-11-27）。見出し「ショートカット」は出さない
+    await backHomeDone()
+    // メニュー: 業務・在庫（以前の下のタブ）を先頭に。レポート・設定もここから（User決定 2026-11-27・11-28）
     const sc = [...host.querySelectorAll('.ht-sc')]
     // 管理者（ここではオーナー）には「スタッフ」も（管理から移した・2026-10-14）
-    expect(sc.map(b => b.querySelector('b').textContent)).toEqual(['棚卸', '発注', '品目リスト整理', 'スタッフ', 'データ', 'レポート', '設定'])
-    // 見出し「ショートカット」は出さない。下端の「ショートカット ⌄」は2枚目への切り替えの案内（User 2026-11-28）
+    expect(sc.map(b => b.querySelector('b').textContent)).toEqual(['業務', '在庫', '棚卸', '発注', '品目リスト整理', 'スタッフ', 'データ', 'レポート', '設定'])
+    // 見出しは出さない。下端の「メニュー ⌄」は2枚目への切り替えの案内（User 2026-11-28）
     expect(host.querySelector('.ht-sec')).toBeNull()
-    expect(host.querySelector('.ht-page.p1 .ht-peek').textContent).toContain('ショートカット')
+    expect(host.querySelector('.ht-page.p1 .ht-peek').textContent).toContain('メニュー')
     expect(host.querySelectorAll('.ht-dots button')).toHaveLength(2)
     expect(host.querySelector('.ht-sc small')).toBeNull()   // 説明文は出さない（User決定 2026-10-26）
-    await click(btn(host.querySelector('.bnav'), '在庫'))
-    expect(host.querySelector('.bnav button.on').textContent).toContain('在庫')
+    await openSub('在庫')
+    expect(sub('在庫')).not.toBeNull()
     expect(host.querySelector('.manage')?.textContent ?? '').not.toContain('招待・承認')   // 管理には置かない
   })
 })

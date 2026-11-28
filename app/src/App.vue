@@ -94,7 +94,6 @@ import StaffJoinPage from './components/StaffJoinPage.vue'
 import { openJournalDay } from './components/JournalPage.vue'
 import SessionListPage, { _persistedTab as homeTab, _showDashboard as dashboardOpen, _showSettings as settingsOpen, _showOrders as ordersOpen } from './components/SessionListPage.vue'
 import AxisAssignFocus from './components/AxisAssignFocus.vue'
-import HomeFooterNav from './components/HomeFooterNav.vue'
 import ItemFormModal from './components/ItemFormModal.vue'
 import HistoryCalendarPage from './components/HistoryCalendarPage.vue'
 import MovementPage from './components/MovementPage.vue'
@@ -893,9 +892,8 @@ const showDesktopNav = computed(() =>
 // data-view はサイドナビを持たない単独画面（ランディング等）をCSSから識別するために出す。
 watchEffect(() => {
   if (typeof document === 'undefined') return
-  // 下部ナビが出ている独立ページ（入出庫・棚卸の詳細）は、下の操作をナビの上へ逃がす
-  const footer = isAuthenticated.value && !showDesktopNav.value && (currentView.value === 'movement' || currentView.value === 'session-detail' || currentView.value === 'history')
-  document.body.style.setProperty('--app-footer-h', footer ? 'calc(58px + env(safe-area-inset-bottom))' : '0px')
+  // 下部ナビはやめた（User決定 2026-11-28）。--app-footer-h を使う画面のために 0 を入れておく
+  document.body.style.setProperty('--app-footer-h', '0px')
   document.body.classList.toggle('dt-shell', showDesktopNav.value)
   document.body.dataset.view = currentView.value
 })
@@ -913,7 +911,7 @@ onUnmounted(() => {
   delete document.body.dataset.view
 })
 
-// 下部ナビ（入出庫・棚卸の詳細から）→ ホームの該当タブへ
+// ほかの画面（履歴など）→ ホームの業務・在庫へ
 function onFooterGo(tab) {
   if (isBackBlocked()) return
   homeTab.value = tab
@@ -3641,15 +3639,11 @@ function dismissReview() {
       @patched="onSnapshotPatched"
     />
 
-    <!-- 下部ナビ（全画面共通）。ホームは SessionListPage が自分で出す。棚卸中・発注中には出さない -->
-    <HomeFooterNav
-      v-if="isAuthenticated && !showDesktopNav && (currentView === 'movement' || currentView === 'session-detail' || currentView === 'history')"
-      @go="onFooterGo"
-    />
+    <!-- 下部ナビはやめた（User決定 2026-11-28）。入出庫・棚卸の詳細・履歴は各画面の「‹ 戻る」でホームへ -->
 
     <!-- ── 完了後ゲスト閲覧（読み取り専用・金額なし） ── -->
     <GuestResultView
-      v-else-if="currentView === 'guest-result'"
+      v-if="currentView === 'guest-result'"
       :result="guestResult"
       :error-message="guestResultError"
       @home="onLeaveGuestResult"

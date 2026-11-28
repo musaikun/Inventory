@@ -63,15 +63,17 @@ async function browserBack() {
 
 const inSession   = () => !!host.querySelector('.home-btn')
 const onHomeMain  = () => !!host.querySelector('.ht-grid')         // ホームタブのショートカット
+const _visibleSub = () => [...host.querySelectorAll('section.sub')].find(x => x.style.display !== 'none')
+// 下のタブはやめた（User決定 2026-11-28）。今見ている画面: 重なっている業務・在庫、無ければホーム
+const viewName = () => _visibleSub()?.getAttribute('aria-label') ?? 'ホーム'
 // 棚卸・発注の開始はホームのショートカットだけ（在庫タブには置かない・User決定 2026-10-10）
 const shortcut = label => [...host.querySelectorAll('.ht-grid .ht-sc')].find(b => b.querySelector('b')?.textContent === label)
-// ホームのタブに居なければ、下のナビの「ホーム」へ移ってから押す
+// ホームはいつも下にある（業務・在庫はその上に重なる・2026-11-28）ので、そのまま押せる
 async function goShortcut(label) {
-  if (!shortcut(label)) await click([...host.querySelectorAll('.bnav button')].find(b => b.textContent.includes('ホーム')))
   return shortcut(label)
 }
 
-const homeTabName = () => host.querySelector('.bnav button.on')?.textContent.trim()
+const homeTabName = () => viewName()
 
 async function startStockSession() {
   const { useConfig } = await import('./composables/useConfig.js')

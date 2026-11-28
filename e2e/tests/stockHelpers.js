@@ -1,9 +1,14 @@
 // 在庫タブ・品目シートの操作（ITEM-001 の前に足した E2E 用）
 import { expect } from '@playwright/test'
 
-/** 下のメニューから在庫タブへ */
+/** ホームのメニューから在庫へ（下のタブはやめた・2026-11-28） */
 export async function openStockTab(page) {
-  await page.getByText('在庫', { exact: true }).last().click()
+  // すでに在庫が開いていればそのまま（ホームのメニューは在庫の下に隠れている）
+  if (!(await page.locator('section.sub[aria-label="在庫"]').isVisible())) {
+    const other = page.locator('section.sub:visible .sub-back')
+    if (await other.count()) await other.click()
+    await page.locator('.ht-sc', { has: page.locator('b', { hasText: /^在庫$/ }) }).click()
+  }
   await expect(page.getByPlaceholder('品目名で絞り込み')).toBeVisible()
 }
 

@@ -57,7 +57,7 @@ export function useHorizontalSwipe({ onLeft, onRight, threshold = 55, onDrag } =
 }
 
 /**
- * 縦のスワイプ（カレンダーの月送り・User決定 2026-10-04）。左右はタブの切り替えに残すので、
+ * 縦のスワイプ（カレンダーの月送り・User決定 2026-10-04・2026-11-28）。左右は「右へ引いてホームへ戻る」に使うので、
  * 縦の動きだけを拾い、横の動きには何もしない（親へそのまま伝わる）。
  * 上へ払う = onUp（次へ）、下へ払う = onDown（前へ）。onDrag(dy) で指に追従させる。
  */
@@ -81,7 +81,7 @@ export function useVerticalSwipe({ onUp, onDown, threshold = 50, onDrag } = {}) 
     const dy = t.clientY - startY
     if (!dragging) {
       if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return
-      if (Math.abs(dx) > Math.abs(dy)) { tracking = false; return }   // 横はタブの切り替えに任せる
+      if (Math.abs(dx) > Math.abs(dy)) { tracking = false; return }   // 横は戻る操作に任せる
       dragging = true
     }
     onDrag?.(dy)

@@ -48,15 +48,13 @@ describe('やることの行・1日の締切', () => {
 })
 
 describe('知らせとバッジ', () => {
-  it('他の端末が追加したら、ナビのバッジが「新着」になり、カレンダータブの知らせを確認すると消える', async () => {
+  it('他の端末が追加したら「新着」になり（ホームのメニューの業務に出す）、知らせを確認すると消える', async () => {
     const T = await import('../composables/useTasks.js')
     T.applyRemoteTasks([])   // 初めて読んだ（ここまでを確認済みにする）
     const later = new Date(Date.now() + 1000).toISOString()
     T.applyRemoteTasks([{ id: 'n1', date: '2026-10-06', text: '製氷機のフィルター交換', createdBy: '山田', createdById: 'other', createdAt: later, updatedAt: later }])
-    const { default: Nav } = await import('./HomeFooterNav.vue')
-    await mount(Nav, { active: 'sessions' })
-    expect(host.querySelector('.bnav-badge').textContent).toBe('新着')
-    app.unmount(); host.remove()
+    // 下のタブはやめた（2026-11-28）。「新着」はホームのメニューの「業務」に出す（HomeTop の workBadge・SessionListPage.home.test.js）
+    expect(T.newTasks.value.map(t => t.id)).toEqual(['n1'])
     const { default: News } = await import('./TaskNews.vue')
     await mount(News)
     expect(host.textContent).toContain('山田さんがやることを1件追加しました')

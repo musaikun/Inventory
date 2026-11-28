@@ -96,7 +96,10 @@ async function openFromManage(label) {
   if (label === 'データ管理') return
   await click([...host.querySelectorAll('.m-card, .sl-it')].find(b => b.textContent.includes(label)))
 }
-const activeTab = () => host.querySelector('.bnav button.on')?.textContent ?? ''
+const _visibleSub = () => [...host.querySelectorAll('section.sub')].find(x => x.style.display !== 'none')
+// 下のタブはやめた（User決定 2026-11-28）。今見ている画面: 重なっている業務・在庫、無ければホーム
+const viewName = () => _visibleSub()?.getAttribute('aria-label') ?? 'ホーム'
+const activeTab = () => viewName()
 describe('アプリを閉じる前に確認する', () => {
   const exitTitle = () => [...host.querySelectorAll('.name-modal-title')]
     .find(e => e.textContent.includes('アプリを終了しますか'))

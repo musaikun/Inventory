@@ -22,7 +22,8 @@ const SURFACES = [
   ['./AxisAssignFocus.vue',   '.af-list'],        // 品目行の左スワイプ（非表示）
   ['./MovementPage.vue',      '.mv-scroll'],      // 仕入れのタブ送り
   ['./HistoryCalendar.vue',   '.hc-cal'],         // カレンダーの月送り
-  ['./SessionListPage.vue',   '.home-panels'],    // ホームの下部ナビのタブ送り（在庫・履歴・管理）
+  ['./SessionListPage.vue',   '.sub'],            // 業務・在庫を右へ引いてホームへ戻る（下のタブはやめた・2026-11-28）
+  ['./JournalMonth.vue',      '.jm'],             // 業務のカレンダーの月送り（上下）
   ['./SessionDetailPage.vue', '.tab-panel'],      // セッション詳細のタブ送り
   ['./GuestResultView.vue',   '.guest-body'],     // 共有結果（閲覧用）のタブ送り
   ['../style.css',            '.modal-sheet'],    // ConfirmModal の品目送り

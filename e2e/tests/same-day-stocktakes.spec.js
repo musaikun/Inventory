@@ -7,7 +7,7 @@ import { acceptDialogs, registerStore, login, startFirstStocktake, addItemWithQt
 
 /** 業務タブ → 今日 → 一覧（その日の記録が時刻順に並ぶ） */
 async function openTodayList(page) {
-  await page.getByText('業務', { exact: true }).last().click()
+  await page.locator('.ht-sc', { has: page.locator('b', { hasText: /^業務$/ }) }).click()   // メニューから（下のタブはやめた）
   await page.locator('.jm-c.today').click()   // 今日のマス（数字で探すと月の境目で前月の同じ日を拾う）
   await page.getByText('一覧', { exact: true }).first().click()
 }
