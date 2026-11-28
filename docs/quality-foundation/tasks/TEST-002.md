@@ -89,3 +89,8 @@
 - Worker の runtime、D1、DO、WebSocket の重要経路に統合テストを加える。
 - account登録→削除、host/guest同期、再接続のcritical E2Eを最低1本安定実行する。— **host/guest同期・再接続（2026-11-25）、account登録→削除・ホスト再接続・競合・F-001（2026-11-27）を追加。全7本 pass**
 - coverage全面導入はスプリント後でもよいが、P0/P1変更箇所の回帰testは必須。
+
+## 2026-11-28 在庫・品目の E2E（Claude Code・ITEM-001 の前）
+
+- `stock-movements.spec.js`（在庫＝棚卸＋入出庫・別端末）、`item-edit.spec.js`（単位・単価の同期／名前の変更で在庫がつながる＝今は `test.fail`）、`stockHelpers.js`。
+- `cd e2e && npx playwright test` 10 passed（1本は想定どおりの失敗）。
