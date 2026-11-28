@@ -95,6 +95,22 @@ describe('ホームの骨組み', () => {
     expect(host.querySelector('.home-top .sc')).toBeNull()
   })
 
+  it('アプリに戻ってきたときの一覧の読み直しでは、タブを作り直さない（入力途中のシートが消えない・User報告 2026-11-28）', async () => {
+    await mountPage()
+    await click(btn(host.querySelector('.bnav'), '業務'))
+    const jp = host.querySelector('.jp')
+    expect(jp).not.toBeNull()
+    const A = await import('../composables/useAuth.js')
+    let resolve
+    A.getSessions.mockImplementationOnce(() => new Promise(r => { resolve = r }))
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+    for (let i = 0; i < 4; i++) await nextTick()
+    expect(host.querySelector('.jp')).toBe(jp)          // 読んでいる間も同じ画面のまま（読み込み中にしない）
+    resolve([]); for (let i = 0; i < 4; i++) await nextTick()
+    expect(host.querySelector('.jp')).toBe(jp)
+  })
+
   it('業務はホームのタブ（お店のカレンダー）。レポート・設定はショートカットから重ねて開く（User決定 2026-11-27）', async () => {
     await mountPage()
     // 日誌＝お店のカレンダー（2026-10-25）。開いたら記録を取り込み直す

@@ -32,10 +32,13 @@ export function useSessionLauncher() {
   const discarded    = ref([])
   const restoringId  = ref(null)
 
-  /** 一覧を読む。認証切れ（401）ならログアウトして 'unauthorized' を返す（戻り先は呼ぶ側が決める） */
-  async function load() {
-    loading.value = true
-    error.value   = ''
+  /**
+   * 一覧を読む。認証切れ（401）ならログアウトして 'unauthorized' を返す（戻り先は呼ぶ側が決める）。
+   * quiet: 読み込み中の表示にしない（アプリに戻ってきたときの読み直し）。loading にすると
+   * ホームの各タブが作り直され、入力途中のシート（業務の追加など）が消えていた（User報告 2026-11-28）
+   */
+  async function load({ quiet = false } = {}) {
+    if (!quiet) { loading.value = true; error.value = '' }
     try {
       const list = await getSessions()
       sessions.value = Array.isArray(list) ? list : []
@@ -47,10 +50,10 @@ export function useSessionLauncher() {
         await logout()
         return 'unauthorized'
       }
-      error.value = msg
+      if (!quiet) error.value = msg   // 裏の読み直しの失敗（電波が弱い等）は出さない。前の一覧のまま
       return 'error'
     } finally {
-      loading.value = false
+      if (!quiet) loading.value = false
     }
   }
 

@@ -134,7 +134,8 @@ onMounted(async () => {
 })
 // アプリに戻ってきたら一覧を読み直す。開いたままの画面では、別の端末で完了した棚卸が
 // 「中断中」のまま残って見える（そこから破棄すると完了済みを消してしまう）
-function _onVisible() { if (document.visibilityState === 'visible') launcher.load() }
+// 裏で静かに読む（読み込み中にすると各タブが作り直され、入力途中のシートが消える・User報告 2026-11-28）
+function _onVisible() { if (document.visibilityState === 'visible') launcher.load({ quiet: true }) }
 onMounted(() => document.addEventListener('visibilitychange', _onVisible))
 onUnmounted(() => { launcher.stopRoomPolling(); document.removeEventListener('visibilitychange', _onVisible) })
 
