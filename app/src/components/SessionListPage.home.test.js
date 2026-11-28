@@ -366,7 +366,10 @@ describe('トップ（ホーム）とやること（User決定 2026-10-07）', (
     const sc = [...host.querySelectorAll('.ht-sc')]
     // 管理者（ここではオーナー）には「スタッフ」も（管理から移した・2026-10-14）
     expect(sc.map(b => b.querySelector('b').textContent)).toEqual(['棚卸', '発注', '品目リスト整理', 'スタッフ', 'データ', 'レポート', '設定'])
-    expect(host.querySelector('.ht').textContent).not.toContain('ショートカット')
+    // 見出し「ショートカット」は出さない。下端の「ショートカット ⌄」は2枚目への切り替えの案内（User 2026-11-28）
+    expect(host.querySelector('.ht-sec')).toBeNull()
+    expect(host.querySelector('.ht-page.p1 .ht-peek').textContent).toContain('ショートカット')
+    expect(host.querySelectorAll('.ht-dots button')).toHaveLength(2)
     expect(host.querySelector('.ht-sc small')).toBeNull()   // 説明文は出さない（User決定 2026-10-26）
     await click(btn(host.querySelector('.bnav'), '在庫'))
     expect(host.querySelector('.bnav button.on').textContent).toContain('在庫')

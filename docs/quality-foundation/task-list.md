@@ -51,7 +51,7 @@ ownerと回避策を付けてWeb公開後へ送れる候補です。正式なrel
 | UI-005 | P2 | レビュー待ち | Claude Code | Riveを公開面で動かす前提。CSPへ`'wasm-unsafe-eval'`、ランタイム/WASM/`.riv`をrun-time cacheへ。build検証済み・実機（Android Chrome / iOS Safari）未確認。製品画面への組み込みは.rivが1つ揃うまで待つ（User判断 2026-09-09） | [UI-005.md](tasks/UI-005.md) |
 | DM-001 | P2 | レビュー待ち | User | データ管理・振り分け・発注基準の改良（v0.105.0〜v0.113.0）。自動test・build済み、画面は一時ページのみ確認。実機・複数端末（Worker再デプロイ後）の確認待ち | [DM-001.md](tasks/DM-001.md) |
 | PROD-001 | P1 | レビュー待ち | User | 実装済み（v0.218.0）。要補充＝理論在庫・棚卸の結果に帳簿との差・レポートは数えた数。実機確認待ち | [PROD-001.md](tasks/PROD-001.md) |
-| UI-006 | P2 | 未着手 | 未割当 | 言葉と概念を減らす。画面の文字を少なく（D-035） | [UI-006.md](tasks/UI-006.md) |
+| UI-006 | P2 | 進行中 | Claude Code | 言葉と概念を減らす。画面の文字を少なく（D-035） | [UI-006.md](tasks/UI-006.md) |
 | UI-007 | P2 | 未着手 | 未割当 | 業務管理の初回の誘導・案内・説明（D-035） | [UI-007.md](tasks/UI-007.md) |
 
 `UI-001`はUser指示で**実装済み**ですが、`WEB-01`〜`WEB-10`のどのgateにも含まれません。

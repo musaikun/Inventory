@@ -29,6 +29,8 @@ import { APP_NAME } from '../appInfo.js'
 import { useSortSetup } from '../composables/useSortSetup.js'
 import { useConfig } from '../composables/useConfig.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
+import { useMovements } from '../composables/useMovements.js'
+import { useHistory } from '../composables/useHistory.js'
 
 const props = defineProps({
   activeSession:      { type: Object, default: null },
@@ -123,12 +125,58 @@ onUnmounted(() => {
   if (_raf) cancelAnimationFrame(_raf)
 })
 // 本日の状況: 今日のやること・定期・期限切れ・持ち越し・進行中を同じ形の棒で1列に。済んだものは出さない（User決定 2026-11-12・D-042）
+// 1枚目は中でスクロールさせないので、画面の高さに入る行数だけ出す（残りは「ほか n件」・User 2026-11-28）
+const pageH = ref(0)
+const maxRows = computed(() => (pageH.value ? Math.max(2, Math.min(8, Math.floor((pageH.value - 190) / 64))) : 8))
 const status = computed(() => homeStatus({
   today, now: nowHm.value,
   tasks: todays.value, overdue: late.value, carry: carriedTasks(today),
   checklists: checklistsForDay(today), progress: progressTasks.value, events: eventsOn(today),
   isDone: t => (t.assign === 'all' ? isMarkedByMe(t) || !!t.doneAt : !!t.doneAt),
-}))
+}, Math.max(1, maxRows.value - Math.min(2, eventsOn(today).length)), 2))
+
+// ── 上下の2画面（本日の状況 / ショートカット）。1画面ずつ止まる（User 2026-11-28・モック https://claude.ai/artifact/WskkjpxqUixRRWNVDxho2W）──
+const page = ref(0)
+function _savedPage() { try { return localStorage.getItem(STORAGE_KEYS.homePage) === '1' ? 1 : 0 } catch (_) { return 0 } }
+function goPage(i, smooth = true) {
+  const el = bodyEl.value
+  if (!el) return
+  const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (typeof el.scrollTo === 'function') el.scrollTo({ top: i * el.clientHeight, behavior: smooth && !still ? 'smooth' : 'auto' })
+  else el.scrollTop = i * el.clientHeight
+}
+function _onPage() {
+  const el = bodyEl.value
+  if (!el || !el.clientHeight) return
+  const i = Math.round(el.scrollTop / el.clientHeight) ? 1 : 0
+  if (i !== page.value) { page.value = i; try { localStorage.setItem(STORAGE_KEYS.homePage, String(i)) } catch (_) { /* 覚えられなくても動く */ } }
+}
+let _ro = null
+onMounted(() => {
+  const el = bodyEl.value
+  if (!el) return
+  pageH.value = el.clientHeight
+  if (typeof ResizeObserver === 'function') { _ro = new ResizeObserver(() => { pageH.value = el.clientHeight; goPage(page.value, false) }); _ro.observe(el) }
+  el.addEventListener('scroll', _onPage, { passive: true })
+  const p = _savedPage()
+  if (p) { page.value = p; requestAnimationFrame?.(() => goPage(p, false)) }
+})
+onUnmounted(() => { _ro?.disconnect(); bodyEl.value?.removeEventListener('scroll', _onPage) })
+
+// ── 最近の記録（2枚目。押すとそこへ戻る）──
+const { getMovements } = useMovements()
+const { getSnapshots } = useHistory()
+const _md = d => (d ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}` : '')
+const recent = computed(() => {
+  const out = []
+  if (props.activeSession) out.push({ key: 'stock', label: `棚卸（${stockLive.value ? '進行中' : '中断中'}）`, when: '', go: () => onShortcut('stock') })
+  if (props.activeOrderSession) out.push({ key: 'order', label: `発注（${orderLive.value ? '進行中' : '中断中'}）`, when: '', go: () => onShortcut('order') })
+  const mv = getMovements().find(m => !m.deletedAt)
+  if (mv) out.push({ key: 'mv', label: `${mv.type === 'out' ? '出庫' : '入庫'}${mv.note ? ` ・ ${mv.note}` : ''}`, when: _md(mv.date), go: () => emit('go', 'sessions') })
+  const snaps = [...getSnapshots()].sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.savedAt).localeCompare(String(a.savedAt)))
+  if (snaps[0]) out.push({ key: 'snap', label: '棚卸（完了）', when: _md(snaps[0].date), go: canSeeReport.value ? () => emit('go', 'report') : null })
+  return out.slice(0, 3)
+})
 const BAR_PCT = x => `${Math.round(x * 100)}%`
 
 // 承認待ち（参加申請のやることのうち、まだ決まっていないもの）
@@ -240,6 +288,8 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 
     <!-- 上部（名前・店名・日付・天気・動き）は止めたまま、ここから下だけがその上を流れる（User 2026-11-28） -->
     <div ref="bodyEl" class="ht-body">
+    <!-- 1枚目: 本日の状況。中ではスクロールさせない（上下のスワイプは画面の切り替え・User 2026-11-28） -->
+    <div class="ht-page p1" aria-label="本日の状況">
     <!-- 本日の状況（以前の「今日のやること」と「店の今」を1枚に・User決定 2026-11-12・D-042） -->
     <section class="ht-today" aria-label="本日の状況">
       <button type="button" class="ht-th" aria-label="今日の一覧を開く" @click="emit('openTodo')">
@@ -285,6 +335,16 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
       </div>
     </section>
 
+    <button type="button" class="ht-peek" aria-label="ショートカットへ" @click="goPage(1)">ショートカット
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+    </button>
+    </div><!-- /.p1 -->
+
+    <!-- 2枚目: ショートカットと最近の記録 -->
+    <div class="ht-page p2" aria-label="ショートカット">
+    <button type="button" class="ht-peek up" aria-label="本日の状況へ" @click="goPage(0)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>本日の状況
+    </button>
     <div class="ht-grid">
       <button
         v-for="s in shortcuts" :key="s.key" type="button" :class="['ht-sc', { hot: s.hot, ord: s.ord, run: s.run, live: s.live }]"
@@ -300,7 +360,18 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
         <b>{{ s.label }}</b>
       </button>
     </div>
+    <section v-if="recent.length" class="ht-recent" aria-label="最近の記録">
+      <b>最近の記録</b>
+      <component :is="r.go ? 'button' : 'div'" v-for="r in recent" :key="r.key" :type="r.go ? 'button' : undefined" class="ht-rc" @click="r.go?.()">
+        <span>{{ r.label }}</span><small>{{ r.when }}</small>
+      </component>
+    </section>
+    </div><!-- /.p2 -->
     </div><!-- /.ht-body -->
+    <div class="ht-dots" role="tablist" aria-label="ホームの画面">
+      <button type="button" role="tab" :class="{ on: page === 0 }" :aria-selected="page === 0" aria-label="本日の状況" @click="goPage(0)"></button>
+      <button type="button" role="tab" :class="{ on: page === 1 }" :aria-selected="page === 1" aria-label="ショートカット" @click="goPage(1)"></button>
+    </div>
 
     <Teleport to="body">
       <div v-if="sheet" class="ht-sh-bg" @click.self="sheet = ''">
@@ -402,8 +473,32 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 /* 下の余白は多めに: 実機ではホームバーの分などで下部ナビが高くなり、最後の行の名前がナビに隠れて
    そこまで送れなかった（User報告 2026-11-28）。端末の差があっても最後の行がナビの上まで上がるように */
 .ht-body { position: relative; z-index: 1; flex: 1; min-height: 0; margin-top: -64px;
-  padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
-  overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  /* 上下の2画面を1画面ずつ止める（User 2026-11-28） */
+  scroll-snap-type: y mandatory; scrollbar-width: none; }
+.ht-body::-webkit-scrollbar { display: none; }
+/* 1画面の高さ＝見えている枠。下部ナビに隠れない分（端末差あり）を各画面の下に取る */
+.ht-page { height: 100%; box-sizing: border-box; scroll-snap-align: start; scroll-snap-stop: always; display: flex; flex-direction: column;
+  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); overflow: hidden; }
+.ht-page.p2 { padding-top: 70px; }
+.ht-peek { flex: none; margin: auto auto 0; display: flex; align-items: center; gap: 4px; padding: 10px 16px 6px; border: none; background: none;
+  font: inherit; font-size: 12px; font-weight: 700; color: var(--text-muted); cursor: pointer; }
+.ht-peek.up { margin: 0 auto 2px; padding: 4px 16px 6px; }
+.ht-dots { position: absolute; right: 2px; top: 58%; z-index: 3; display: grid; gap: 8px; }
+.ht-dots button { width: 7px; height: 18px; padding: 0; border: none; border-radius: 4px; background: #c6d6da; cursor: pointer; transition: height .2s, background .2s; }
+.ht-dots button.on { height: 26px; background: var(--primary, #0e7490); }
+.ht-recent { margin: 14px 14px 0; padding: 10px 12px; border-radius: 16px; background: var(--surface, #fff); box-shadow: 0 1px 4px rgba(0,0,0,.05); display: grid; gap: 2px; }
+.ht-recent > b { font-size: 12px; color: var(--text-muted); padding-bottom: 4px; }
+.ht-rc { display: flex; justify-content: space-between; gap: 8px; padding: 7px 0; border: none; border-top: 1px solid #edf3f4; background: none; font: inherit; font-size: 13px; color: var(--text); text-align: left; }
+button.ht-rc { cursor: pointer; }
+.ht-rc small { color: var(--text-muted); font-size: 12px; }
+/* PC の幅では切り替えず、2つを横に並べる */
+@media (min-width: 1024px) {
+  .ht-body { scroll-snap-type: none; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  .ht-page { height: auto; overflow: visible; }
+  .ht-page.p2 { padding-top: 64px; }
+  .ht-peek, .ht-dots { display: none; }
+}
 .ht-body.scrolled { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px); mask-image: linear-gradient(to bottom, transparent, #000 18px); }
 .ht-today { position: relative; z-index: 1; width: calc(100% - 28px); margin: 0 14px; color: var(--text);
   background: rgba(255,255,255,.97); border-radius: 20px; padding: 14px; box-shadow: 0 10px 28px rgba(6,34,43,.18); display: grid; gap: 6px; }
