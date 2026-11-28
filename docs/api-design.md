@@ -108,8 +108,8 @@ PINのない古い店舗（tokenなし）はオーナーと同じに扱う。
 | `POST /store/:code/handoffs/:id/(read\|task\|delete)` | 既読、やることへの紐づけ、削除（削除は書いた人と管理者） | 同store Bearer |
 | `PUT /store/:code/push/prefs` ／ `POST …/push/test` | 端末ごとの通知設定／試しの通知 | 同store Bearer |
 
-movementのpersist正本はD1 migration 0010で、Appはlocal cacheへ即時保存後にPOSTし、auth後/画面表示時に
-GET結果をid mergeします。WebSocketによるreal-time movement同期はありません。入出庫（movement）のclient recordの
+movementのpersist正本はD1 migration 0010で、Appはlocal cacheへ即時保存後にPOSTし、ログイン直後・起動時・在庫タブ・仕入れ/カレンダー/履歴の画面表示時に
+GET結果をid mergeします（起動時と在庫タブは2026-11-28追加）。WebSocketによるreal-time movement同期はありません。入出庫（movement）のclient recordの
 `source` / `importBatchId`は現行API/schemaへ保存されません（**過去棚卸取込の`importBatchId`は
 migration 0013 で `sessions.import_batch_id` として保存されます**。両者は別物）。
 production D1の適用状態は固定値として断定せず、release前のread-only preflightで確認します。

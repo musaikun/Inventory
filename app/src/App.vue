@@ -554,6 +554,9 @@ async function _pullMovements() {
   } catch (_) {}
 }
 
+// 在庫タブを開くたびに入出庫を読み直す。在庫の数（棚卸＋入出庫）は別の端末の入出庫でも変わるため
+watch(homeTab, (tab) => { if (tab === 'sessions') _pullMovements() })
+
 // 「仕入れ」ページを開いたときに選ぶタブ。ホームからは在庫、発注セッションから戻ったときは発注。
 const movementTab = ref('in')
 
@@ -1527,6 +1530,11 @@ onMounted(async () => {
     } catch (_) {
       // ネットワークエラーは無視してローカルデータで継続
     }
+    // 入出庫・発注も読む（ログイン直後の _pullAccountConfig と同じ）。以前は起動では読まず、ログイン済みの端末は
+    // 別の端末（スタッフなど）が入れた入出庫を、ログインし直すまで在庫の数に足さなかった（2026-11-28 E2E で発見）。
+    // 待たない: 起動画面を長くしない。届いたら在庫の数が更新される
+    _pullMovements()
+    _loadOrderData()
   }
 
   bootProgress.value = 1

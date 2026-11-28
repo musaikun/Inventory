@@ -177,3 +177,43 @@ export async function startAnotherStocktakeToday(page) {
   await expect(page.getByText('今日はもう棚卸をしています')).toBeVisible()
   await page.getByText('別の棚卸として新しく始める').click()
 }
+
+export const STAFF_PIN = '472915'
+
+/**
+ * オーナーの端末でスタッフを招待し、別の端末で申請 → オーナーが承認 → スタッフとして入るまで。
+ * 招待の鍵はクリップボードにしか出ないので、招待を作る API の応答から受け取る。
+ * 返す page は、スタッフとしてログインしてホームにいる端末。
+ */
+export async function inviteAndJoinStaff(browser, owner, name) {
+  await owner.getByText('スタッフ', { exact: true }).first().click()
+  await owner.getByRole('button', { name: '＋ スタッフを招待する' }).click()
+  await owner.locator('#inv-name').fill(name)
+  const res = owner.waitForResponse((r) => r.url().includes('/staff/invites') && r.request().method() === 'POST')
+  await owner.getByRole('button', { name: '招待を出す' }).click()
+  const { invite } = await (await res).json()
+
+  const ctx = await browser.newContext()
+  const page = await ctx.newPage()
+  acceptDialogs(page)
+  await page.goto(`/?join=${invite.token}`)
+  await page.locator('#sj-name').fill(name)
+  await page.locator('#sj-pin').fill(STAFF_PIN)
+  await page.locator('#sj-pin2').fill(STAFF_PIN)
+  await page.getByRole('button', { name: '参加を申請する' }).click()
+  await expect(page.getByText(`${name}さんの参加を申請しました。`)).toBeVisible()
+
+  // オーナー: 招待を閉じてスタッフ画面を開き直すと申請が出る → 承認
+  await owner.getByRole('button', { name: '閉じる' }).click()
+  await owner.getByText('‹ 戻る').click()
+  await owner.getByText('スタッフ', { exact: true }).first().click()
+  await expect(owner.getByText(`${name}さんから参加の申請`)).toBeVisible()
+  await owner.getByRole('button', { name: '承認', exact: true }).click()
+  await owner.getByText('‹ 戻る').click()
+
+  // スタッフの端末は承認を拾ってそのまま入る
+  await expect(page.getByText('承認されました')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: 'はじめる' }).click()
+  await expect(page.getByText(`参加が承認されました。${name}さん、ようこそ`)).toBeVisible()
+  return { ctx, page }
+}
