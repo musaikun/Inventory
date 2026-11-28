@@ -14,6 +14,7 @@ import {
   updateStoreName, updateOwnerName, pinUpgrade,
 } from '../composables/useAuth.js'
 import PinChangeSheet from './PinChangeSheet.vue'
+import { seasonBgOn, setSeasonBg } from '../composables/useSeasonBg.js'
 import { settingsSection } from '../composables/appMenuState.js'
 import { staffPageOpen } from '../composables/staffNav.js'
 import { pushSubscribed } from '../composables/usePush.js'
@@ -141,6 +142,11 @@ async function save() {
         <button type="button" class="sl-it" @click="open('weather')">
           <span class="sl-ic"><LineIcon name="sun" /></span><span class="sl-tx"><b>カレンダーの天気</b><small>位置情報から気温・降水</small></span>
           <span :class="['sl-val', { on: !!weatherState.loc }]">{{ weatherState.loc ? 'ON' : 'OFF' }}</span><span class="sl-ar" aria-hidden="true">›</span>
+        </button>
+        <!-- ホームの背景を月ごとに（雪・桜・花火など・User決定 2026-11-28）。押すと切り替わる -->
+        <button type="button" class="sl-it" role="switch" :aria-checked="seasonBgOn" @click="setSeasonBg(!seasonBgOn)">
+          <span class="sl-ic"><LineIcon name="leaf" /></span><span class="sl-tx"><b>季節の背景</b><small>ホームの背景を月ごとに変える</small></span>
+          <span :class="['sl-val', { on: seasonBgOn }]">{{ seasonBgOn ? 'ON' : 'OFF' }}</span>
         </button>
         <button type="button" class="sl-it" @click="open('hints')">
           <span class="sl-ic"><LineIcon name="idea" /></span><span class="sl-tx"><b>消した説明を戻す</b><small>{{ hiddenHintCount ? `${hiddenHintCount}件` : '消した説明はありません' }}</small></span><span class="sl-ar" aria-hidden="true">›</span>

@@ -68,6 +68,7 @@ export const STORAGE_KEYS = {
   homePage:         '_home_page_v1',   // ホームの上下の画面（0: 本日の状況 / 1: ショートカット）。次に開いたときもそこから
   tasks:            'inventory_tasks_v1',  // カレンダーのやること（店で共有・サーバーと同期）
   tasksSeen:        '_tasks_seen_v1',      // この端末で他の人の追加を最後に確認した時刻（端末ごと）
+  seasonBg:         'tanaoro_season_bg',   // ホームの背景を月ごとに変えるか（端末ごと・'0' でオフ）
   checklists:       'inventory_checklists_v1', // チェック表と日ごとの✓（店で共有・サーバーが正。表示を速くする写し）
   taskTemplates:    'inventory_task_templates_v1', // やることのお気に入り（ひな形・店で共有・サーバーが正の写し）
   handoffs:         'inventory_handoffs_v1',   // 申し送り（店で共有・サーバーが正。表示を速くする写し）

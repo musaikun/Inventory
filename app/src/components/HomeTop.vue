@@ -23,6 +23,8 @@ import { buildDayTimeline } from '../services/dayTimeline.js'
 import { storeName, isAuthenticated, isAdmin, can, canSeeReport } from '../composables/useAuth.js'
 import { aliveTasks } from '../composables/useTasks.js'
 import { useWeather } from '../composables/useWeather.js'
+import { ringColors, seasonMotifs, DEFAULT_RING } from '../services/seasonBg.js'
+import { seasonBgOn } from '../composables/useSeasonBg.js'
 import { localDateKey } from '../utils/localDate.js'
 import { APP_NAME } from '../appInfo.js'
 import { useSortSetup } from '../composables/useSortSetup.js'
@@ -84,6 +86,12 @@ _tickNow()
 let _nowTimer = null
 onMounted(() => { _nowTimer = setInterval(_tickNow, 60_000) })
 onUnmounted(() => clearInterval(_nowTimer))
+
+// ── 背景の月ごとの色とモチーフ（User決定 2026-11-28）。南半球・季節の無い地域は天気の位置（緯度）で決める ──
+const _lat = computed(() => (typeof weatherState.loc?.lat === 'number' ? weatherState.loc.lat : null))
+const bgRing = computed(() => (seasonBgOn.value ? ringColors(today, _lat.value) : DEFAULT_RING))
+const _reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+const motifs = computed(() => (seasonBgOn.value && !_reduceMotion ? seasonMotifs(today, _lat.value) : []))
 
 // ── 背景の動きを止めるとき: 上に画面が重なっている・アプリが裏にある・1分さわらない（電池のため・User決定 2026-11-28）──
 const IDLE_MS = 60_000
@@ -317,16 +325,26 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
          全部を一緒に動かすとチープに見えたので、動くのは2本の輪の傾きだけ（User決定 2026-11-28・モック https://claude.ai/artifact/CddkWTeBkdbVjFoVm1y6td の「2 重なる輪」を全体に）。
          動かすのは HTML 要素の transform だけ（GPU で動く）。業務・在庫などが上に重なっている間・裏にあるとき・1分さわらないときは止める（bgPaused） -->
     <div :class="['ht-bg', { paused: bgPaused }]" aria-hidden="true">
-      <svg width="0" height="0" class="ht-defs"><defs><linearGradient :id="gid" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2563eb" /><stop offset=".55" stop-color="#22d3ee" /><stop offset="1" stop-color="#34d399" /></linearGradient></defs></svg>
+      <svg width="0" height="0" class="ht-defs"><defs>
+        <linearGradient :id="gid" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2563eb" /><stop offset=".55" stop-color="#22d3ee" /><stop offset="1" stop-color="#34d399" /></linearGradient>
+        <!-- 背景の輪の色は月ごと（本日の状況の輪はいつもの色のまま） -->
+        <linearGradient :id="`${gid}-bg`" x1="0" y1="0" x2="1" y2="0"><stop offset="0" :stop-color="bgRing[0]" /><stop offset=".55" :stop-color="bgRing[1]" /><stop offset="1" :stop-color="bgRing[2]" /></linearGradient>
+      </defs></svg>
       <div ref="cardsEl" class="ht-artw">
         <div class="ht-stage">
           <div class="ht-lay l1">
-            <svg viewBox="0 0 380 291"><ellipse class="ht-rl soft" cx="190" cy="152" rx="152" ry="73.5" transform="rotate(-18 190 152)" :stroke="`url(#${gid})`" /><ellipse class="ht-rl" cx="190" cy="152" rx="152" ry="73.5" transform="rotate(-18 190 152)" :stroke="`url(#${gid})`" /></svg>
+            <svg viewBox="0 0 380 291"><ellipse class="ht-rl soft" cx="190" cy="152" rx="152" ry="73.5" transform="rotate(-18 190 152)" :stroke="`url(#${gid}-bg)`" /><ellipse class="ht-rl" cx="190" cy="152" rx="152" ry="73.5" transform="rotate(-18 190 152)" :stroke="`url(#${gid}-bg)`" /></svg>
           </div>
           <div class="ht-lay l2">
-            <svg viewBox="0 0 380 291"><ellipse class="ht-rl" cx="190" cy="152" rx="152" ry="73.5" transform="rotate(-18 190 152)" :stroke="`url(#${gid})`" /></svg>
+            <svg viewBox="0 0 380 291"><ellipse class="ht-rl" cx="190" cy="152" rx="152" ry="73.5" transform="rotate(-18 190 152)" :stroke="`url(#${gid}-bg)`" /></svg>
           </div>
         </div>
+      </div>
+      <!-- 月のモチーフ（雪・梅・桜・雨・花火・紅葉など）。1つずつ別の速さ・向きで動く（services/seasonBg.js） -->
+      <div v-if="motifs.length" class="ht-mot">
+        <i v-for="(p, i) in motifs" :key="i" :class="['ht-p', p.cls]" :style="p.style">
+          <svg v-if="p.svg" :width="p.w" :height="p.h" :viewBox="p.vb" :style="{ stroke: p.col }" v-html="p.svg"></svg>
+        </i>
       </div>
     </div>
     <!-- 上部は1行だけ（名前・店名・日付・天気・User決定 2026-11-28） -->
@@ -505,6 +523,33 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 @keyframes ht-tilt-b { from { transform: rotate(14deg) scale(.86); } to { transform: rotate(6deg) scale(.9); } }
 .ht-bg.paused .ht-lay { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) { .ht-lay { animation: none; } }
+/* 月のモチーフ。動きの名前はクラス（k-fall など）、速さ・遅れ・揺れ幅は style（services/seasonBg.js） */
+.ht-mot { position: absolute; inset: 0; overflow: hidden; }
+.ht-p { position: absolute; top: 0; left: 0; will-change: transform, opacity; animation-iteration-count: infinite; }
+.ht-p svg { display: block; overflow: visible; }
+.ht-bg.paused .ht-p { animation-play-state: paused; }
+.k-fall { animation-name: ht-fall; animation-timing-function: linear; }
+.k-rise { animation-name: ht-rise; animation-timing-function: ease-out; }
+.k-rain { animation-name: ht-rain; animation-timing-function: linear; }
+.k-twinkle { animation-name: ht-twinkle; animation-timing-function: ease-in-out; }
+.k-burst { animation-name: ht-burst; animation-timing-function: cubic-bezier(.2, .7, .3, 1); }
+.k-sway { opacity: .7; transform-origin: 50% 100%; animation-name: ht-sway; animation-timing-function: ease-in-out; animation-direction: alternate; }
+.k-glow { animation-name: ht-glow; animation-timing-function: ease-in-out; animation-direction: alternate; }
+.k-drift { left: 0; opacity: var(--op); animation-name: ht-drift; animation-timing-function: linear; }
+.k-halo { width: 260px; height: 260px; margin: -130px 0 0 -130px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(251,146,60,.32), rgba(251,191,36,.12) 55%, transparent);
+  animation-name: ht-halo; animation-timing-function: ease-in-out; animation-direction: alternate; animation-duration: 12s !important; }
+@keyframes ht-fall { 0% { transform: translate(0, -6vh) rotate(0deg); opacity: 0; } 8% { opacity: var(--op); }
+  50% { transform: translate(var(--sw), 50vh) rotate(var(--r1)); } 92% { opacity: var(--op); } 100% { transform: translate(var(--sw2), 106vh) rotate(var(--r2)); opacity: 0; } }
+@keyframes ht-rise { 0% { transform: translate(0, 100vh) scale(.6); opacity: 0; } 15% { opacity: var(--op); } 100% { transform: translate(var(--sw), 25vh) scale(1.15); opacity: 0; } }
+@keyframes ht-rain { 0% { transform: translate(30px, -6vh); opacity: 0; } 10% { opacity: var(--op); } 90% { opacity: var(--op); } 100% { transform: translate(-40px, 106vh); opacity: 0; } }
+@keyframes ht-twinkle { 0%, 100% { transform: scale(.5); opacity: 0; } 50% { transform: scale(1.05); opacity: var(--op); } }
+@keyframes ht-burst { 0% { transform: scale(.15); opacity: 0; } 4% { opacity: var(--op); } 18% { transform: scale(1); opacity: calc(var(--op) * .7); } 26%, 100% { transform: scale(1.08); opacity: 0; } }
+@keyframes ht-sway { from { transform: rotate(-5deg); } to { transform: rotate(7deg); } }
+@keyframes ht-glow { from { opacity: .45; } to { opacity: .95; } }
+@keyframes ht-drift { from { transform: translateX(-40vw); } to { transform: translateX(110vw); } }
+@keyframes ht-halo { from { transform: scale(.9); opacity: .55; } to { transform: scale(1.06); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ht-mot { display: none; } }
 .ht-hd { position: relative; z-index: 1; flex: none; display: flex; align-items: center; gap: 8px; color: var(--text, #12303a);
   padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 6px; }
 .ht-brand { font-weight: 900; letter-spacing: .08em; font-size: 15px; }
