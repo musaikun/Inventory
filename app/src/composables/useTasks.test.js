@@ -71,6 +71,33 @@ describe('useTasks', () => {
     expect(T.tasksOn('2026-10-04')[0].text).toBe('新しい変更')
   })
 
+  it('期間（締め切り）がある業務は、締め切りの日からバッジに数える（User 2026-11-28）', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
+    const today = localDateKey()
+    const later = localDateKey(new Date(Date.now() + 3 * 86400_000))
+    const before = localDateKey(new Date(Date.now() - 2 * 86400_000))
+    T.addTask(before, 'まだ間に合う', null, null, { deadline: later })
+    T.addTask(before, '今日まで', null, null, { deadline: today })
+    T.addTask(before, '締め切り過ぎ', null, null, { deadline: before })
+    T.addTask(before, '進行中・まだ', null, null, { progress: 'doing', deadline: later })
+    expect(T.todayOpenCount.value).toBe(2)
+  })
+
+  it('済みにした進行中を進行中へ戻せる（状態・手順はそのまま）', async () => {
+    const { localDateKey } = await import('../utils/localDate.js')
+    const t = T.addTask(localDateKey(), '製氷機の修理', null, null, { progress: 'waiting', steps: [{ text: '業者に電話' }] })
+    expect(T.canReopenProgress(t)).toBe(false)          // 済んでいないものは戻さない
+    T.finishProgress(t.id)
+    expect(t.doneAt).toBeTruthy()
+    expect(T.canReopenProgress(t)).toBe(true)
+    T.reopenProgress(t.id)
+    expect(t.doneAt).toBeNull()
+    expect(t.progress).toBe('waiting')
+    expect(t.steps.map(x => x.text)).toEqual(['業者に電話'])
+    expect(T.progressTasks.value.map(x => x.id)).toContain(t.id)
+    // 前の日に済んだものを戻せるのは管理者だけ（規則は完了の取り消しと同じ・taskRights.test.js）
+  })
+
   it('今日の未完了の数（ナビのバッジ）。過ぎた日の終わっていないもの（期限切れ）も数える', async () => {
     const { localDateKey } = await import('../utils/localDate.js')
     T.addTask(localDateKey(), 'A'); const b = T.addTask(localDateKey(), 'B'); T.addTask('2000-01-01', '昔'); T.addTask('2999-01-01', '先')

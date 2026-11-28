@@ -336,10 +336,14 @@ export function markTasksSeen() {
   try { localStorage.setItem(STORAGE_KEYS.tasksSeen, _seenAt.value) } catch (_) {}
 }
 
-/** 今日の未完了のやることの数（ナビのバッジ） */
+/**
+ * 今日の未完了のやることの数（ナビのバッジ）。期限切れも含める。
+ * 期間（締め切り）があるものは、締め切りの日から数える（User 2026-11-28。始めた日から毎日数えると、
+ * まだ間に合う業務の数がずっと出続けた）
+ */
 export const todayOpenCount = computed(() => {
   const today = localDateKey()
-  return _data.list.filter(t => t.date && t.date <= today && _todo(t) && !t.doneAt).length   // 期限切れも含める
+  return _data.list.filter(t => t.date && t.date <= today && _todo(t) && !t.doneAt && (!t.deadline || t.deadline <= today)).length
 })
 
 export function isMyTask(t) { return !!t && isMeId(t.createdById) }
@@ -387,6 +391,17 @@ export function finishProgress(id) {
   const t = _data.list.find(x => x.id === id)
   if (!t || !canProgress(t)) return null
   return _patch(id, { doneAt: _now(), doneBy: deviceName.value || '', doneById: actorId() })
+}
+/**
+ * 済みにした進行中を、進行中へ戻す（User 2026-11-28）。権限は完了の取り消しと同じ
+ * （済みにした本人はその日のうち、管理者はいつでも・services/taskRights.js。サーバーも同じ規則で確かめる）。
+ * 状態（進行中／待ち）・手順・経過はそのまま残る
+ */
+export function canReopenProgress(t) { return !!t?.progress && !!t.doneAt && _data.list.some(x => x.id === t.id) && canToggleTask(t) }   // 取り寄せただけの古い記録は戻さない
+export function reopenProgress(id) {
+  const t = _data.list.find(x => x.id === id)
+  if (!t || !canReopenProgress(t)) return null
+  return _patch(id, { doneAt: null, doneBy: null, doneById: null, ...R.undoKeep(t, _me()) })
 }
 function _cleanSteps(a) {
   return (a ?? []).map(x => ({ id: x?.id || newStepId(), text: String(x?.text ?? '').trim().slice(0, 100), done: !!x?.done })).filter(x => x.text).slice(0, 20)

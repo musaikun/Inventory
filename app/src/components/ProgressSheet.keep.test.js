@@ -44,3 +44,26 @@ describe('ProgressSheet — 手順をチェック表に入れる', () => {
     expect(keepBtn()).toBeNull()
   })
 })
+
+describe('ProgressSheet — 済みにしたあと戻す（User 2026-11-28）', () => {
+  it('済みにすると finished を出して閉じる。済んだものを開くと「進行中に戻す」', async () => {
+    const T = await import('../composables/useTasks.js')
+    const { localDateKey } = await import('../utils/localDate.js')
+    const raw = T.addTask(localDateKey(), '製氷機の修理', null, null, { progress: 'doing' })
+    const t = T.aliveTasks.value.find(x => x.id === raw.id)   // 画面と同じく、一覧の（変わると描き直す）1件を渡す
+    const { default: Sheet } = await import('./ProgressSheet.vue')
+    const host = document.createElement('div'); document.body.appendChild(host)
+    const fin = vi.fn(), close = vi.fn()
+    app = createApp({ render: () => h(Sheet, { task: t, onFinished: fin, onClose: close }) }); app.mount(host); await tick()
+    expect(document.body.querySelector('.ps-reopen')).toBeNull()
+    ;[...document.body.querySelectorAll('.ps-seg button')].find(b => b.textContent.includes('済みにする')).click(); await tick()
+    expect(fin).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalled()
+    expect(t.doneAt).toBeTruthy()
+    // 済んだものを開き直す（済んだ業務の履歴から）→ 戻す
+    document.body.querySelector('.ps-reopen').click(); await tick()
+    expect(t.doneAt).toBeNull()
+    expect(document.body.querySelector('.ps-seg')).not.toBeNull()
+  })
+})
+

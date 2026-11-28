@@ -38,7 +38,7 @@ import CopyDatesSheet from './CopyDatesSheet.vue'
 import { addTemplate, canAddTemplate, pullTemplates } from '../composables/useTemplates.js'
 import { pullChecklists, checklists, checklistsForDay, saveChecklist, newItemId, markChecklistItem, canMarkChecklist, canUnmark } from '../composables/useChecklists.js'
 import { monthDaysLabel, isSimple, WHOLE } from '../services/checklistSchedule.js'
-import { tasksOn, eventsOn, aliveEvents, isEvent, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, editTask, setTaskAssign, TASK_TEXT_MAX, TASK_NOTE_MAX, dueProgress, toggleTask, canToggleTask, canEditTask, canNoteTask, setTaskNote, startTask, canProgress, canRemoveTask, removeTask, aliveTasks, progressTasks, isStale } from '../composables/useTasks.js'
+import { tasksOn, eventsOn, aliveEvents, isEvent, overdueTasks, carriedTasks, somedayTasks, addTask, pullTasks, editTask, setTaskAssign, TASK_TEXT_MAX, TASK_NOTE_MAX, dueProgress, reopenProgress, toggleTask, canToggleTask, canEditTask, canNoteTask, setTaskNote, startTask, canProgress, canRemoveTask, removeTask, aliveTasks, progressTasks, isStale } from '../composables/useTasks.js'
 import { can, staffNames, loadStaffNames, getSessions, isAdmin } from '../composables/useAuth.js'
 import { useHistory } from '../composables/useHistory.js'
 import { useOrders } from '../composables/useOrders.js'
@@ -264,6 +264,19 @@ function fromTemplates(extra = null) {
   if (extra?.template) { addSheet.value = { template: extra.template }; return }   // お気に入りは中身をまるごと使う
   if (back || extra) addSheet.value = { ...(back || {}), ...(extra || {}) }
 }
+// 進行中を済みにした直後の「元に戻す」（User 2026-11-28）。数秒で消える。戻せる人・期間は完了の取り消しと同じ
+const undoOf = ref(null)   // { id, text }
+let _undoT = null
+function onFinished(t) {
+  undoOf.value = { id: t.id, text: t.text }
+  clearTimeout(_undoT); _undoT = setTimeout(() => { undoOf.value = null }, 6000)
+}
+function undoFinish() {
+  const u = undoOf.value
+  undoOf.value = null; clearTimeout(_undoT)
+  if (u && reopenProgress(u.id)) say(`「${u.text}」を進行中に戻しました`)
+}
+onUnmounted(() => clearTimeout(_undoT))
 const okMsg = ref('')
 let _okT = null
 function say(m) { okMsg.value = m; clearTimeout(_okT); _okT = setTimeout(() => { okMsg.value = '' }, 2600) }
@@ -391,7 +404,7 @@ async function favChecklist(cl) {
       </div>
     </Teleport>
     <ChecklistsPage v-if="clPage" :key="clPage.historyOf?.id || 'list'" :history-of="clPage.historyOf" @close="clPage = null" @edit="cl => addSheet = { editOf: cl }" @open-run="x => clRun = x" @add="clPage = null; addSheet = { startKind: '' }" />
-    <ProgressSheet v-if="progOpen" :task="progOpen" @close="progOpen = null" @edit="x => { progOpen = null; addSheet = { editTaskOf: x } }" />
+    <ProgressSheet v-if="progOpen" :task="progOpen" @close="progOpen = null" @finished="onFinished" @edit="x => { progOpen = null; addSheet = { editTaskOf: x } }" />
     <DoneHistory v-if="histOpen" @close="histOpen = false" @open-progress="t => (progOpen = t)" @routine="recOpen = { focus: null }" />
     <RoutineRecords v-if="recOpen" :focus="recOpen.focus" @close="recOpen = null" @open-run="x => clRun = x" />
     <ChecklistRunSheet
@@ -410,6 +423,10 @@ async function favChecklist(cl) {
     />
     <Teleport to="body">
       <Transition name="toast"><div v-if="okMsg" class="toast" data-type="success" role="status">{{ okMsg }}</div></Transition>
+      <div v-if="undoOf" class="jp-undo" role="status">
+        <span>「{{ undoOf.text }}」を済みにしました</span>
+        <button type="button" @click="undoFinish">元に戻す</button>
+      </div>
     </Teleport>
   </div>
 </template>
@@ -494,4 +511,12 @@ async function favChecklist(cl) {
 .jp-mini { min-height: 42px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font-weight: 700; padding: 0 14px; cursor: pointer; }
 .jp-save { min-height: 42px; border: none; border-radius: 10px; background: var(--grad-btn); color: #08323c; font-weight: 800; padding: 0 22px; cursor: pointer; }
 .jp-save:disabled { opacity: .5; }
+.jp-undo {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(74px + env(safe-area-inset-bottom)); z-index: 9000;
+  display: flex; align-items: center; gap: 12px; max-width: calc(100vw - 24px); box-sizing: border-box;
+  padding: 10px 10px 10px 16px; border-radius: 14px; background: #12303a; color: #fff; font-size: 13.5px; font-weight: 700;
+  box-shadow: 0 8px 24px rgba(0,0,0,.25);
+}
+.jp-undo span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jp-undo button { flex: none; border: none; border-radius: 9px; padding: 7px 12px; background: #fff; color: #0e7490; font: inherit; font-weight: 800; cursor: pointer; }
 </style>

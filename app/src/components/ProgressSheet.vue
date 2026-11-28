@@ -9,12 +9,12 @@
  */
 import { askConfirm } from '../composables/askConfirm.js'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { updateProgress, finishProgress, canProgress, canEditTask, canRemoveTask, removeTask, loadNotes, addNote, newStepId, idleDays } from '../composables/useTasks.js'
+import { updateProgress, finishProgress, reopenProgress, canReopenProgress, toggleDenyReason, canProgress, canEditTask, canRemoveTask, removeTask, loadNotes, addNote, newStepId, idleDays } from '../composables/useTasks.js'
 import { registerInnerLayerCloser } from '../composables/appMenuState.js'
 import { useStepsToChecklist, saveStepsAsChecklist } from '../composables/stepsToChecklist.js'
 
 const props = defineProps({ task: { type: Object, required: true } })
-const emit = defineEmits(['close', 'edit'])
+const emit = defineEmits(['close', 'edit', 'finished'])
 const t = computed(() => props.task)
 // 済んだもの（済んだ業務の履歴から開く）は見るだけ。状態・手順・経過は変えない（User 2026-11-18）
 const done = computed(() => !!t.value.doneAt)
@@ -28,9 +28,18 @@ onMounted(async () => { notes.value = await loadNotes(t.value.id); loading.value
 const err = ref('')
 function setState(p) {
   err.value = ''
-  if (p === 'done') { finishProgress(t.value.id); emit('close'); return }
+  if (p === 'done') { _finish(); return }
   updateProgress(t.value.id, { progress: p, waitNote: p === 'waiting' ? t.value.waitNote : null })
 }
+// 済みにしたら閉じる。すぐ戻せるよう、日誌の下に「元に戻す」を出す（User 2026-11-28）
+function _finish() {
+  if (finishProgress(t.value.id)) emit('finished', t.value)
+  emit('close')
+}
+// 済んだものを進行中へ戻す（本人はその日のうち、管理者はいつでも）
+const canReopen = computed(() => canReopenProgress(t.value))
+const reopenDeny = computed(() => (done.value && !canReopen.value && t.value.progress ? toggleDenyReason(t.value).replace('完了を取り消せる', '進行中に戻せる') : ''))
+function reopen() { reopenProgress(t.value.id) }
 const waitDraft = ref(t.value.waitNote || '')
 function saveWait() { updateProgress(t.value.id, { waitNote: waitDraft.value }) }
 function setDeadline(k) { updateProgress(t.value.id, { deadline: k || null }) }
@@ -66,7 +75,7 @@ async function send() {
     if (n) notes.value = [n, ...notes.value]
     noteDraft.value = ''
     if (can.value) {
-      if (after.value === 'done') { finishProgress(t.value.id); emit('close'); return }
+      if (after.value === 'done') { _finish(); return }
       const f = {}
       if (after.value === 'waiting') { f.progress = 'waiting'; f.waitNote = afterWait.value || t.value.waitNote }
       if (Object.keys(f).length) updateProgress(t.value.id, f)
@@ -88,6 +97,8 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
       <div class="ps" role="dialog" :aria-label="t.text">
         <div class="ps-h"><b>{{ t.text }}</b><button type="button" class="ps-x" aria-label="閉じる" @click="emit('close')">✕</button></div>
         <p v-if="done" class="ps-done">✓ 済み ・ {{ at(t.doneAt) }} {{ t.doneBy || '' }}</p>
+        <button v-if="done && canReopen" type="button" class="ps-reopen" @click="reopen">進行中に戻す</button>
+        <p v-else-if="reopenDeny" class="ps-reopen-no">{{ reopenDeny }}</p>
         <div v-else class="ps-seg" role="group" aria-label="状態">
           <button type="button" :class="['go', { on: t.progress === 'doing' }]" :disabled="!can" @click="setState('doing')">進行中</button>
           <button type="button" :class="['wait', { on: t.progress === 'waiting' }]" :disabled="!can" @click="setState('waiting')">待ち</button>
@@ -190,5 +201,7 @@ onUnmounted(registerInnerLayerCloser(() => { emit('close'); return true }))
 .ps-tl small { display: block; font-size: 11px; color: var(--text-muted); font-weight: 700; }
 .ps-keep { justify-self: start; min-height: 36px; padding: 0 12px; border: 1px dashed var(--border, #d6e6ea); border-radius: 10px; background: var(--surface, #fff); font: inherit; font-size: 13px; font-weight: 800; color: var(--primary, #0e7490); cursor: pointer; }
 .ps-kept { margin: 0; font-size: 12.5px; font-weight: 700; color: #047857; }
+.ps-reopen { justify-self: start; border: 1.5px solid #bfd6dc; background: #fff; color: #0e7490; border-radius: 10px; padding: 8px 14px; font: inherit; font-size: 13.5px; font-weight: 800; cursor: pointer; }
+.ps-reopen-no { margin: 0; font-size: 11.5px; color: #7d969c; }
 .ps-done { margin: 0; padding: 10px 12px; border-radius: 12px; background: #dcfce7; color: #047857; font-size: 14px; font-weight: 800; }
 </style>
