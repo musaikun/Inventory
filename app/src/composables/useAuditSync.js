@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { HTTP_BASE as BASE, apiFetch as _api } from '../utils/api.js'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { shopCode } from './useStore.js'
+import { itemIdOf } from './useConfig.js'
 
 /**
  * 操作ログ（変更履歴）を D1 へ送る（migration 0017）。
@@ -110,7 +111,8 @@ async function _run() {
       try {
         await _api(`/store/${code}/sessions/${sessionId}/audit`, {
           method: 'POST',
-          body: JSON.stringify({ entries: batch }),
+          // 品目の変わらない ID（ITEM-001 I-2）を添える。キューの中身は変えない
+          body: JSON.stringify({ entries: batch.map(e => { const n = e?.ingredient ?? e?.item; return n ? { ...e, itemId: e.itemId || itemIdOf(n) } : e }) }),
         })
         const sent = new Set(batch.map(e => e.id))
         _queue = _queue.filter(r => !(r.sessionId === sessionId && sent.has(r.entry.id)))

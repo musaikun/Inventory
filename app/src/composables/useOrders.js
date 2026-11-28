@@ -3,6 +3,7 @@ import { reactive, ref, toRaw } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { postOrderStock } from '../services/orderLearning.js'
 import { effectiveLot } from '../services/lot.js'
+import { itemIdOf } from './useConfig.js'
 
 // 発注レコード（フロー）。棚卸スナップショット（残高）とは別倉庫。
 // 1レコード = { id, date, supplier, axis, sessionId, savedAt, lines:[{ item, qty, unit, stock, lot, postStock, excluded }] }
@@ -51,6 +52,7 @@ function _cleanLines(lines) {
       const lot   = effectiveLot(l.lot)
       return {
         item:      l.item,
+        ...(l.item ? { itemId: l.itemId || itemIdOf(l.item) } : {}),   // 品目の変わらない ID（ITEM-001 I-2）
         qty,
         unit:      l.unit || '',
         stock:     Number.isFinite(stock) ? stock : null,

@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { createD1, makeInventory, makeLines } from './d1Harness.js'
 import {
   handleSessionComplete, handleOrderCreate, handleOrderDelete,
-  handleMovementCreate, handleMovementDelete,
+  handleMovementCreate, handleMovementDelete, handleAuditAppend,
 } from '../src/storeHandler.js'
+import { itemIdFor } from '../src/itemId.js'
 import {
   MAX_LINES_PER_REQUEST, D1_MAX_BOUND_PARAMS, D1_QUERIES_PER_INVOCATION_FREE,
   INVENTORY_ROWS_PER_STATEMENT, ORDER_ROWS_PER_STATEMENT, MOVEMENT_ROWS_PER_STATEMENT,
@@ -296,9 +297,10 @@ describe('D1実行上限への適合（公式制限 2026-08-09）', () => {
   })
 
   it('まとめ行数は bound parameter 100 を超えない', () => {
-    expect(INVENTORY_ROWS_PER_STATEMENT * 5 + 3).toBeLessThanOrEqual(D1_MAX_BOUND_PARAMS)
-    expect(ORDER_ROWS_PER_STATEMENT     * 7 + 4).toBeLessThanOrEqual(D1_MAX_BOUND_PARAMS)
-    expect(MOVEMENT_ROWS_PER_STATEMENT  * 3 + 4).toBeLessThanOrEqual(D1_MAX_BOUND_PARAMS)
+    // 固定は 品目の ID の表（ITEM-001）を含む: 棚卸 takenAt,ids,id,shop,claim ／ 発注・入出庫 date,ids,createdAt,id,shop
+    expect(INVENTORY_ROWS_PER_STATEMENT * 5 + 5).toBeLessThanOrEqual(D1_MAX_BOUND_PARAMS)
+    expect(ORDER_ROWS_PER_STATEMENT     * 7 + 5).toBeLessThanOrEqual(D1_MAX_BOUND_PARAMS)
+    expect(MOVEMENT_ROWS_PER_STATEMENT  * 5 + 5).toBeLessThanOrEqual(D1_MAX_BOUND_PARAMS)
   })
 
   it('351品目（R-001の実データ規模）が欠けずに保存される', async () => {
@@ -665,5 +667,47 @@ describe('履歴の削除は同日の別セッションを巻き込まない', (
     const { handleHistoryDelete } = await import('../src/storeHandler.js')
     expect(await handleHistoryDelete(h.db, SHOP, key))
       .toMatchObject({ _status: 400, code: 'invalid_id' })
+  })
+})
+
+
+// 品目の変わらない ID（ITEM-001 I-2・migration 0038）
+describe('明細に品目の ID を残す — 実SQLite', () => {
+  const GOOD = 'it_00000000000000aa'
+  it('棚卸の明細: 届いた ID を使い、無ければ店舗コード＋名前から計算する', async () => {
+    const h = setup()
+    const inv = { 牛乳: { qty: 3, unit: '本', itemId: GOOD }, 砂糖: { qty: 2, unit: 'kg' } }
+    const res = await handleSessionComplete(h.db, SHOP, SESS, { inventory: inv, prices: {}, snapshot: snapFor(inv) })
+    expect(res.ok).toBe(true)
+    const rows = Object.fromEntries(h.rows('SELECT item_name, item_id FROM inventory_lines WHERE session_id = ?', SESS).map(r => [r.item_name, r.item_id]))
+    expect(rows).toEqual({ 牛乳: GOOD, 砂糖: itemIdFor(SHOP, '砂糖') })
+  })
+
+  it('発注・入出庫の明細: 形の正しくない ID は使わない', async () => {
+    const h = setup()
+    await handleOrderCreate(h.db, SHOP, { id: 'o1', lines: [{ item: 'トマト', qty: 2, itemId: 'bad' }, { item: '塩', qty: 1, itemId: GOOD }] })
+    await handleMovementCreate(h.db, SHOP, { id: 'm1', type: 'in', lines: [{ item: 'トマト', qty: 4 }] })
+    const ol = Object.fromEntries(h.rows('SELECT item, item_id FROM order_lines WHERE order_id = ?', 'o1').map(r => [r.item, r.item_id]))
+    expect(ol).toEqual({ トマト: itemIdFor(SHOP, 'トマト'), 塩: GOOD })
+    expect(h.rows('SELECT item_id FROM movement_lines WHERE movement_id = ?', 'm1')[0].item_id).toBe(itemIdFor(SHOP, 'トマト'))
+  })
+
+  it('500行の入出庫でも ID が全行に入る（文の本数は上の「41文以内」で確認）', async () => {
+    const h = setup()
+    await handleMovementCreate(h.db, SHOP, { id: 'm2', type: 'in', lines: makeLines(MAX_LINES_PER_REQUEST) })
+    expect(h.rows("SELECT COUNT(*) AS n FROM movement_lines WHERE movement_id = 'm2' AND item_id LIKE 'it_%'")[0].n).toBe(MAX_LINES_PER_REQUEST)
+  })
+})
+
+describe('変更履歴（session_audit）— 実SQLite', () => {
+  it('200件を1要求で保存でき、1文の bound parameter が 100 を超えない。品目の ID も入る', async () => {
+    const h = setup()
+    const entries = Array.from({ length: 200 }, (_, i) => ({ id: `e${i}`, ingredient: `品目${i % 30}`, action: 'add', delta: 1, totalQty: i, unit: '個', enteredBy: 'A', at: 1000 + i }))
+    h.resetCounters()
+    const res = await handleAuditAppend(h.db, SHOP, SESS, { entries })
+    expect(res.ok).toBe(true)
+    expect(h.counters().maxBoundParams).toBeLessThanOrEqual(D1_MAX_BOUND_PARAMS)
+    expect(h.rows('SELECT COUNT(*) AS n FROM session_audit WHERE session_id = ?', SESS)[0].n).toBe(200)
+    expect(h.rows("SELECT item_id FROM session_audit WHERE id = 'e0'")[0].item_id).toBe(itemIdFor(SHOP, '品目0'))
   })
 })

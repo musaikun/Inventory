@@ -13,6 +13,7 @@
 // は実D1では19項でも `too many terms in compound SELECT` で落ちる（2026-08-28計測）
 // → validate.js の valueRows()
 
+import { itemIdMapJson, itemIdFromMapSql } from './itemId.js'
 import {
   MAX_INGREDIENT_LEN,
   MAX_UNIT_LEN,
@@ -77,6 +78,7 @@ export function inventoryLineStatements(db, { sessionId, shopCode, takenAt, inve
 
     rows.push({
       item:  itemName,
+      itemId: entry?.itemId,
       qty,
       unit:  entry?.unit == null ? null : text(entry.unit, MAX_UNIT_LEN),
       price: unitPrice,
@@ -107,14 +109,14 @@ export function inventoryLineStatements(db, { sessionId, shopCode, takenAt, inve
   for (const group of chunk(rows, INVENTORY_ROWS_PER_STATEMENT)) {
     const { sql: values, col } = valueRows(group.length, ['item', 'qty', 'unit', 'price', 'value'])
     const binds = []
-    binds.push(takenAt)                                   // SELECT リストの ?（文ごと1個）
+    binds.push(takenAt, itemIdMapJson(group, shopCode))  // SELECT リストの ?（文ごと2個: 日時・名前 → ID の表）
     for (const r of group) binds.push(r.item, r.qty, r.unit, r.price, r.value)
     binds.push(sessionId, shopCode, ...claimBinds)        // WHERE の ?（文ごと2〜3個）
 
     statements.push(db.prepare(`
       INSERT INTO inventory_lines
-        (session_id, shop_code, taken_at, item_name, category, qty, unit, unit_price, line_value)
-      SELECT s.id, s.shop_code, ?, ${col.item}, NULL, ${col.qty}, ${col.unit}, ${col.price}, ${col.value}
+        (session_id, shop_code, taken_at, item_id, item_name, category, qty, unit, unit_price, line_value)
+      SELECT s.id, s.shop_code, ?, ${itemIdFromMapSql(col.item)}, ${col.item}, NULL, ${col.qty}, ${col.unit}, ${col.price}, ${col.value}
       FROM sessions s, (VALUES ${values}) v
       WHERE s.id = ? AND s.shop_code = ?${claimSql}
     `).bind(...binds))

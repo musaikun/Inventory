@@ -67,3 +67,4 @@ apply_if_missing 0034_movement_lot_date.sql   idx_movement_lines_lot
 apply_if_missing 0035_task_templates.sql      idx_task_templates_shop
 apply_if_missing 0036_task_board.sql          idx_tasks_end_time
 apply_if_missing 0037_owner_pin_digits.sql    idx_stores_pin_upgrade
+apply_if_missing 0038_item_id.sql             idx_movement_lines_item_id

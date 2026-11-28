@@ -32,6 +32,7 @@
  */
 
 import { isSnapshotComplete } from '../utils/snapshotSync.js'
+import { itemIdOf } from '../composables/useConfig.js'
 
 /** 完了要求の種別 */
 export const COMPLETION_STOCK = 'stock'
@@ -45,6 +46,10 @@ const MAX_LINES_PER_REQUEST = 500    // 明細行（inventory）・発注件数�
 const MAX_SNAPSHOT_ITEMS    = 2000   // 未入力ぶんを含む表示用 items の上限
 
 /** server の `text(v, MAX_INGREDIENT_LEN)` と同じ正規化 */
+function _withItemIds(inv) {
+  if (!inv || typeof inv !== 'object') return inv
+  return Object.fromEntries(Object.entries(inv).map(([n, e]) => [n, e && typeof e === 'object' ? { ...e, itemId: e.itemId || itemIdOf(n) } : e]))
+}
 function _normName(v) {
   if (v == null) return ''
   return String(v).trim().slice(0, MAX_INGREDIENT_LEN)
@@ -204,7 +209,8 @@ function _stockRequest({ snapshot, inventory, prices }) {
 
   // ここで内容を固定する。以降の入力・訂正はこの要求へ影響しない。
   const body = {
-    inventory: _freeze(inventory) ?? {},
+    // 品目の変わらない ID（ITEM-001 I-2）を明細に添える。完了の照合値は名前・数・単位・単価・金額だけで作るので変わらない
+    inventory: _freeze(_withItemIds(inventory)) ?? {},
     prices:    _freeze(prices ?? {}) ?? {},
     takenAt,
     snapshot:  _freeze(snapshot),

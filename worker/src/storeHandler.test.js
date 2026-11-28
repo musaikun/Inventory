@@ -6,7 +6,8 @@ import { handleConfigPut, handleInventoryPut, handleHistoryPost, handleSessionCo
 // bind を行単位へ展開する。bind の並びは [SELECTリストの固定値…, 行ごとの値×N, 親id, 親shop]。
 function _expandRows(s, bound, fieldNames) {
   // rowSize は VALUES の最初の1行の ? を数える（同じ形が行数ぶん並ぶため）
-  const fromIdx = s.indexOf(' FROM ')
+  // 品目の ID の表（json_each の副問い合わせ・ITEM-001）にも FROM があるので、VALUES の手前までの ? を数える
+  const fromIdx = s.indexOf('(VALUES')
   const rowSize = ((s.match(/\(VALUES \(([^)]*)\)/)?.[1] ?? '').match(/\?/g) ?? []).length
   const prefix  = ((s.slice(0, fromIdx).match(/\?/g)) ?? []).length
   // claim guard（DATA-002 §3）が付く文は末尾が (id, shop, fingerprint) の3個になる

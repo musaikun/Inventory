@@ -2,6 +2,7 @@ import { localDateKey } from '../utils/localDate.js'
 import { reactive, ref, toRaw } from 'vue'
 import { STORAGE_KEYS } from '../utils/storageKeys.js'
 import { effectiveLot } from '../services/lot.js'
+import { itemIdOf } from './useConfig.js'
 
 // 入出庫レコード（フロー）。発注(useOrders)と同型の別倉庫。
 // 1レコード = { id, date, type: 'in'|'out', note, savedAt, orderId, source, importBatchId, lines:[{ item, qty, unit, lotDate?, lotKind? }] }
@@ -46,6 +47,8 @@ function _cleanLines(lines) {
   return (lines || [])
     .map(l => ({
       item: l.item, qty: Number(l.qty), unit: l.unit || '',
+      // 品目の変わらない ID（ITEM-001 I-2）。名前と並べて残す。読み方はまだ名前
+      ...(l.item ? { itemId: l.itemId || itemIdOf(l.item) } : {}),
       // 入庫の日付（期限・買った日。services/stockDates.js）。入れた行だけ持つ
       ...(/^\d{4}-\d{2}-\d{2}$/.test(l.lotDate || '') ? { lotDate: l.lotDate, lotKind: l.lotKind === 'exp' ? 'exp' : 'buy' } : {}),
     }))

@@ -40,7 +40,7 @@
 | WEB-01 | canonical URL・contact | 実際に200で配信するhostと正式問い合わせ先を決定し、legal・削除URL・supportを同期 | User |
 | WEB-02 | production origin / CORS | 2026-10-02に`develop@49227ff`のWorkerをproductionへdeployし、許可Origin `inventory-app-c40.pages.dev`のCORS headerと未知Originの403を実probe済み。canonical確定後、その最終Originでも再確認して完了とする | Codex / User |
 | WEB-03 | Pages production / routing | `inventory-app-c40.pages.dev`のproductionは旧build。develop previewのlegal 3 routeは308 loop。routingを修正し、production branch、Wrangler版、commit SHA、resource名を固定 | Codex |
-| WEB-04 | D1 migration | production schemaをread-only preflightし、未適用の**0009〜0018**をUser承認後に番号順で適用。schema確認後にWorkerを更新。**0012は`DROP TABLE`を含む不可逆点**、0013/0014は列・index追加、0015〜0018は新規table中心でrollback手順を持つ。**migration適用からWorker deployまでの間は過去棚卸取込と棚卸完了を行わせない**（下記「切替境界」） | Codex / User |
+| WEB-04 | D1 migration | production schemaをread-only preflightし、未適用の**0009〜0018**をUser承認後に番号順で適用（2026-11-28 追記: repository は **0038** まで。本番は 2026-10-02 時点で 0018 まで。0019〜0038 も同じく番号順で、0038〔品目の ID の列〕は Worker の更新より先）。schema確認後にWorkerを更新。**0012は`DROP TABLE`を含む不可逆点**、0013/0014は列・index追加、0015〜0018は新規table中心でrollback手順を持つ。**migration適用からWorker deployまでの間は過去棚卸取込と棚卸完了を行わせない**（下記「切替境界」） | Codex / User |
 | WEB-05 | 登録濫用 | `/auth/register`をrate limit/bot対策し、legacy `/store/create`を廃止または保護 | Codex |
 | WEB-06 | plan境界 | 現行Appどおり2台・150品目・履歴3回の固定上限を無効とし、規約・公開画面・通常App・Workerが同じ説明になることを確認。将来再導入するときはserver enforcementを別タスクで実装 | User / Codex |
 | WEB-07 | 取込・履歴・data integrity | DATA-001/002・IMPORT-001の実装とCodex独立reviewは完了。release candidateで実D1・別browser・取込主経路を確認して通過判定する | Codex |

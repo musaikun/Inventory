@@ -92,6 +92,22 @@ User（2026-11-28・D-044・`enterprise-design.md` §0.7）: 品目の ID と商
 - 検証: `cd app && npm test` 249 files・2324 pass ／ `cd worker && npm test` 57 files・770 pass ／ `npm run build` OK ／ `cd e2e && npx playwright test` 7 passed
 - 次: I-2（新しく書く記録に ID を併記・D1 に `item_id` 列）。本番の D1 の更新が要る
 
+## 2026-11-28 I-2 実装（Claude Code）
+
+- migration `0038_item_id.sql`: `inventory_lines`・`session_audit`・`order_lines`・`movement_lines` に `item_id TEXT`（NULL 可）。
+  `idx_movement_lines_item_id` は `scripts/migrate.sh` の適用済みの印を兼ねる。**Worker の更新より先に適用する**（Worker はこの列へ書く）。
+- Worker: 新しく書く明細に `item_id` を入れる（棚卸の完了・過去の取込・発注・入出庫・変更履歴）。
+  端末から正しい形の ID（`it_`/`og_` ＋16桁）が届けば使い、無ければ店舗コード＋名前から計算（`src/itemId.js`。App の `services/itemId.js` と同じ中身）。
+  INSERT … SELECT の経路は「名前 → ID の表」を文ごとに1個の JSON で渡し `json_each` で引く → まとめ行数・文の本数は変わらない。
+- **前からあった不具合を修正**: 変更履歴の保存は 1行 12 個の値を 9 行まとめていた（108 個）＝ D1 の上限 100 を超えていた。
+  `AUDIT_ROWS_PER_STATEMENT` を 13 列（ID を含む）で数え直して 7 行に。実 SQLite のテストで 200 件・上限以内を確認（直す前は 117）。
+- App: 入出庫・発注の行（端末の記録にも）、棚卸の完了の明細、変更履歴の送信に `itemId` を添える。完了の照合値は名前・数・単位・単価・金額だけなので変わらない。
+  端末の棚卸の履歴（snapshot）と同期中の在庫（DO）にはまだ付けない（I-4 で読み方と一緒に）。
+- 名前を変えた品目などで、計算した ID と設定の ID が食い違った行は I-3 で設定の `itemIds` に合わせて直す。
+- 検証: `cd worker && npm test` 57 files・774 pass（実 SQLite: 明細の ID・形の正しくない ID を使わない・500行・変更履歴 200 件）／
+  `cd app && npm test` 249 files・2324 pass ／ `npm run build` OK ／ `cd e2e && npx playwright test` 7 passed（全 migration を当てたローカル Worker）
+- 次: I-3（古い行の `item_id` を設定の `itemIds` から埋める・食い違いを直す）
+
 ## 未決
 
 

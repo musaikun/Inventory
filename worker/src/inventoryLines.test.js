@@ -33,7 +33,7 @@ function build(inventory = INVENTORY, prices = PRICES) {
 
 /**
  * INSERT 文の bound を行単位へ展開する。
- * 1文は [takenAt, (item,qty,unit,price,value) × N, sessionId, shopCode] の並び。
+ * 1文は [takenAt, 名前 → ID の表, (item,qty,unit,price,value) × N, sessionId, shopCode] の並び（ITEM-001）。
  */
 function inserts(statements) {
   const out = []
@@ -41,7 +41,7 @@ function inserts(statements) {
     const taken_at   = s.bound[0]
     const shop_code  = s.bound[s.bound.length - 1]
     const session_id = s.bound[s.bound.length - 2]
-    const values     = s.bound.slice(1, -2)
+    const values     = s.bound.slice(2, -2)
     for (let i = 0; i < values.length; i += 5) {
       const [item_name, qty, unit, unit_price, line_value] = values.slice(i, i + 5)
       out.push({

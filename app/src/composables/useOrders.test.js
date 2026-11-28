@@ -1,3 +1,4 @@
+import { itemIdOf } from './useConfig.js'
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useOrders } from './useOrders.js'
 
@@ -20,7 +21,7 @@ describe('useOrders（発注データ層）', () => {
     })
     expect(rec).not.toBeNull()
     expect(rec.lines.length).toBe(1)
-    expect(rec.lines[0]).toEqual({ item: 'トマト', qty: 3, unit: 'ケース', stock: null, lot: 1, postStock: null, excluded: false })
+    expect(rec.lines[0]).toEqual({ item: 'トマト', itemId: itemIdOf('トマト'), qty: 3, unit: 'ケース', stock: null, lot: 1, postStock: null, excluded: false })   // 品目の ID を併記（ITEM-001）
     expect(rec.supplier).toBe('八百屋')
     expect(rec.date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })

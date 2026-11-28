@@ -104,14 +104,16 @@ export function rowsPerStatement(perRow, fixed) {
 // inventory_lines は加えて「この要求が勝者である」claim へ従属する（DATA-002 §3 / §4）。
 // claim は `sessions s` と相関する EXISTS なので、増える bound parameter は fingerprint の1個だけ:
 //   takenAt(1) + id(1) + shop(1) + fingerprint(1) = 4
-export const INVENTORY_ROWS_PER_STATEMENT = rowsPerStatement(5, 4)   // item,qty,unit,price,value ／ takenAt,id,shop,claim = 19
-export const ORDER_ROWS_PER_STATEMENT     = rowsPerStatement(7, 4)   // item,qty,unit,stock,lot,post,excluded ／ date,createdAt,id,shop = 13
-export const MOVEMENT_ROWS_PER_STATEMENT  = rowsPerStatement(5, 4)   // item,qty,unit,lotDate,lotKind ／ date,createdAt,id,shop = 19
+// 品目の ID（ITEM-001 I-2・migration 0038）は「名前 → ID の表」を文ごとに1個の JSON で渡し、
+// SQL の json_each で引く。行ごとの値を増やさないので、まとめ行数は変わらない（固定 +1）。
+export const INVENTORY_ROWS_PER_STATEMENT = rowsPerStatement(5, 5)   // item,qty,unit,price,value ／ takenAt,ids,id,shop,claim = 19
+export const ORDER_ROWS_PER_STATEMENT     = rowsPerStatement(7, 5)   // item,qty,unit,stock,lot,post,excluded ／ date,ids,createdAt,id,shop = 13
+export const MOVEMENT_ROWS_PER_STATEMENT  = rowsPerStatement(5, 5)   // item,qty,unit,lotDate,lotKind ／ date,ids,createdAt,id,shop = 19
 
-// 操作ログ（migration 0017）。1行が持ち主（shop_code / session_id）を自分で持つので、
-// 文ごとの固定パラメータは createdAt の1個だけ。
-// id,shop,session,item,action,delta,total,unit,by,byId,at = 11 列/行
-export const AUDIT_ROWS_PER_STATEMENT     = rowsPerStatement(11, 1)  // = 9
+// 操作ログ（migration 0017）。1行が持ち主（shop_code / session_id）を自分で持ち、VALUES に直接並べる。
+// id,shop,session,item,itemId,action,delta,total,unit,by,byId,at,createdAt = 13 列/行（固定なし）。
+// 2026-11-28: 以前は 11 列で数えていたが、実際は createdAt を行ごとに渡す 12 列で、9行 × 12 = 108 と上限 100 を超えていた（ITEM-001 で発見・修正）
+export const AUDIT_ROWS_PER_STATEMENT     = rowsPerStatement(13, 0)  // = 7
 
 // 1リクエストで受け付ける操作ログの件数。端末はまとめて送るので、
 // 1入力ごとに通信しない代わりにここが実質のバッチ上限になる。

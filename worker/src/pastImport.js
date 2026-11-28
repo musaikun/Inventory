@@ -19,6 +19,7 @@
  *     「同じ店舗・同じ日付・completed・stock」を満たす session だけを削除する。
  */
 
+import { itemIdMapJson, itemIdFromMapSql } from './itemId.js'
 import {
   MAX_INGREDIENT_LEN,
   MAX_UNIT_LEN,
@@ -508,14 +509,14 @@ export async function handlePastImportCreate(db, code, batchId, body) {
 
   for (const group of chunk(rows, INVENTORY_ROWS_PER_STATEMENT)) {
     const { sql: values, col } = valueRows(group.length, ['item', 'qty', 'unit', 'price', 'value'])
-    const binds = [date]
+    const binds = [date, itemIdMapJson(group, code)]
     for (const r of group) binds.push(r.item, r.qty, r.unit, r.price, r.value)
     binds.push(sessionId, code, ...sClaim.binds)
 
     statements.push(db.prepare(`
       INSERT INTO inventory_lines
-        (session_id, shop_code, taken_at, item_name, category, qty, unit, unit_price, line_value)
-      SELECT s.id, s.shop_code, ?, ${col.item}, NULL, ${col.qty}, ${col.unit}, ${col.price}, ${col.value}
+        (session_id, shop_code, taken_at, item_id, item_name, category, qty, unit, unit_price, line_value)
+      SELECT s.id, s.shop_code, ?, ${itemIdFromMapSql(col.item)}, ${col.item}, NULL, ${col.qty}, ${col.unit}, ${col.price}, ${col.value}
       FROM sessions s, (VALUES ${values}) v
       WHERE s.id = ? AND s.shop_code = ? AND ${sClaim.sql}
     `).bind(...binds))

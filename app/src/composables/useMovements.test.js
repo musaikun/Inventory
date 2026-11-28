@@ -1,3 +1,4 @@
+import { itemIdOf } from './useConfig.js'
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useMovements, deliveryLinesFromOrder, unreflectedOrders } from './useMovements.js'
 
@@ -21,7 +22,7 @@ describe('useMovements（入出庫データ層）', () => {
       ],
     })
     expect(rec).not.toBeNull()
-    expect(rec.lines).toEqual([{ item: 'トマト', qty: 3, unit: 'ケース' }])
+    expect(rec.lines).toEqual([{ item: 'トマト', itemId: itemIdOf('トマト'), qty: 3, unit: 'ケース' }])   // 品目の ID を併記（ITEM-001）
     expect(rec.type).toBe('in')
     expect(rec.date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })

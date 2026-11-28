@@ -1,5 +1,6 @@
 // ── 店舗コード方式 データ永続化 API（Cloudflare D1）────────────────────────────
 
+import { itemIdMapJson, itemIdFromMapSql } from './itemId.js'
 import { canUnmark } from './taskRights.js'
 import { dayJst } from './taskWrite.js'
 import { inventoryLineStatements } from './inventoryLines.js'
@@ -1079,7 +1080,7 @@ async function _orderWrite(db, code, body, now) {
     const lotNum = parseOptionalNumber(l?.lot, { min: Number.MIN_VALUE, max: MAX_ORDER_QTY })
     if (lotNum === undefined) return { error: { _status: 400, code: 'invalid_qty', error: `入数が不正です: ${item}` } }
     clean.push({
-      item, qty, stock, postStock,
+      item, qty, stock, postStock, itemId: l?.itemId,   // ID は形を検めて使う（itemIdMapJson）
       unit:     text(l?.unit, MAX_UNIT_LEN),
       lot:      lotNum ?? 1,
       excluded: l?.excluded ? 1 : 0,
@@ -1125,12 +1126,12 @@ async function _orderWrite(db, code, body, now) {
       ['item', 'qty', 'unit', 'stock', 'lot', 'post_stock', 'excluded'])
     // bind はSQL文中の ? の出現順。SELECTリストの2個（order_date, created_at）が先、
     // 次にFROM内の VALUES、最後にWHEREの2個。
-    const binds = [date, now]
+    const binds = [date, itemIdMapJson(group, code), now]
     for (const l of group) binds.push(l.item, l.qty, l.unit, l.stock, l.lot, l.postStock, l.excluded)
     binds.push(orderId, code)
     return db.prepare(`
-      INSERT INTO order_lines (order_id, shop_code, order_date, item, qty, unit, stock, lot, post_stock, excluded, created_at)
-      SELECT o.id, o.shop_code, ?, ${col.item}, ${col.qty}, ${col.unit}, ${col.stock}, ${col.lot}, ${col.post_stock}, ${col.excluded}, ?
+      INSERT INTO order_lines (order_id, shop_code, order_date, item_id, item, qty, unit, stock, lot, post_stock, excluded, created_at)
+      SELECT o.id, o.shop_code, ?, ${itemIdFromMapSql(col.item)}, ${col.item}, ${col.qty}, ${col.unit}, ${col.stock}, ${col.lot}, ${col.post_stock}, ${col.excluded}, ?
       FROM orders o, (VALUES ${values}) v
       WHERE o.id = ? AND o.shop_code = ?
     `).bind(...binds)
@@ -1265,7 +1266,7 @@ export async function handleMovementCreate(db, code, body = {}) {
       lotDate = l.lotDate
       lotKind = l.lotKind === 'exp' ? 'exp' : 'buy'
     }
-    clean.push({ item, qty, unit: text(l?.unit, MAX_UNIT_LEN), lotDate, lotKind })
+    clean.push({ item, qty, unit: text(l?.unit, MAX_UNIT_LEN), lotDate, lotKind, itemId: l?.itemId })
   }
   if (clean.length === 0) return { _status: 400, error: '有効な入出庫行がありません' }
 
@@ -1319,12 +1320,12 @@ export async function handleMovementCreate(db, code, body = {}) {
   // 持ち主の確認は JOIN 元の movements 絞り込みが担う。
   const lineStmts = chunk(clean, MOVEMENT_ROWS_PER_STATEMENT).map(group => {
     const { sql: values, col } = valueRows(group.length, ['item', 'qty', 'unit', 'lotDate', 'lotKind'])
-    const binds = [date, now]
+    const binds = [date, itemIdMapJson(group, code), now]
     for (const l of group) binds.push(l.item, l.qty, l.unit, l.lotDate, l.lotKind)
     binds.push(moveId, code)
     return db.prepare(`
-      INSERT INTO movement_lines (movement_id, shop_code, move_date, item, qty, unit, lot_date, lot_kind, created_at)
-      SELECT m.id, m.shop_code, ?, ${col.item}, ${col.qty}, ${col.unit}, ${col.lotDate}, ${col.lotKind}, ?
+      INSERT INTO movement_lines (movement_id, shop_code, move_date, item_id, item, qty, unit, lot_date, lot_kind, created_at)
+      SELECT m.id, m.shop_code, ?, ${itemIdFromMapSql(col.item)}, ${col.item}, ${col.qty}, ${col.unit}, ${col.lotDate}, ${col.lotKind}, ?
       FROM movements m, (VALUES ${values}) v
       WHERE m.id = ? AND m.shop_code = ?
     `).bind(...binds)
@@ -1996,6 +1997,7 @@ function _auditRow(e, now) {
   return {
     id,
     item,
+    itemId:   e?.itemId,   // 形を検めて使う（itemIdMapJson）
     action,
     delta:    parseOptionalNumber(e?.delta,    { min: -MAX_INVENTORY_QTY, max: MAX_INVENTORY_QTY }) ?? null,
     totalQty: parseOptionalNumber(e?.totalQty, { min: -MAX_INVENTORY_QTY, max: MAX_INVENTORY_QTY }) ?? null,
@@ -2036,14 +2038,15 @@ export async function handleAuditAppend(db, code, sessionId, body = {}) {
   // 複数行を1文へまとめる（D1の queries/invocation 対策・constants.js 参照）。
   // INSERT OR IGNORE なので、同じ id の再送は黙って無視される（＝冪等）。
   const stmts = chunk(rows, AUDIT_ROWS_PER_STATEMENT).map(group => {
-    const values = group.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')
+    const values = group.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')
+    const ids = JSON.parse(itemIdMapJson(group, code))
     const binds = []
     for (const r of group) {
-      binds.push(r.id, code, sessionId, r.item, r.action, r.delta, r.totalQty, r.unit, r.by, r.byId, r.at, now)
+      binds.push(r.id, code, sessionId, r.item, ids[r.item] ?? null, r.action, r.delta, r.totalQty, r.unit, r.by, r.byId, r.at, now)
     }
     return db.prepare(`
       INSERT OR IGNORE INTO session_audit
-        (id, shop_code, session_id, item_name, action, delta, total_qty, unit, entered_by, entered_by_id, at, created_at)
+        (id, shop_code, session_id, item_name, item_id, action, delta, total_qty, unit, entered_by, entered_by_id, at, created_at)
       VALUES ${values}
     `).bind(...binds)
   })

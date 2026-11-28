@@ -8,6 +8,7 @@
 //  - order … `{ itemCount }` **だけ**。snapshot も非空 inventory も送れない
 //            （送ると server 400 snapshot_not_allowed）
 //  - 組み立てられない要求は API を呼ばない
+import { itemIdOf } from '../composables/useConfig.js'
 import { describe, it, expect } from 'vitest'
 import {
   buildCompletionRequest, completionErrorMessage,
@@ -34,7 +35,8 @@ describe('buildCompletionRequest — stock', () => {
     expect(r.ok).toBe(true)
     expect(r.type).toBe(COMPLETION_STOCK)
     expect(r.body.snapshot.sessionId).toBe('sess-1')
-    expect(r.body.inventory).toEqual(INV)
+    // 品目の ID を明細に添える（ITEM-001）。数・単位はそのまま
+    expect(r.body.inventory).toEqual(Object.fromEntries(Object.entries(INV).map(([n, e]) => [n, { ...e, itemId: itemIdOf(n) }])))
     expect(r.body.prices).toEqual({ トマト: 100 })
   })
 
