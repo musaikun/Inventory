@@ -127,7 +127,7 @@ onUnmounted(() => {
 // 本日の状況: 今日のやること・定期・期限切れ・持ち越し・進行中を同じ形の棒で1列に。済んだものは出さない（User決定 2026-11-12・D-042）
 // 1枚目は中でスクロールさせないので、画面の高さに入る行数だけ出す（残りは「ほか n件」・User 2026-11-28）
 const pageH = ref(0)
-const maxRows = computed(() => (pageH.value ? Math.max(2, Math.min(8, Math.floor((pageH.value - 190) / 64))) : 8))
+const maxRows = computed(() => (pageH.value ? Math.max(2, Math.min(8, Math.floor((pageH.value - 204) / 64))) : 8))
 const status = computed(() => homeStatus({
   today, now: nowHm.value,
   tasks: todays.value, overdue: late.value, carry: carriedTasks(today),
@@ -257,7 +257,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
   <div class="ht">
     <section class="ht-hero">
       <div class="ht-glow" aria-hidden="true"></div>
-      <svg class="ht-ring" width="300" height="230" viewBox="0 0 300 230" aria-hidden="true">
+      <svg class="ht-ring" width="225" height="173" viewBox="0 0 300 230" aria-hidden="true">
         <defs>
           <linearGradient :id="gid" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2563eb" /><stop offset=".55" stop-color="#22d3ee" /><stop offset="1" stop-color="#34d399" /></linearGradient>
           <filter :id="`${gid}-b`"><feGaussianBlur stdDeviation="3" /></filter>
@@ -437,22 +437,23 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 <style scoped>
 /* 上部（名前・店名・日付・天気・動き）は止めたまま、いつも見える（User 2026-11-28）。
    スクロールするのは下の .ht-body だけ。.ht は枠（.home-panels）の高さぴったりで、枠そのものはスクロールしない。
-   .ht-body の上端は上部の下から64px上（本日の状況のカードが上部に重なる線）。中身はその線で切れて上部の下へ消える */
+   本日の状況は上部に重ねない（スクロールで上部の下へ流れるので、重ねる意味がなくなった・User 2026-11-28）。
+   上部は低く（名前・日付・天気が入る高さだけ）。輪とカードの絵も3/4に縮めて、低い帯に収める */
 .ht { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.ht-hero { flex: none; position: relative; z-index: 0; min-height: 168px; padding: 16px 18px 76px; color: #e6fbff; overflow: hidden;
+.ht-hero { flex: none; position: relative; z-index: 0; padding: 14px 18px 16px; color: #e6fbff; overflow: hidden;
   background: radial-gradient(120% 90% at 85% 10%, #0f4c5c 0%, #0a3340 45%, #06222b 100%); }
-.ht-ring { position: absolute; right: -80px; top: -6px; opacity: .9; pointer-events: none; }
+.ht-ring { position: absolute; right: -60px; top: -10px; opacity: .9; pointer-events: none; }
 .ht-glow { position: absolute; right: 10px; top: -16px; width: 140px; height: 140px; border-radius: 50%; background: radial-gradient(circle, rgba(34,211,238,.35), transparent 70%); filter: blur(6px); pointer-events: none;
   animation: ht-breathe 5s ease-in-out infinite; }
 /* 上部のイメージの動き（アイコンの光る輪）。動きを減らす設定の端末では止める。
-   .ht-orbit は SVG の楕円（中心 150,120・半径 120×58・-18°）と同じ位置・形の箱 */
-.ht-orbit { position: absolute; right: -50px; top: 56px; width: 240px; height: 116px; transform: rotate(-18deg); pointer-events: none; }
+   .ht-orbit は SVG の楕円（中心 150,120・半径 120×58・-18°、絵は3/4）と同じ位置・形の箱 */
+.ht-orbit { position: absolute; right: -37.5px; top: 36.5px; width: 180px; height: 87px; transform: rotate(-18deg); pointer-events: none; }
 .ht-ox { position: absolute; left: 0; top: 0; animation: ht-ox 3s cubic-bezier(.37, 0, .63, 1) infinite alternate; }
 .ht-oy { animation: ht-oy 3s cubic-bezier(.37, 0, .63, 1) -1.5s infinite alternate; }
-.ht-spark { display: block; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%;
+.ht-spark { display: block; width: 15px; height: 15px; margin: -7.5px 0 0 -7.5px; border-radius: 50%;
   background: radial-gradient(circle, #fff 0 22%, rgba(224, 253, 255, .75) 34%, rgba(165, 243, 252, .25) 58%, transparent 72%); }
-@keyframes ht-ox { from { transform: translateX(0); } to { transform: translateX(240px); } }
-@keyframes ht-oy { from { transform: translateY(0); } to { transform: translateY(116px); } }
+@keyframes ht-ox { from { transform: translateX(0); } to { transform: translateX(180px); } }
+@keyframes ht-oy { from { transform: translateY(0); } to { transform: translateY(87px); } }
 .ht-cards { transform-box: fill-box; transform-origin: 50% 100%; }
 .ht-card { transform-box: fill-box; transform-origin: center; animation: ht-float 4.8s ease-in-out infinite; }
 .ht-card.c2 { animation-delay: -1.6s; }
@@ -472,7 +473,7 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 
 /* 下の余白は多めに: 実機ではホームバーの分などで下部ナビが高くなり、最後の行の名前がナビに隠れて
    そこまで送れなかった（User報告 2026-11-28）。端末の差があっても最後の行がナビの上まで上がるように */
-.ht-body { position: relative; z-index: 1; flex: 1; min-height: 0; margin-top: -64px;
+.ht-body { position: relative; z-index: 1; flex: 1; min-height: 0;
   overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
   /* 上下の2画面を1画面ずつ止める（User 2026-11-28） */
   scroll-snap-type: y mandatory; scrollbar-width: none; }
@@ -480,7 +481,8 @@ const gid = `ht-${Math.random().toString(36).slice(2, 8)}`
 /* 1画面の高さ＝見えている枠。下部ナビに隠れない分（端末差あり）を各画面の下に取る */
 .ht-page { height: 100%; box-sizing: border-box; scroll-snap-align: start; scroll-snap-stop: always; display: flex; flex-direction: column;
   padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); overflow: hidden; }
-.ht-page.p2 { padding-top: 70px; }
+.ht-page.p1 { padding-top: 14px; }
+.ht-page.p2 { padding-top: 6px; }
 .ht-peek { flex: none; margin: auto auto 0; display: flex; align-items: center; gap: 4px; padding: 10px 16px 6px; border: none; background: none;
   font: inherit; font-size: 12px; font-weight: 700; color: var(--text-muted); cursor: pointer; }
 .ht-peek.up { margin: 0 auto 2px; padding: 4px 16px 6px; }
@@ -496,7 +498,7 @@ button.ht-rc { cursor: pointer; }
 @media (min-width: 1024px) {
   .ht-body { scroll-snap-type: none; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
   .ht-page { height: auto; overflow: visible; }
-  .ht-page.p2 { padding-top: 64px; }
+  .ht-page.p2 { padding-top: 14px; }
   .ht-peek, .ht-dots { display: none; }
 }
 .ht-body.scrolled { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px); mask-image: linear-gradient(to bottom, transparent, #000 18px); }
