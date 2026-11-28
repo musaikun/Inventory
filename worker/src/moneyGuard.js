@@ -17,14 +17,18 @@ const _arr = v => (Array.isArray(v) ? v : [])
 export function stripConfigMoney(config) {
   const c = _obj(config)
   if (!c) return config
-  return { ...c, prices: {} }
+  // 品目ごとのまとまり（items・ITEM-001 I-4b）にも単価が入るので、まとまりごと落とす（端末が表から作り直す）
+  const { items: _drop, ...rest } = c
+  return { ...rest, prices: {} }
 }
 
 /** 金額を見られない人の config 保存: 単価は送られてきた値を採らず、前の値のまま残す */
 export function restoreConfigMoney(prev, next) {
   const n = _obj(next)
   if (!n) return next
-  return { ...n, prices: { ...(_obj(_obj(prev)?.prices) ?? {}) } }
+  // 単価の無いまとまり（items）は保存しない。単価を見られる人の次の保存で作り直される
+  const { items: _drop, ...rest } = n
+  return { ...rest, prices: { ...(_obj(_obj(prev)?.prices) ?? {}) } }
 }
 
 /** 履歴スナップショット（GET /history の1件）から金額を落としたコピー */

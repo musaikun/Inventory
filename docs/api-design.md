@@ -47,7 +47,7 @@ requestIdだけのreceiptは7日保持します。DOまたはD1失敗は成功�
 
 | Method / path | 主なbody / response | Auth |
 |---|---|---|
-| `GET/PUT /store/:code/config` | 品目・辞書・価格等の設定JSON。PUTは1 MB（UTF-8 byte）guard。品目の ID の表 `itemIds`（名前 → ID）は前の値に重ねて保存し、送らない古い端末の保存でも消さない（ITEM-001） | soft |
+| `GET/PUT /store/:code/config` | 品目・辞書・価格等の設定JSON。PUTは1 MB（UTF-8 byte）guard。品目の ID の表 `itemIds`（名前 → ID）は前の値に重ねて保存し、送らない古い端末の保存でも消さない（ITEM-001）。品目ごとのまとまり `items`（ID → 名前・単位・単価…）も持つ（移行中は表が正で、端末が保存のたびに作り直す・ITEM-001 I-4b）。金額を見られない人への応答と、その人の保存では `items` ごと落とす | soft |
 | `GET/PUT /store/:code/inventory` | 進行中在庫JSON。PUTは1 MB（UTF-8 byte）guard | soft |
 | `POST /store/:code/images` | `multipart/form-data`の`thumb`（64 KiB以下）と`full`（700 KiB以下）をJPEG/WebPとして検証し、非公開R2へ保存して128-bit乱数の`id`を返す | strict同store Bearer |
 | `DELETE /store/:code/images/:id` | 同店舗prefixのthumb/fullをR2から削除。`id`は32桁hexのみ | strict同store Bearer |

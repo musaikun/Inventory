@@ -13,6 +13,7 @@ import { toCSVRow } from '../utils/csvParse.js'
 import { normalizeSchedules } from '../services/orderScheduleUtil.js'
 import { normalizeAssumptions } from '../services/assumedOrderBase.js'
 import { ensureItemIds, renameItemId, itemIdFor } from '../services/itemId.js'
+import { toConfigItems, expandConfigItems } from '../services/configItems.js'
 import { setItemKeyResolver, bumpItemKeys } from '../utils/lineIndex.js'
 import {
   parseItemCSV,
@@ -160,9 +161,13 @@ function _serializeConfigData() {
     importExcluded: config.importExcluded,
     itemAdded:     config.itemAdded,
     itemIds:       config.itemIds,
+    // 品目ごとのまとまり（ITEM-001 I-4b）。移行の間は上の表が正で、これは表から毎回作り直す。同期（DO）では中継しない
+    items:         toConfigItems(config),
   }
 }
 function _assignConfigData(src) {
+  // 表が無く品目ごとのまとまりだけがある設定（将来の配布物・I-6 以降）は、まとまりから表を組み立てる（ITEM-001 I-4b）
+  src = expandConfigItems(src) ?? {}
   config.order         = Array.isArray(src.order) ? src.order : []
   config.units         = src.units         ?? {}
   config.prices        = src.prices        ?? {}
@@ -344,6 +349,7 @@ export function resetLocalData() {
 
 // ── リモート設定の適用（同期ゲスト参加時にホストの品目リストを受け取る） ───────
 export function applyRemoteConfig(cfg) {
+  cfg = expandConfigItems(cfg)   // まとまりだけの設定（ITEM-001 I-4b）は表に組み立ててから
   if (!cfg || !Array.isArray(cfg.order) || cfg.order.length === 0) return
   // ホストのリストで上書きされたあとに「取込を取り消す」とホスト側と食い違うため退避を捨てる
   _dropImportBackup()

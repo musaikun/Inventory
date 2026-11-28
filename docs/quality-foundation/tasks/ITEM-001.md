@@ -147,6 +147,20 @@ User（2026-11-28・D-044・`enterprise-design.md` §0.7）: 品目の ID と商
   `cd e2e && npx playwright test` 10 passed（名前の変更の E2E は `test.fail` を外して通過・別端末の確認を追加）
 - 次: I-4b（設定を品目ごとのまとまり `items: { ID: {...} }` へ。古い形との読み書きの互換を残す）
 
+## 2026-11-28 I-4b 実装（Claude Code）— 設定を品目ごとのまとまりで持つ
+
+- 方針（User と共有）: 古い端末と混ざる間は「項目ごとの表」を正とし、`items` は保存のたびに表から作り直して一緒に持つ。
+  `items` を正に切り替えるのは古い端末の受け付けを止める I-6。アプリの中の扱い（表を直接書き換えている約60ファイル）は今は変えず、
+  本部の配布（テナント T-4）で要るときに作り替える。
+- `services/configItems.js`（新）: `toConfigItems`（表 → `items: { ID: { name, unit, category, code, lotSize, price, image, prevMonth, reorderPoint,
+  replenishTarget, added, hiddenAt, tagsA/B/R, hidden, hiddenAuto, manual, routeMore } }`・並びは order・消した品目は入らない）、
+  `expandConfigItems`（表が無く `items` だけの設定から表を組み立てる・表がある項目は表を正）。前の6項目が本部の配る項目、残りは店ごと。
+- `useConfig`: 保存・同期の中身に `items`。読み込み（`_assignConfigData`・`applyRemoteConfig`）は `items` だけの設定も受ける。
+- Worker: DO の中継（`normalizeConfig`）は `items` を通さない（単価を含むため・ゲスト対策）。`moneyGuard` は金額を見られない人への応答と
+  その人の保存で `items` ごと落とす（単価の漏れを防ぐ）。
+- 検証: `cd app && npm test` 251 files・2335 pass ／ `cd worker && npm test` 59 files・780 pass ／ `npm run build` OK ／ `cd e2e && npx playwright test` 10 passed
+- 次: I-5（名前の変更と統合・統合で消した ID の付け替え）／ I-6（主キーを ID へ・items を正に・古い端末の受け付けを終える）
+
 ## 未決
 
 

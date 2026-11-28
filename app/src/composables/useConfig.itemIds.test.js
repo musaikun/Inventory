@@ -44,3 +44,29 @@ describe('品目の ID', () => {
     expect(cfg.config.itemIds['トマト']).toBe('it_00000000000000aa')
   })
 })
+
+describe('品目ごとのまとまり（ITEM-001 I-4b）', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    localStorage.setItem(STORAGE_KEYS.shopCode, 'SHOP01')
+    cfg.config.itemIds = {}
+    cfg.config.order = ['トマト']
+    cfg.config.manualItems = []
+    cfg.config.deletedItems = []
+  })
+
+  it('保存・同期の中身に、ID がキーのまとまりが入る（表から作る）', () => {
+    cfg.addItem('レタス', 150, '野菜', '玉')
+    const out = cfg.serializeConfigData()
+    const id = cfg.config.itemIds['レタス']
+    expect(out.items[id]).toMatchObject({ name: 'レタス', unit: '玉', price: 150, category: '野菜' })
+  })
+
+  it('まとまりだけの設定が届いたら、まとまりから表を組み立てる', () => {
+    applyRemoteConfig({ items: { it_00000000000000aa: { name: 'ナス', unit: '本', price: 80 } } })
+    expect(cfg.config.order).toEqual(['ナス'])
+    expect(cfg.config.units['ナス']).toBe('本')
+    expect(cfg.config.prices['ナス']).toBe(80)
+    expect(cfg.config.itemIds['ナス']).toBe('it_00000000000000aa')
+  })
+})

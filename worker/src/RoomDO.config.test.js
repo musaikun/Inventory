@@ -152,3 +152,10 @@ describe('normalizeConfig: 品目の ID（ITEM-001）', () => {
     expect('itemIds' in normalizeConfig({ order: ['トマト'] })).toBe(false)
   })
 })
+
+describe('normalizeConfig: 品目ごとのまとまり（ITEM-001 I-4b）', () => {
+  it('まとまり（単価を含む）は中継しない。受けた端末が表から作り直す', () => {
+    const out = normalizeConfig({ order: ['トマト'], items: { it_00000000000000aa: { name: 'トマト', price: 120 } } })
+    expect('items' in out).toBe(false)
+  })
+})

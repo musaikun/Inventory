@@ -19,6 +19,7 @@
 - account、Bearer token、店舗data、session一覧、完了明細はD1が正。localStorageは端末cache、
   host token、接続復元情報、未送信queueの一部を持つが、accountやserver entitlementの正ではない。
 - 品目の変わらない ID は `config.itemIds`（名前 → ID）に持ち、config 同期で中継する。持たない古い端末の送信では中継しない（受けた端末が手元の対応を残す・ITEM-001）。
+  品目ごとのまとまり `config.items` は**中継しない**（単価を含むため。受けた端末が表から作り直す・I-4b）。
 - 品目写真のbinaryはR2、品目名から画像参照への対応は`config.images`に持つ。`config.images`は
   host/guestのconfig同期対象だが、単価と異なりguest向けsanitizeで除去しない。
 - DOは一律20 device ID、24時間inactivity TTL、chat/audit各200件を上限とする。
